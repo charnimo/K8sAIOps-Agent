@@ -1,5 +1,5 @@
 """
-k8s_client/diagnostics.py
+k8s_tools/diagnostics.py
 
 High-level diagnostic aggregator.
 
@@ -22,10 +22,11 @@ from .pods        import get_pod_status, get_pod_logs, get_pod_events, detect_po
 from .deployments import get_deployment, get_deployment_events
 from .nodes       import list_nodes, detect_node_issues
 from .events      import list_warning_events, get_recent_warning_summary
-from .metrics     import get_pod_metrics, list_pod_metrics, list_node_metrics, detect_resource_pressure
+from .metrics     import get_pod_metrics, list_pod_metrics, detect_resource_pressure
 from .namespaces  import list_namespaces
+from .utils import setup_logging
 
-logger = logging.getLogger(__name__)
+logger = setup_logging("diagnostics")
 
 
 def diagnose_pod(name: str, namespace: str = "default") -> dict:

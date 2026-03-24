@@ -23,6 +23,7 @@ from kubernetes.client import CoreV1Api
 from kubernetes.client.exceptions import ApiException
 
 from .client import get_core_v1
+from .utils import fmt_time, fmt_duration
 
 logger = logging.getLogger(__name__)
 
@@ -251,7 +252,7 @@ def _summarize_pod(pod) -> dict:
     age = None
     if creation:
         delta = datetime.now(timezone.utc) - creation
-        age = _fmt_duration(delta.total_seconds())
+        age = fmt_duration(delta.total_seconds())
 
     # Conditions
     conditions = []
@@ -276,7 +277,7 @@ def _summarize_pod(pod) -> dict:
             state_dict = {}
             if cs.state:
                 if cs.state.running:
-                    state_dict["running"] = {"started_at": _fmt_time(cs.state.running.started_at)}
+                    state_dict["running"] = {"started_at": fmt_time(cs.state.running.started_at)}
                 if cs.state.waiting:
                     state_dict["waiting"] = {
                         "reason":  cs.state.waiting.reason,
@@ -323,20 +324,3 @@ def _summarize_pod(pod) -> dict:
         "resource_specs": resource_specs,
         "labels":         pod.metadata.labels or {},
     }
-
-
-def _fmt_time(ts) -> Optional[str]:
-    if ts is None:
-        return None
-    return ts.strftime("%Y-%m-%dT%H:%M:%SZ")
-
-
-def _fmt_duration(seconds: float) -> str:
-    seconds = int(seconds)
-    if seconds < 60:
-        return f"{seconds}s"
-    if seconds < 3600:
-        return f"{seconds // 60}m"
-    if seconds < 86400:
-        return f"{seconds // 3600}h"
-    return f"{seconds // 86400}d"

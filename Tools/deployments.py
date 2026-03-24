@@ -24,6 +24,7 @@ from kubernetes.client import AppsV1Api
 from kubernetes.client.exceptions import ApiException
 
 from .client import get_apps_v1, get_core_v1
+from .utils import fmt_duration
 
 logger = logging.getLogger(__name__)
 
@@ -329,12 +330,7 @@ def _summarize_deployment(dep) -> dict:
     if creation:
         delta = datetime.now(timezone.utc) - creation
         secs = int(delta.total_seconds())
-        if secs < 3600:
-            age = f"{secs // 60}m"
-        elif secs < 86400:
-            age = f"{secs // 3600}h"
-        else:
-            age = f"{secs // 86400}d"
+        age = fmt_duration(secs)
 
     # Container resource specs
     containers_info = []

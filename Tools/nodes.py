@@ -21,6 +21,7 @@ from typing import Optional
 from kubernetes.client.exceptions import ApiException
 
 from .client import get_core_v1
+from .utils import fmt_duration
 
 logger = logging.getLogger(__name__)
 
@@ -244,7 +245,7 @@ def _summarize_node(node) -> dict:
     if creation:
         delta = datetime.now(timezone.utc) - creation
         secs = int(delta.total_seconds())
-        age = f"{secs // 86400}d" if secs >= 86400 else f"{secs // 3600}h"
+        age = fmt_duration(secs)
 
     return {
         "name":              node.metadata.name,

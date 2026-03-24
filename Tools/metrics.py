@@ -23,6 +23,7 @@ from typing import Optional
 from kubernetes.client.exceptions import ApiException
 
 from .client import get_custom_objects
+from .utils import parse_memory_mi, parse_cpu_m
 
 logger = logging.getLogger(__name__)
 
@@ -249,44 +250,3 @@ def _fmt_node_metrics(item: dict) -> dict:
         "memory":    usage.get("memory", "0"),
     }
 
-
-def _parse_memory_mi(value: str) -> float:
-    """Parse a memory string (e.g., '256Mi', '1Gi', '512000Ki') to MiB float."""
-    if not value:
-        return 0.0
-    value = value.strip()
-    try:
-        if value.endswith("Ki"):
-            return float(value[:-2]) / 1024
-        if value.endswith("Mi"):
-            return float(value[:-2])
-        if value.endswith("Gi"):
-            return float(value[:-2]) * 1024
-        if value.endswith("Ti"):
-            return float(value[:-2]) * 1024 * 1024
-        if value.endswith("k"):
-            return float(value[:-1]) / 1024
-        if value.endswith("M"):
-            return float(value[:-1])
-        if value.endswith("G"):
-            return float(value[:-1]) * 1024
-        return float(value) / (1024 * 1024)  # assume bytes
-    except ValueError:
-        return 0.0
-
-
-def _parse_cpu_m(value: str) -> float:
-    """Parse a CPU string (e.g., '500m', '2') to millicores float."""
-    if not value:
-        return 0.0
-    value = value.strip()
-    try:
-        if value.endswith("m"):
-            return float(value[:-1])
-        if value.endswith("n"):
-            return float(value[:-1]) / 1_000_000
-        if value.endswith("u"):
-            return float(value[:-1]) / 1_000
-        return float(value) * 1000  # cores → millicores
-    except ValueError:
-        return 0.0

@@ -16,6 +16,7 @@ from typing import Optional
 from kubernetes.client.exceptions import ApiException
 
 from .client import get_core_v1
+from .utils import fmt_time
 
 logger = logging.getLogger(__name__)
 
@@ -153,8 +154,8 @@ def _fmt_event(ev) -> dict:
         "reason":     ev.reason,
         "message":    ev.message,
         "count":      ev.count,
-        "first_time": ev.first_timestamp.strftime("%Y-%m-%dT%H:%M:%SZ") if ev.first_timestamp else None,
-        "last_time":  ev.last_timestamp.strftime("%Y-%m-%dT%H:%M:%SZ") if ev.last_timestamp else None,
+        "first_time": fmt_time(ev.first_timestamp),
+        "last_time":  fmt_time(ev.last_timestamp),
         "involved_object": {
             "kind":      ev.involved_object.kind,
             "name":      ev.involved_object.name,
