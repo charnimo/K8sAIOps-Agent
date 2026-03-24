@@ -142,8 +142,8 @@ def get_pod_events(name: str, namespace: str = "default") -> list[dict]:
             "reason":  ev.reason,
             "message": ev.message,
             "count":   ev.count,
-            "first_time": _fmt_time(ev.first_timestamp),
-            "last_time":  _fmt_time(ev.last_timestamp),
+            "first_time": fmt_time(ev.first_timestamp),
+            "last_time":  fmt_time(ev.last_timestamp),
         })
 
     # Sort: Warning first, then by last_time descending
