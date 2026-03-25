@@ -1,17 +1,20 @@
 """
 k8s_client/configmaps.py
 
-ConfigMap read and patch operations.
+ConfigMap read and action operations.
 
 READ:
   - list_configmaps(namespace)         → all configmaps in a namespace
   - get_configmap(name, namespace)     → single configmap content
 
 ACTIONS (require user approval):
-  - patch_configmap(name, namespace, data) → update keys in a configmap
+  - create_configmap(name, namespace, data, labels)  → create a new configmap
+  - patch_configmap(name, namespace, data)           → update keys in a configmap
+  - delete_configmap(name, namespace)                → delete a configmap
 """
 
 import logging
+from kubernetes import client
 from kubernetes.client.exceptions import ApiException
 from .client import get_core_v1
 
@@ -94,3 +97,87 @@ def patch_configmap(name: str, namespace: str = "default", data: dict = {}) -> d
     except ApiException as e:
         logger.error(f"Failed to patch ConfigMap {namespace}/{name}: {e}")
         return {"success": False, "message": str(e)}
+
+
+def create_configmap(
+    name: str,
+    namespace: str = "default",
+    data: dict = {},
+    labels: dict = {},
+) -> dict:
+    """
+    Create a new ConfigMap.
+
+    ⚠️  ACTION — requires user approval.
+
+    Args:
+        name:      ConfigMap name
+        namespace: Namespace
+        data:      Dict of key-value pairs
+        labels:    Optional K8s labels for the ConfigMap
+
+    Returns:
+        {"success": bool, "message": str}
+    """
+    if not data:
+        return {"success": False, "message": "No data provided for ConfigMap."}
+
+    core = get_core_v1()
+    
+    # Check if already exists
+    try:
+        core.read_namespaced_config_map(name=name, namespace=namespace)
+        return {"success": False, "message": f"ConfigMap {namespace}/{name} already exists."}
+    except ApiException as e:
+        if e.status != 404:
+            return {"success": False, "message": f"Error checking ConfigMap: {e}"}
+
+    # Create new ConfigMap
+    cm = client.V1ConfigMap(
+        api_version="v1",
+        kind="ConfigMap",
+        metadata=client.V1ObjectMeta(
+            name=name,
+            namespace=namespace,
+            labels=labels or None,
+        ),
+        data=data,
+    )
+
+    try:
+        core.create_namespaced_config_map(namespace=namespace, body=cm)
+        logger.info(f"[ACTION] Created ConfigMap {namespace}/{name}")
+        return {
+            "success": True,
+            "message": f"ConfigMap {namespace}/{name} created successfully.",
+        }
+    except ApiException as e:
+        logger.error(f"Failed to create ConfigMap {namespace}/{name}: {e}")
+        return {"success": False, "message": str(e)}
+
+
+def delete_configmap(name: str, namespace: str = "default") -> dict:
+    """
+    Delete a ConfigMap.
+
+    ⚠️  ACTION — requires user approval.
+
+    Args:
+        name:      ConfigMap name
+        namespace: Namespace
+
+    Returns:
+        {"success": bool, "message": str}
+    """
+    core = get_core_v1()
+    try:
+        core.delete_namespaced_config_map(name=name, namespace=namespace)
+        logger.info(f"[ACTION] Deleted ConfigMap {namespace}/{name}")
+        return {
+            "success": True,
+            "message": f"ConfigMap {namespace}/{name} deleted.",
+        }
+    except ApiException as e:
+        logger.error(f"Failed to delete ConfigMap {namespace}/{name}: {e}")
+        return {"success": False, "message": str(e)}
+

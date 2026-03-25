@@ -1,13 +1,20 @@
 """
 k8s_tools/jobs.py
 
-Job and CronJob operations (read-only for MVP).
+Job and CronJob operations.
 
 READ:
   - list_jobs(namespace)              → all jobs in a namespace
   - get_job(name, namespace)          → single job detail
   - detect_job_issues(name, namespace) → classify job failures
   - list_cronjobs(namespace)          → all cronjobs in a namespace
+  - get_cronjob(name, namespace)      → single cronjob detail
+
+ACTIONS (require user approval):
+  - delete_job(name, namespace)       → delete a job
+  - suspend_job(name, namespace)      → suspend a job (pauses pod creation)
+  - suspend_cronjob(name, namespace)  → suspend a cronjob scheduling
+  - resume_cronjob(name, namespace)   → resume a cronjob scheduling
 """
 
 import logging
@@ -193,3 +200,123 @@ def _summarize_cronjob(cj) -> dict:
         "age":            age,
         "labels":         cj.metadata.labels or {},
     }
+
+
+# ─────────────────────────────────────────────
+# ACTION OPERATIONS
+# ─────────────────────────────────────────────
+
+def delete_job(name: str, namespace: str = "default", propagation_policy: str = "Foreground") -> dict:
+    """
+    Delete a Job (cascades to pods by default).
+
+    ⚠️  ACTION — requires user approval.
+
+    Args:
+        name:                 Job name
+        namespace:            Namespace
+        propagation_policy:   "Foreground" (wait for dependent pods), "Background" (async), "Orphan" (leave pods)
+
+    Returns:
+        {"success": bool, "message": str}
+    """
+    batch = get_batch_v1()
+    try:
+        batch.delete_namespaced_job(
+            name=name,
+            namespace=namespace,
+            propagation_policy=propagation_policy,
+        )
+        logger.info(f"[ACTION] Deleted Job {namespace}/{name}")
+        return {
+            "success": True,
+            "message": f"Job {namespace}/{name} deleted.",
+        }
+    except ApiException as e:
+        logger.error(f"Failed to delete Job {namespace}/{name}: {e}")
+        return {"success": False, "message": str(e)}
+
+
+def suspend_job(name: str, namespace: str = "default") -> dict:
+    """
+    Suspend a Job (stop creating new pods, existing pods continue).
+
+    ⚠️  ACTION — requires user approval.
+
+    Args:
+        name:      Job name
+        namespace: Namespace
+
+    Returns:
+        {"success": bool, "message": str}
+    """
+    batch = get_batch_v1()
+    try:
+        job = batch.read_namespaced_job(name=name, namespace=namespace)
+        job.spec.suspend = True
+        batch.patch_namespaced_job(name=name, namespace=namespace, body=job)
+        logger.info(f"[ACTION] Suspended Job {namespace}/{name}")
+        return {
+            "success": True,
+            "message": f"Job {namespace}/{name} suspended.",
+        }
+    except ApiException as e:
+        logger.error(f"Failed to suspend Job {namespace}/{name}: {e}")
+        return {"success": False, "message": str(e)}
+
+
+def suspend_cronjob(name: str, namespace: str = "default") -> dict:
+    """
+    Suspend a CronJob (stops scheduling new jobs).
+
+    ⚠️  ACTION — requires user approval.
+
+    Args:
+        name:      CronJob name
+        namespace: Namespace
+
+    Returns:
+        {"success": bool, "message": str}
+    """
+    batch = get_batch_v1()
+    try:
+        cj = batch.read_namespaced_cron_job(name=name, namespace=namespace)
+        cj.spec.suspend = True
+        batch.patch_namespaced_cron_job(name=name, namespace=namespace, body=cj)
+        logger.info(f"[ACTION] Suspended CronJob {namespace}/{name}")
+        return {
+            "success": True,
+            "message": f"CronJob {namespace}/{name} suspended.",
+        }
+    except ApiException as e:
+        logger.error(f"Failed to suspend CronJob {namespace}/{name}: {e}")
+        return {"success": False, "message": str(e)}
+
+
+def resume_cronjob(name: str, namespace: str = "default") -> dict:
+    """
+    Resume a suspended CronJob (resumes scheduling).
+
+    ⚠️  ACTION — requires user approval.
+
+    Args:
+        name:      CronJob name
+        namespace: Namespace
+
+    Returns:
+        {"success": bool, "message": str}
+    """
+    batch = get_batch_v1()
+    try:
+        cj = batch.read_namespaced_cron_job(name=name, namespace=namespace)
+        cj.spec.suspend = False
+        batch.patch_namespaced_cron_job(name=name, namespace=namespace, body=cj)
+        logger.info(f"[ACTION] Resumed CronJob {namespace}/{name}")
+        return {
+            "success": True,
+            "message": f"CronJob {namespace}/{name} resumed.",
+        }
+    except ApiException as e:
+        logger.error(f"Failed to resume CronJob {namespace}/{name}: {e}")
+        return {"success": False, "message": str(e)}
+
