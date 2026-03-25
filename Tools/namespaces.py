@@ -115,3 +115,32 @@ def _summarize_namespace(ns) -> dict:
         "age":    age,
         "labels": ns.metadata.labels or {},
     }
+
+
+def get_namespace_events(name: str, limit: int = 100) -> list[dict]:
+    """Get recent events in the given namespace."""
+    core = get_core_v1()
+    try:
+        events = core.list_namespaced_event(namespace=name, limit=limit)
+    except ApiException as e:
+        logger.error(f"Failed to fetch namespace events for {name}: {e}")
+        raise
+
+    rows = []
+    for ev in events.items:
+        rows.append(
+            {
+                "type": ev.type,
+                "reason": ev.reason,
+                "message": ev.message,
+                "count": ev.count,
+                "last_time": ev.last_timestamp.strftime("%Y-%m-%dT%H:%M:%SZ") if ev.last_timestamp else None,
+                "involved_object": {
+                    "kind": ev.involved_object.kind,
+                    "name": ev.involved_object.name,
+                },
+            }
+        )
+
+    rows.sort(key=lambda e: (e["type"] == "Warning", e["last_time"] or ""), reverse=True)
+    return rows

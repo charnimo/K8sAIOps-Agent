@@ -146,9 +146,12 @@ def get_pod_events(name: str, namespace: str = "default") -> list[dict]:
             "last_time":  fmt_time(ev.last_timestamp),
         })
 
-    # Sort: Warning first, then by last_time descending
-    events.sort(key=lambda e: (e["type"] != "Warning", e["last_time"] or ""), reverse=False)
-    return events
+    # Sort: Warning first, then by last_time descending.
+    warnings = [e for e in events if e.get("type") == "Warning"]
+    non_warnings = [e for e in events if e.get("type") != "Warning"]
+    warnings.sort(key=lambda e: e.get("last_time") or "", reverse=True)
+    non_warnings.sort(key=lambda e: e.get("last_time") or "", reverse=True)
+    return warnings + non_warnings
 
 
 def detect_pod_issues(name: str, namespace: str = "default") -> dict:
