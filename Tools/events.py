@@ -169,8 +169,9 @@ def _fmt_event(ev) -> dict:
 
 def _sort_events(events: list[dict]) -> list[dict]:
     """Sort: Warning first, then by last_time descending (most recent first)."""
-    return sorted(
-        events,
-        key=lambda e: (e["type"] != "Warning", e["last_time"] or ""),
-        reverse=False,
-    )
+    warnings = [e for e in events if e.get("type") == "Warning"]
+    non_warnings = [e for e in events if e.get("type") != "Warning"]
+
+    warnings.sort(key=lambda e: e.get("last_time") or "", reverse=True)
+    non_warnings.sort(key=lambda e: e.get("last_time") or "", reverse=True)
+    return warnings + non_warnings

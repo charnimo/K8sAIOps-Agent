@@ -12,6 +12,7 @@ ACTIONS (require user approval):
 """
 
 import logging
+from typing import Optional
 from kubernetes.client.exceptions import ApiException
 from .client import get_core_v1
 
@@ -56,7 +57,7 @@ def get_configmap(name: str, namespace: str = "default") -> dict:
     }
 
 
-def patch_configmap(name: str, namespace: str = "default", data: dict = {}) -> dict:
+def patch_configmap(name: str, namespace: str = "default", data: Optional[dict] = None) -> dict:
     """
     Add or update keys in a ConfigMap.
 

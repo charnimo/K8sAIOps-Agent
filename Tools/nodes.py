@@ -117,8 +117,11 @@ def get_node_events(name: str) -> list[dict]:
             "count":     ev.count,
             "last_time": ev.last_timestamp.strftime("%Y-%m-%dT%H:%M:%SZ") if ev.last_timestamp else None,
         })
-    events.sort(key=lambda e: (e["type"] != "Warning", e["last_time"] or ""))
-    return events
+    warnings = [e for e in events if e.get("type") == "Warning"]
+    non_warnings = [e for e in events if e.get("type") != "Warning"]
+    warnings.sort(key=lambda e: e.get("last_time") or "", reverse=True)
+    non_warnings.sort(key=lambda e: e.get("last_time") or "", reverse=True)
+    return warnings + non_warnings
 
 
 # ─────────────────────────────────────────────
