@@ -1,5 +1,5 @@
 """
-k8s_client/client.py
+Tools/client.py
 
 Kubernetes client initialization.
 Supports:
@@ -7,7 +7,7 @@ Supports:
   - Local kubeconfig mode (for development / testing)
 
 Usage:
-    from k8s_client.client import get_core_v1, get_apps_v1
+    from .client import get_core_v1, get_apps_v1
     core = get_core_v1()
     pods = core.list_namespaced_pod(namespace="default")
 """

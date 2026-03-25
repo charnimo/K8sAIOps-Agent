@@ -1,5 +1,5 @@
 """
-k8s_client/deployments.py
+Tools/deployments.py
 
 All Deployment-related read and action functions.
 
@@ -24,7 +24,8 @@ from kubernetes.client import AppsV1Api
 from kubernetes.client.exceptions import ApiException
 
 from .client import get_apps_v1, get_core_v1
-from .utils import fmt_duration
+from .utils import fmt_duration, fmt_time
+from .events import _sort_events
 
 logger = logging.getLogger(__name__)
 
@@ -33,22 +34,31 @@ logger = logging.getLogger(__name__)
 # READ OPERATIONS
 # ─────────────────────────────────────────────
 
-def list_deployments(namespace: str = "default") -> list[dict]:
-    """List all deployments in a namespace with key status fields."""
+def list_deployments(namespace: str = "default", label_selector: Optional[str] = None) -> list[dict]:
+    """List deployments in a namespace with key status fields.
+    
+    Args:
+        namespace:       Target namespace
+        label_selector:  Optional Kubernetes label selector (e.g., "app=web")
+    """
     apps: AppsV1Api = get_apps_v1()
     try:
-        dep_list = apps.list_namespaced_deployment(namespace=namespace)
+        dep_list = apps.list_namespaced_deployment(namespace=namespace, label_selector=label_selector)
     except ApiException as e:
         logger.error(f"Failed to list deployments in {namespace}: {e}")
         raise
     return [_summarize_deployment(d) for d in dep_list.items]
 
 
-def list_all_deployments() -> list[dict]:
-    """List deployments across ALL namespaces."""
+def list_all_deployments(label_selector: Optional[str] = None) -> list[dict]:
+    """List deployments across ALL namespaces.
+    
+    Args:
+        label_selector: Optional Kubernetes label selector
+    """
     apps: AppsV1Api = get_apps_v1()
     try:
-        dep_list = apps.list_deployment_for_all_namespaces()
+        dep_list = apps.list_deployment_for_all_namespaces(label_selector=label_selector)
     except ApiException as e:
         logger.error(f"Failed to list all deployments: {e}")
         raise
@@ -85,13 +95,9 @@ def get_deployment_events(name: str, namespace: str = "default") -> list[dict]:
             "reason":     ev.reason,
             "message":    ev.message,
             "count":      ev.count,
-            "last_time":  ev.last_timestamp.strftime("%Y-%m-%dT%H:%M:%SZ") if ev.last_timestamp else None,
+            "last_time":  fmt_time(ev.last_timestamp),
         })
-    warnings = [e for e in events if e.get("type") == "Warning"]
-    non_warnings = [e for e in events if e.get("type") != "Warning"]
-    warnings.sort(key=lambda e: e.get("last_time") or "", reverse=True)
-    non_warnings.sort(key=lambda e: e.get("last_time") or "", reverse=True)
-    return warnings + non_warnings
+    return _sort_events(events)
 
 
 # ─────────────────────────────────────────────
@@ -149,7 +155,7 @@ def rollout_restart(name: str, namespace: str = "default") -> dict:
     ⚠️  ACTION — requires user approval.
     """
     apps: AppsV1Api = get_apps_v1()
-    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    now = fmt_time(datetime.now(timezone.utc))
     patch_body = {
         "spec": {
             "template": {

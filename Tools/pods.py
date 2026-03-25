@@ -1,5 +1,5 @@
 """
-k8s_client/pods.py
+Tools/pods.py
 
 All pod-related read and action functions.
 
@@ -24,6 +24,7 @@ from kubernetes.client.exceptions import ApiException
 
 from .client import get_core_v1
 from .utils import fmt_time, fmt_duration
+from .events import _sort_events
 
 logger = logging.getLogger(__name__)
 
@@ -31,16 +32,20 @@ logger = logging.getLogger(__name__)
 # READ OPERATIONS
 # ─────────────────────────────────────────────
 
-def list_pods(namespace: str = "default") -> list[dict]:
+def list_pods(namespace: str = "default", label_selector: Optional[str] = None) -> list[dict]:
     """
-    List all pods in a namespace with their key status fields.
+    List pods in a namespace with their key status fields.
+
+    Args:
+        namespace:       Target namespace
+        label_selector:  Optional Kubernetes label selector (e.g., "app=web,tier=frontend")
 
     Returns a list of dicts with:
       name, namespace, phase, ready, restarts, node, age, conditions, containers
     """
     core: CoreV1Api = get_core_v1()
     try:
-        pod_list = core.list_namespaced_pod(namespace=namespace)
+        pod_list = core.list_namespaced_pod(namespace=namespace, label_selector=label_selector)
     except ApiException as e:
         logger.error(f"Failed to list pods in {namespace}: {e}")
         raise
@@ -51,11 +56,15 @@ def list_pods(namespace: str = "default") -> list[dict]:
     return result
 
 
-def list_all_pods() -> list[dict]:
-    """List pods across ALL namespaces."""
+def list_all_pods(label_selector: Optional[str] = None) -> list[dict]:
+    """List pods across ALL namespaces.
+    
+    Args:
+        label_selector: Optional Kubernetes label selector
+    """
     core: CoreV1Api = get_core_v1()
     try:
-        pod_list = core.list_pod_for_all_namespaces()
+        pod_list = core.list_pod_for_all_namespaces(label_selector=label_selector)
     except ApiException as e:
         logger.error(f"Failed to list all pods: {e}")
         raise
@@ -80,6 +89,86 @@ def get_pod_status(name: str, namespace: str = "default") -> dict:
     """
     pod = get_pod(name, namespace)
     return _summarize_pod(pod)
+
+
+def get_pod_status_with_metrics(name: str, namespace: str = "default") -> dict:
+    """
+    Return pod status enriched with current resource usage metrics.
+
+    Combines pod phase/conditions with live CPU/memory usage from Metrics Server.
+    
+    Returns:
+        {
+          ...pod_status fields...,
+          "containers": [
+            {
+              "name": "app",
+              "ready": true,
+              "restart_count": 0,
+              "state": {...},
+              "resources": {
+                "requests": {"cpu": "100m", "memory": "256Mi"},
+                "limits": {"cpu": "500m", "memory": "512Mi"},
+                "usage": {"cpu": "45m", "memory": "256Mi"},
+                "usage_pct": {"cpu": 9.0, "memory": 50.0}
+              }
+            }
+          ]
+        }
+    """
+    from .metrics import get_pod_metrics, parse_memory_mi, parse_cpu_m
+    
+    status = get_pod_status(name, namespace)
+    metrics = get_pod_metrics(name, namespace)
+    
+    # If no metrics available, return status as-is
+    if "error" in metrics:
+        return status
+    
+    # Enrich each container with usage and usage percentages
+    enriched_containers = []
+    metrics_by_name = {c["name"]: c for c in metrics.get("containers", [])}
+    
+    for container in status.get("containers", []):
+        cname = container["name"]
+        container_copy = dict(container)
+        
+        # Build resources dict with requests, limits, and usage
+        res_spec = container_copy.get("resources", {})
+        if res_spec:
+            usage_data = metrics_by_name.get(cname, {})
+            
+            # Calculate usage percentages
+            usage_pct = {}
+            
+            # Memory percentage
+            mem_limit = res_spec.get("limits", {}).get("memory")
+            if mem_limit and usage_data.get("memory"):
+                mem_limit_mi = parse_memory_mi(mem_limit)
+                mem_usage_mi = parse_memory_mi(usage_data["memory"])
+                if mem_limit_mi > 0:
+                    usage_pct["memory"] = round((mem_usage_mi / mem_limit_mi) * 100, 1)
+            
+            # CPU percentage
+            cpu_limit = res_spec.get("limits", {}).get("cpu")
+            if cpu_limit and usage_data.get("cpu"):
+                cpu_limit_m = parse_cpu_m(cpu_limit)
+                cpu_usage_m = parse_cpu_m(usage_data["cpu"])
+                if cpu_limit_m > 0:
+                    usage_pct["cpu"] = round((cpu_usage_m / cpu_limit_m) * 100, 1)
+            
+            # Add usage data to resources
+            container_copy["resources"]["usage"] = {
+                "cpu": usage_data.get("cpu"),
+                "memory": usage_data.get("memory"),
+            }
+            if usage_pct:
+                container_copy["resources"]["usage_pct"] = usage_pct
+        
+        enriched_containers.append(container_copy)
+    
+    status["containers"] = enriched_containers
+    return status
 
 
 def get_pod_logs(
@@ -146,12 +235,7 @@ def get_pod_events(name: str, namespace: str = "default") -> list[dict]:
             "last_time":  fmt_time(ev.last_timestamp),
         })
 
-    # Sort: Warning first, then by last_time descending.
-    warnings = [e for e in events if e.get("type") == "Warning"]
-    non_warnings = [e for e in events if e.get("type") != "Warning"]
-    warnings.sort(key=lambda e: e.get("last_time") or "", reverse=True)
-    non_warnings.sort(key=lambda e: e.get("last_time") or "", reverse=True)
-    return warnings + non_warnings
+    return _sort_events(events)
 
 
 def detect_pod_issues(name: str, namespace: str = "default") -> dict:

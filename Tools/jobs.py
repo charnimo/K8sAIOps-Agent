@@ -1,5 +1,5 @@
 """
-k8s_tools/jobs.py
+Tools/jobs.py
 
 Job and CronJob operations.
 
@@ -22,21 +22,24 @@ from datetime import datetime, timezone
 from typing import Optional
 from kubernetes.client.exceptions import ApiException
 from .client import get_batch_v1
-from .utils import fmt_duration
+from .utils import fmt_duration, fmt_time
 
 logger = logging.getLogger(__name__)
 
 
-def list_jobs(namespace: str = "default") -> list[dict]:
-    """
-    List all Jobs in a namespace with status.
+def list_jobs(namespace: str = "default", label_selector: Optional[str] = None) -> list[dict]:
+    """List Jobs in a namespace with status.
+
+    Args:
+        namespace:       Target namespace
+        label_selector:  Optional Kubernetes label selector
 
     Returns:
         List of job dicts with name, status, succeeded, failed, active, age.
     """
     batch = get_batch_v1()
     try:
-        jobs = batch.list_namespaced_job(namespace=namespace)
+        jobs = batch.list_namespaced_job(namespace=namespace, label_selector=label_selector)
     except ApiException as e:
         logger.error(f"Failed to list jobs in {namespace}: {e}")
         raise
@@ -44,11 +47,15 @@ def list_jobs(namespace: str = "default") -> list[dict]:
     return [_summarize_job(job) for job in jobs.items]
 
 
-def list_all_jobs() -> list[dict]:
-    """List jobs across ALL namespaces."""
+def list_all_jobs(label_selector: Optional[str] = None) -> list[dict]:
+    """List jobs across ALL namespaces.
+    
+    Args:
+        label_selector: Optional Kubernetes label selector
+    """
     batch = get_batch_v1()
     try:
-        jobs = batch.list_job_for_all_namespaces()
+        jobs = batch.list_job_for_all_namespaces(label_selector=label_selector)
     except ApiException as e:
         logger.error(f"Failed to list all jobs: {e}")
         raise
@@ -170,7 +177,7 @@ def _summarize_job(job) -> dict:
         "failed":            status.failed or 0,
         "active":            status.active or 0,
         "ready":             status.ready or 0,
-        "completion_time":   completion_time.strftime("%Y-%m-%dT%H:%M:%SZ") if completion_time else None,
+        "completion_time":   fmt_time(completion_time),
         "completion_duration": completion_duration,
         "age":               age,
         "labels":            job.metadata.labels or {},
@@ -186,7 +193,7 @@ def _summarize_cronjob(cj) -> dict:
         age = fmt_duration(delta.total_seconds())
 
     status = cj.status or {}
-    last_schedule = status.last_schedule_time.strftime("%Y-%m-%dT%H:%M:%SZ") if status.last_schedule_time else None
+    last_schedule = fmt_time(status.last_schedule_time)
 
     return {
         "name":           cj.metadata.name,
@@ -196,7 +203,7 @@ def _summarize_cronjob(cj) -> dict:
         "timezone":       cj.spec.timezone,
         "last_schedule":  last_schedule,
         "active_jobs":    len(status.active) if status.active else 0,
-        "last_successful_time": status.last_successful_time.strftime("%Y-%m-%dT%H:%M:%SZ") if status.last_successful_time else None,
+        "last_successful_time": fmt_time(status.last_successful_time),
         "age":            age,
         "labels":         cj.metadata.labels or {},
     }

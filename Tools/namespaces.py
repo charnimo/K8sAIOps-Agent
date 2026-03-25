@@ -1,5 +1,5 @@
 """
-k8s_tools/namespaces.py
+Tools/namespaces.py
 
 Namespace operations.
 
@@ -7,13 +7,17 @@ READ:
   - list_namespaces()                         → all namespaces
   - get_namespace(name)                       → single namespace detail
   - get_namespace_resource_count(namespace)   → count pods/deployments/services
+  - get_namespace_events(name, limit)         → recent events in namespace
 """
 
 import logging
+from datetime import datetime, timezone
+
 from kubernetes.client.exceptions import ApiException
+
 from .client import get_core_v1, get_apps_v1
 from .utils import fmt_duration
-from datetime import datetime, timezone
+from .events import _sort_events
 
 logger = logging.getLogger(__name__)
 
@@ -51,16 +55,20 @@ def get_namespace_resource_count(namespace: str) -> dict:
     Count key resources in a namespace (pods, deployments, services, statefulsets, jobs).
 
     Useful for namespace health overview.
+    
+    Returns:
+        Dict with resource counts. If a count fails to retrieve, the value will be None
+        (allowing distinction between 0 resources and API errors).
     """
     core = get_core_v1()
     apps = get_apps_v1()
 
     counts = {
-        "pods": 0,
-        "deployments": 0,
-        "statefulsets": 0,
-        "daemonsets": 0,
-        "services": 0,
+        "pods": None,
+        "deployments": None,
+        "statefulsets": None,
+        "daemonsets": None,
+        "services": None,
     }
 
     try:
@@ -142,5 +150,4 @@ def get_namespace_events(name: str, limit: int = 100) -> list[dict]:
             }
         )
 
-    rows.sort(key=lambda e: (e["type"] == "Warning", e["last_time"] or ""), reverse=True)
-    return rows
+    return _sort_events(rows)

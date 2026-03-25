@@ -1,5 +1,5 @@
 """
-k8s_client/configmaps.py
+Tools/configmaps.py
 
 ConfigMap read and action operations.
 
@@ -103,8 +103,8 @@ def patch_configmap(name: str, namespace: str = "default", data: Optional[dict] 
 def create_configmap(
     name: str,
     namespace: str = "default",
-    data: dict = {},
-    labels: dict = {},
+    data: Optional[dict] = None,
+    labels: Optional[dict] = None,
 ) -> dict:
     """
     Create a new ConfigMap.
@@ -120,6 +120,11 @@ def create_configmap(
     Returns:
         {"success": bool, "message": str}
     """
+    if data is None:
+        data = {}
+    if labels is None:
+        labels = {}
+    
     if not data:
         return {"success": False, "message": "No data provided for ConfigMap."}
 

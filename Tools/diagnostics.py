@@ -1,5 +1,5 @@
 """
-k8s_tools/diagnostics.py
+Tools/diagnostics.py
 
 High-level diagnostic aggregator.
 
@@ -24,9 +24,8 @@ from .nodes       import list_nodes, detect_node_issues
 from .events      import list_warning_events, get_recent_warning_summary
 from .metrics     import get_pod_metrics, list_pod_metrics, detect_resource_pressure
 from .namespaces  import list_namespaces
-from .utils import setup_logging
 
-logger = setup_logging("diagnostics")
+logger = logging.getLogger(__name__)
 
 
 def diagnose_pod(name: str, namespace: str = "default") -> dict:
@@ -100,16 +99,23 @@ def diagnose_pod(name: str, namespace: str = "default") -> dict:
     return result
 
 
-def diagnose_deployment(name: str, namespace: str = "default") -> dict:
+def diagnose_deployment(name: str, namespace: str = "default", include_pod_details: bool = False) -> dict:
     """
-    Produce a diagnosis bundle for a Deployment and all its pods.
+    Produce a diagnosis bundle for a Deployment and its pods.
+
+    Args:
+        name:                  Deployment name
+        namespace:             Target namespace
+        include_pod_details:   If True, run full diagnose_pod() on each related pod (slower, more thorough)
+                               If False (default), only return lightweight pod status (fast, ~1-2 API calls total)
 
     Returns:
         {
           "target":      {"kind": "Deployment", ...},
           "deployment":  {...},   # deployment summary
           "events":      [...],   # deployment events
-          "pod_diagnoses": [...], # diagnose_pod() result for each pod
+          "pod_statuses": [...],  # lightweight pod status (always included)
+          "pod_diagnoses": [...], # only if include_pod_details=True (expensive!)
           "resource_pressure": {...},  # memory/cpu pressure analysis
         }
     """
@@ -117,6 +123,7 @@ def diagnose_deployment(name: str, namespace: str = "default") -> dict:
         "target":            {"kind": "Deployment", "name": name, "namespace": namespace},
         "deployment":        {},
         "events":            [],
+        "pod_statuses":      [],
         "pod_diagnoses":     [],
         "resource_pressure": {},
     }
@@ -133,7 +140,7 @@ def diagnose_deployment(name: str, namespace: str = "default") -> dict:
     except Exception as e:
         logger.warning(f"Could not get events for deployment {namespace}/{name}: {e}")
 
-    # 3. Find and diagnose all related pods
+    # 3. Find related pods (lightweight list, not detailed diagnosis)
     try:
         from .pods import list_pods
         all_pods = list_pods(namespace)
@@ -143,13 +150,18 @@ def diagnose_deployment(name: str, namespace: str = "default") -> dict:
             p for p in all_pods
             if _labels_match(p.get("labels", {}), selector)
         ]
+        
+        # Always return lightweight pod status
+        result["pod_statuses"] = related_pods
 
-        for pod in related_pods:
-            try:
-                diag = diagnose_pod(pod["name"], namespace)
-                result["pod_diagnoses"].append(diag)
-            except Exception as e:
-                logger.warning(f"Could not diagnose pod {pod['name']}: {e}")
+        # Optionally run expensive per-pod diagnosis (4-5 API calls per pod)
+        if include_pod_details:
+            for pod in related_pods:
+                try:
+                    diag = diagnose_pod(pod["name"], namespace)
+                    result["pod_diagnoses"].append(diag)
+                except Exception as e:
+                    logger.warning(f"Could not diagnose pod {pod['name']}: {e}")
 
     except Exception as e:
         logger.warning(f"Could not list pods for deployment {namespace}/{name}: {e}")

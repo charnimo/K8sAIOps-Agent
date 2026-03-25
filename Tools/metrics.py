@@ -1,5 +1,5 @@
 """
-k8s_client/metrics.py
+Tools/metrics.py
 
 Resource metrics collection via the Kubernetes Metrics Server.
 
@@ -24,6 +24,7 @@ from kubernetes.client.exceptions import ApiException
 
 from .client import get_custom_objects
 from .utils import parse_memory_mi, parse_cpu_m
+from .config import RESOURCE_PRESSURE_THRESHOLD_PCT
 
 logger = logging.getLogger(__name__)
 
@@ -129,7 +130,7 @@ def list_node_metrics() -> list[dict]:
 # HIGH-LEVEL ANALYSIS
 # ─────────────────────────────────────────────
 
-def detect_resource_pressure(namespace: str = "default") -> dict:
+def detect_resource_pressure(namespace: str = "default", threshold_pct: int = None) -> dict:
     """
     Compare live resource usage against declared limits to detect pressure.
 
@@ -140,8 +141,15 @@ def detect_resource_pressure(namespace: str = "default") -> dict:
           "no_limits":   [{"pod": "...", "container": "..."}],   # containers with no limits set
         }
 
+    Args:
+        namespace:    Target namespace
+        threshold_pct: Percentage threshold to trigger high-pressure alert (default: RESOURCE_PRESSURE_THRESHOLD_PCT)
+
     Note: Requires both Metrics Server (for usage) and deployment specs (for limits).
     """
+    if threshold_pct is None:
+        threshold_pct = RESOURCE_PRESSURE_THRESHOLD_PCT
+    
     from .pods import list_pods  # local import to avoid circular dependency
 
     metrics_list = list_pod_metrics(namespace)
@@ -173,8 +181,8 @@ def detect_resource_pressure(namespace: str = "default") -> dict:
             limit_data = limits_index.get(pod_name, {}).get(cname, {})
             limits     = limit_data.get("limits", {})
 
-            mem_usage = _parse_memory_mi(usage_data.get("memory", "0"))
-            cpu_usage = _parse_cpu_m(usage_data.get("cpu", "0"))
+            mem_usage = parse_memory_mi(usage_data.get("memory", "0"))
+            cpu_usage = parse_cpu_m(usage_data.get("cpu", "0"))
 
             mem_limit_raw = limits.get("memory")
             cpu_limit_raw = limits.get("cpu")
@@ -184,10 +192,10 @@ def detect_resource_pressure(namespace: str = "default") -> dict:
                 continue
 
             if mem_limit_raw:
-                mem_limit = _parse_memory_mi(mem_limit_raw)
+                mem_limit = parse_memory_mi(mem_limit_raw)
                 if mem_limit > 0:
                     pct = (mem_usage / mem_limit) * 100
-                    if pct >= 80:
+                    if pct >= threshold_pct:
                         high_memory.append({
                             "pod":       pod_name,
                             "container": cname,
@@ -197,10 +205,10 @@ def detect_resource_pressure(namespace: str = "default") -> dict:
                         })
 
             if cpu_limit_raw:
-                cpu_limit = _parse_cpu_m(cpu_limit_raw)
+                cpu_limit = parse_cpu_m(cpu_limit_raw)
                 if cpu_limit > 0:
                     pct = (cpu_usage / cpu_limit) * 100
-                    if pct >= 80:
+                    if pct >= threshold_pct:
                         high_cpu.append({
                             "pod":       pod_name,
                             "container": cname,

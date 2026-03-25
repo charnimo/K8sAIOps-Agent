@@ -1,5 +1,5 @@
 """
-k8s_tools/services.py
+Tools/services.py
 
 Service read operations (read-only for MVP).
 
@@ -10,6 +10,7 @@ READ:
 
 import logging
 from datetime import datetime, timezone
+from typing import Optional
 from kubernetes.client.exceptions import ApiException
 from .client import get_core_v1
 from .utils import fmt_duration
@@ -17,16 +18,20 @@ from .utils import fmt_duration
 logger = logging.getLogger(__name__)
 
 
-def list_services(namespace: str = "default") -> list[dict]:
+def list_services(namespace: str = "default", label_selector: Optional[str] = None) -> list[dict]:
     """
-    List all services in a namespace with status and endpoint info.
+    List services in a namespace with status and endpoint info.
+
+    Args:
+        namespace:       Target namespace
+        label_selector:  Optional Kubernetes label selector
 
     Returns:
         List of service dicts with name, type, cluster_ip, endpoints, age.
     """
     core = get_core_v1()
     try:
-        svc_list = core.list_namespaced_service(namespace=namespace)
+        svc_list = core.list_namespaced_service(namespace=namespace, label_selector=label_selector)
     except ApiException as e:
         logger.error(f"Failed to list services in {namespace}: {e}")
         raise
@@ -34,11 +39,15 @@ def list_services(namespace: str = "default") -> list[dict]:
     return [_summarize_service(svc) for svc in svc_list.items]
 
 
-def list_all_services() -> list[dict]:
-    """List services across ALL namespaces."""
+def list_all_services(label_selector: Optional[str] = None) -> list[dict]:
+    """List services across ALL namespaces.
+    
+    Args:
+        label_selector: Optional Kubernetes label selector
+    """
     core = get_core_v1()
     try:
-        svc_list = core.list_service_for_all_namespaces()
+        svc_list = core.list_service_for_all_namespaces(label_selector=label_selector)
     except ApiException as e:
         logger.error(f"Failed to list all services: {e}")
         raise

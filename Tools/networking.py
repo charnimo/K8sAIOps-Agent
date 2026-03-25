@@ -1,5 +1,5 @@
 """
-k8s_client/networking.py
+Tools/networking.py
 
 Network-related read operations:
   - check_service_endpoints(name, namespace)     → verify service has ready endpoints

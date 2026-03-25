@@ -1,5 +1,5 @@
 """
-k8s_client/secrets.py
+Tools/secrets.py
 
 Kubernetes Secret read and write operations.
 
