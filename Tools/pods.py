@@ -116,7 +116,8 @@ def get_pod_status_with_metrics(name: str, namespace: str = "default") -> dict:
           ]
         }
     """
-    from .metrics import get_pod_metrics, parse_memory_mi, parse_cpu_m
+    from .metrics import get_pod_metrics
+    from .utils import parse_memory_mi, parse_cpu_m
     
     status = get_pod_status(name, namespace)
     metrics = get_pod_metrics(name, namespace)

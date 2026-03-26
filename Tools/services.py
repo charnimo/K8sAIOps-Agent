@@ -55,14 +55,31 @@ def list_all_services(label_selector: Optional[str] = None) -> list[dict]:
 
 
 def get_service(name: str, namespace: str = "default") -> dict:
-    """Fetch a detailed summary for a single service."""
+    """
+    Fetch a detailed summary for a single service.
+    Includes has_selector and matching_pods count for networking diagnostics.
+    """
     core = get_core_v1()
     try:
         svc = core.read_namespaced_service(name=name, namespace=namespace)
     except ApiException as e:
         logger.error(f"Service {namespace}/{name} not found: {e}")
         raise
-    return _summarize_service(svc)
+
+    summary = _summarize_service(svc)
+    selector = svc.spec.selector or {}
+    summary["has_selector"] = bool(selector)
+
+    matching_pods = 0
+    if selector:
+        label_selector = ",".join(f"{k}={v}" for k, v in selector.items())
+        try:
+            pod_list = core.list_namespaced_pod(namespace=namespace, label_selector=label_selector)
+            matching_pods = len(pod_list.items)
+        except ApiException:
+            pass
+    summary["matching_pods"] = matching_pods
+    return summary
 
 
 # ─────────────────────────────────────────────

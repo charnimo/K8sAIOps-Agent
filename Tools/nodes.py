@@ -21,7 +21,8 @@ from typing import Optional
 from kubernetes.client.exceptions import ApiException
 
 from .client import get_core_v1
-from .utils import fmt_duration
+from .utils import fmt_duration, fmt_time
+from .events import _sort_events
 
 logger = logging.getLogger(__name__)
 

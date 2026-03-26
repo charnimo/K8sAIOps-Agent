@@ -2,12 +2,12 @@
 Tools/networking.py
 
 Network-related read operations:
-  - check_service_endpoints(name, namespace)     → verify service has ready endpoints
-  - list_services(namespace)                     → list all services
-  - check_network_policies(namespace)            → list network policies and assess impact
-  - diagnose_network(source_pod, target_service, namespace) → connectivity diagnosis
-  - diagnose_database_connection(pod, namespace) → DB connectivity analysis
-  - get_service(name, namespace)                 → service details + selector match check
+  - check_service_endpoints(name, namespace)              → verify service has ready endpoints
+  - check_network_policies(namespace)                     → list network policies and assess impact
+  - diagnose_network(source_pod, target_service, namespace) → static connectivity diagnosis
+  - diagnose_database_connection(pod, namespace)          → DB connectivity analysis
+
+Note: list_services / get_service live in services.py — import from there.
 """
 
 import logging
@@ -18,87 +18,6 @@ from kubernetes.client.exceptions import ApiException
 from .client import get_core_v1
 
 logger = logging.getLogger(__name__)
-
-
-# ─────────────────────────────────────────────
-# SERVICE OPERATIONS
-# ─────────────────────────────────────────────
-
-def list_services(namespace: str = "default") -> list[dict]:
-    """List all services in a namespace with their type, ports, and selector."""
-    core = get_core_v1()
-    try:
-        svc_list = core.list_namespaced_service(namespace=namespace)
-    except ApiException as e:
-        logger.error(f"Failed to list services in {namespace}: {e}")
-        raise
-
-    result = []
-    for svc in svc_list.items:
-        ports = []
-        if svc.spec.ports:
-            for p in svc.spec.ports:
-                ports.append({
-                    "name":        p.name,
-                    "port":        p.port,
-                    "target_port": str(p.target_port) if p.target_port else None,
-                    "protocol":    p.protocol,
-                })
-        result.append({
-            "name":        svc.metadata.name,
-            "namespace":   svc.metadata.namespace,
-            "type":        svc.spec.type,
-            "cluster_ip":  svc.spec.cluster_ip,
-            "ports":       ports,
-            "selector":    svc.spec.selector or {},
-        })
-    return result
-
-
-def get_service(name: str, namespace: str = "default") -> dict:
-    """Fetch a single service and check if it has a valid selector and matching pods."""
-    core = get_core_v1()
-    try:
-        svc = core.read_namespaced_service(name=name, namespace=namespace)
-    except ApiException as e:
-        logger.error(f"Service {namespace}/{name} not found: {e}")
-        raise
-
-    selector = svc.spec.selector or {}
-    ports = []
-    if svc.spec.ports:
-        for p in svc.spec.ports:
-            ports.append({
-                "name":        p.name,
-                "port":        p.port,
-                "target_port": str(p.target_port) if p.target_port else None,
-                "protocol":    p.protocol,
-            })
-
-    # Check how many pods match the selector
-    matching_pods = 0
-    if selector:
-        label_selector = ",".join(f"{k}={v}" for k, v in selector.items())
-        try:
-            pod_list = core.list_namespaced_pod(
-                namespace=namespace,
-                label_selector=label_selector,
-            )
-            matching_pods = len(pod_list.items)
-        except ApiException:
-            pass
-
-    return {
-        "name":          svc.metadata.name,
-        "namespace":     svc.metadata.namespace,
-        "type":          svc.spec.type,
-        "cluster_ip":    svc.spec.cluster_ip,
-        "external_ip":   svc.spec.external_i_ps,
-        "ports":         ports,
-        "selector":      selector,
-        "matching_pods": matching_pods,
-        "has_selector":  bool(selector),
-    }
 
 
 def check_service_endpoints(name: str, namespace: str = "default") -> dict:
@@ -118,6 +37,7 @@ def check_service_endpoints(name: str, namespace: str = "default") -> dict:
     issues = []
 
     # Check service exists
+    from .services import get_service
     try:
         svc_info = get_service(name, namespace)
     except ApiException:
