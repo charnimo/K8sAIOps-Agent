@@ -211,6 +211,28 @@ spec:
             memory: "16Mi"
 
 ---
+# ─── Long-Running Job (for suspend/resume testing) ────────────────────────────
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: long-running-job
+  namespace: default
+  labels:
+    aiops-test: "true"
+spec:
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: sleeper
+        image: busybox:1.36
+        command: ["sh", "-c", "echo 'Starting long task...'; sleep 3600; echo 'Task completed'"]
+        resources:
+          requests:
+            cpu: "10m"
+            memory: "16Mi"
+
+---
 # ─── CronJob (for cronjob testing) ───────────────────────────────────────────
 apiVersion: batch/v1
 kind: CronJob
