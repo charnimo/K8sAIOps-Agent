@@ -1,5 +1,5 @@
 """
-Tools/diagnostics.py
+tools/diagnostics.py
 
 High-level diagnostic aggregator.
 
@@ -12,7 +12,9 @@ everything the LLM needs to reason about a problem in a single call.
 Functions:
   - diagnose_pod(name, namespace)              → full pod diagnosis bundle
   - diagnose_deployment(name, namespace)       → full deployment diagnosis bundle
+  - diagnose_service(name, namespace)          → service health & connectivity
   - cluster_health_snapshot(namespace)         → high-level cluster overview
+  - quick_summary(namespace)                   → minimal context for agent queries
 """
 
 import logging
@@ -20,6 +22,7 @@ from typing import Optional
 
 from .pods        import get_pod_status, get_pod_logs, get_pod_events, detect_pod_issues
 from .deployments import get_deployment, get_deployment_events
+from .services    import list_services, get_service
 from .nodes       import list_nodes, detect_node_issues
 from .events      import list_warning_events, get_recent_warning_summary
 from .metrics     import get_pod_metrics, list_pod_metrics, detect_resource_pressure
@@ -251,6 +254,187 @@ def cluster_health_snapshot(namespace: Optional[str] = None) -> dict:
     }
 
     return snapshot
+
+
+def diagnose_service(name: str, namespace: str = "default") -> dict:
+    """
+    Produce a diagnostic bundle for a Service and its endpoints.
+
+    Useful for troubleshooting "service unreachable" or "no endpoints" issues.
+
+    Returns:
+        {
+          "target":       {"kind": "Service", "name": ..., "namespace": ...},
+          "service":      {...},              # Service summary (ClusterIP, ports, selector)
+          "endpoints":    {...},              # Endpoint status (ready/not-ready addresses)
+          "backend_pods": [...],              # Pods matching the selector
+          "issues":       [...],              # detected problems (NoEndpoints, SelectorMismatch, etc.)
+          "severity":     "critical" | "warning" | "healthy",
+        }
+    """
+    result: dict = {
+        "target":       {"kind": "Service", "name": name, "namespace": namespace},
+        "service":      {},
+        "endpoints":    {},
+        "backend_pods": [],
+        "issues":       [],
+        "severity":     "unknown",
+    }
+
+    # 1. Service details
+    try:
+        result["service"] = get_service(name, namespace)
+    except Exception as e:
+        logger.warning(f"Could not get service {namespace}/{name}: {e}")
+        result["issues"].append("ServiceNotFound")
+        result["severity"] = "critical"
+        return result
+
+    # 2. Service endpoints (direct Endpoints API — no external dependency)
+    try:
+        from .client import get_core_v1
+        core = get_core_v1()
+        ep_obj = core.read_namespaced_endpoints(name, namespace)
+        subsets = ep_obj.subsets or []
+        ready_count = 0
+        not_ready_count = 0
+        for subset in subsets:
+            ready_count += len(subset.addresses or [])
+            not_ready_count += len(subset.not_ready_addresses or [])
+        result["endpoints"] = {
+            "ready_count":     ready_count,
+            "not_ready_count": not_ready_count,
+        }
+        if ready_count == 0:
+            result["issues"].append("NoReadyEndpoints")
+    except Exception as e:
+        logger.warning(f"Could not get endpoints for service {namespace}/{name}: {e}")
+        result["issues"].append("EndpointsUnavailable")
+
+    # 3. Backend pods
+    try:
+        from .pods import list_pods
+        selector = result["service"].get("selector", {})
+        all_pods = list_pods(namespace)
+        result["backend_pods"] = [
+            p for p in all_pods
+            if _labels_match(p.get("labels", {}), selector)
+        ]
+        if not result["backend_pods"] and selector:
+            result["issues"].append("SelectorMatchesNoPods")
+    except Exception as e:
+        logger.warning(f"Could not list pods for service {namespace}/{name}: {e}")
+
+    # Severity assessment
+    if "NoReadyEndpoints" in result["issues"] or "ServiceNotFound" in result["issues"]:
+        result["severity"] = "critical"
+    elif result["issues"]:
+        result["severity"] = "warning"
+    else:
+        result["severity"] = "healthy"
+
+    return result
+
+
+def quick_summary(namespace: str = "default") -> dict:
+    """
+    Return a minimal, fast context summary for the AI agent.
+
+    Used to answer quick queries like "what's the health status?" without
+    expensive per-resource diagnostics.
+
+    Returns:
+        {
+          "namespace":       str,
+          "resources": {
+            "pods":       <count>,
+            "deployments": <count>,
+            "services":    <count>,
+            "nodes":       <count>,
+          },
+          "issues":          [...],  # recent warnings/errors
+          "pressure":        {...},  # resource pressure summary
+        }
+    """
+    summary: dict = {
+        "namespace":  namespace,
+        "resources": {
+            "pods":        0,
+            "deployments": 0,
+            "services":    0,
+            "nodes":       0,
+        },
+        "issues":   [],
+        "pressure": {},
+    }
+
+    # Count resources
+    try:
+        from .pods import list_pods as _list_pods
+        summary["resources"]["pods"] = len(_list_pods(namespace))
+    except Exception as e:
+        logger.debug(f"Could not count pods: {e}")
+
+    try:
+        from .deployments import list_deployments as _list_deps
+        summary["resources"]["deployments"] = len(_list_deps(namespace))
+    except Exception as e:
+        logger.debug(f"Could not count deployments: {e}")
+
+    try:
+        summary["resources"]["services"] = len(list_services(namespace))
+    except Exception as e:
+        logger.debug(f"Could not count services: {e}")
+
+    try:
+        summary["resources"]["nodes"] = len(list_nodes())
+    except Exception as e:
+        logger.debug(f"Could not count nodes: {e}")
+
+    # Recent issues
+    try:
+        summary["issues"] = get_recent_warning_summary(namespace=namespace, limit=5)
+    except Exception as e:
+        logger.debug(f"Could not fetch recent issues: {e}")
+
+    # Resource pressure
+    try:
+        summary["pressure"] = detect_resource_pressure(namespace)
+    except Exception as e:
+        logger.debug(f"Could not assess resource pressure: {e}")
+
+    return summary
+
+
+# ─────────────────────────────────────────────
+# IMPORTS FIX
+# ─────────────────────────────────────────────
+
+def _safe_call(func, default, context: str):
+    """Helper to safely call a function with logging."""
+    try:
+        return func()
+    except Exception as e:
+        logger.debug(f"Safe call failed ({context}): {e}")
+        return default
+
+
+def get_apps_v1():
+    """Import lazily to avoid circular imports."""
+    from .client import get_apps_v1 as _get_apps_v1
+    return _get_apps_v1()
+
+
+def list_pods(namespace: str = "default"):
+    """Import lazily."""
+    from .pods import list_pods as _list_pods
+    return _list_pods(namespace)
+
+
+def list_services(namespace: str = "default"):
+    """Import lazily."""
+    from .services import list_services as _list_services
+    return _list_services(namespace)
 
 
 # ─────────────────────────────────────────────

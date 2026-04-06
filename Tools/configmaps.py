@@ -1,5 +1,5 @@
 """
-Tools/configmaps.py
+tools/configmaps.py
 
 ConfigMap read and action operations.
 

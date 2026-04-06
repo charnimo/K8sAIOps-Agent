@@ -1,5 +1,5 @@
 """
-Tools/statefulsets.py
+tools/statefulsets.py
 
 StatefulSet operations.
 

@@ -1,5 +1,5 @@
 """
-Tools/jobs.py
+tools/jobs.py
 
 Job and CronJob operations.
 
@@ -161,8 +161,8 @@ def _summarize_job(job) -> dict:
         delta = datetime.now(timezone.utc) - creation
         age = fmt_duration(delta.total_seconds())
 
-    status = job.status or {}
-    completion_time = status.completion_time
+    status = job.status  # K8s object, not a dict
+    completion_time = status.completion_time if status else None
     completion_duration = None
     if creation and completion_time:
         delta = completion_time - creation
@@ -173,10 +173,10 @@ def _summarize_job(job) -> dict:
         "namespace":         job.metadata.namespace,
         "suspend":           job.spec.suspend or False,
         "backoff_limit":     job.spec.backoff_limit,
-        "succeeded":         status.succeeded or 0,
-        "failed":            status.failed or 0,
-        "active":            status.active or 0,
-        "ready":             status.ready or 0,
+        "succeeded":         (status.succeeded or 0) if status else 0,
+        "failed":            (status.failed or 0) if status else 0,
+        "active":            (status.active or 0) if status else 0,
+        "ready":             (status.ready or 0) if status else 0,
         "completion_time":   fmt_time(completion_time),
         "completion_duration": completion_duration,
         "age":               age,
@@ -200,7 +200,7 @@ def _summarize_cronjob(cj) -> dict:
         "namespace":      cj.metadata.namespace,
         "schedule":       cj.spec.schedule,
         "suspend":        cj.spec.suspend or False,
-        "timezone":       cj.spec.timezone,
+        "timezone":       cj.spec.time_zone,
         "last_schedule":  last_schedule,
         "active_jobs":    len(status.active) if status.active else 0,
         "last_successful_time": fmt_time(status.last_successful_time),
@@ -326,4 +326,3 @@ def resume_cronjob(name: str, namespace: str = "default") -> dict:
     except ApiException as e:
         logger.error(f"Failed to resume CronJob {namespace}/{name}: {e}")
         return {"success": False, "message": str(e)}
-

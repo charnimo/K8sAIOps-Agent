@@ -1,5 +1,5 @@
 """
-Tools/namespaces.py
+tools/namespaces.py
 
 Namespace operations.
 

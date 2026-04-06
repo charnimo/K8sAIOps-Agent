@@ -1,5 +1,5 @@
 """
-Tools/events.py
+tools/events.py
 
 Kubernetes event collection functions.
 

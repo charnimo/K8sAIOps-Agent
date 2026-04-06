@@ -1,11 +1,16 @@
 """
-Tools/services.py
+tools/services.py
 
-Service read operations (read-only for MVP).
+Service read and action operations.
 
 READ:
   - list_services(namespace)      → all services in a namespace
   - get_service(name, namespace)  → single service detail
+
+ACTIONS (require user approval):
+  - create_service(name, namespace, ...)       → create a new service
+  - patch_service(name, namespace, spec)       → update service spec fields
+  - delete_service(name, namespace)            → delete a service
 """
 
 import logging
@@ -83,6 +88,165 @@ def get_service(name: str, namespace: str = "default") -> dict:
 
 
 # ─────────────────────────────────────────────
+# ACTION OPERATIONS
+# ─────────────────────────────────────────────
+
+def create_service(
+    name: str,
+    namespace: str = "default",
+    service_type: str = "ClusterIP",
+    selector: Optional[dict] = None,
+    ports: Optional[list[dict]] = None,
+    labels: Optional[dict] = None,
+) -> dict:
+    """
+    Create a new Kubernetes Service.
+
+    ⚠️  ACTION — requires user approval.
+
+    Args:
+        name:           Service name
+        namespace:      Namespace
+        service_type:   "ClusterIP" (default), "NodePort", "LoadBalancer", "ExternalName"
+        selector:       Dict of pod labels to target (e.g., {"app": "web"})
+        ports:          List of port dicts: [{"port": 80, "target_port": 8080, "protocol": "TCP", "name": "http"}]
+        labels:         Dict of labels for the service itself
+
+    Returns:
+        {"success": bool, "message": str, "service_name": str}
+    """
+    from kubernetes import client
+    
+    if not ports:
+        ports = [{"port": 80, "target_port": 8080, "protocol": "TCP"}]
+
+    # Convert port list to V1ServicePort objects
+    port_objs = []
+    for p in ports:
+        port_objs.append(
+            client.V1ServicePort(
+                port=p.get("port"),
+                target_port=p.get("target_port"),
+                protocol=p.get("protocol", "TCP"),
+                name=p.get("name"),
+            )
+        )
+
+    service_body = client.V1Service(
+        api_version="v1",
+        kind="Service",
+        metadata=client.V1ObjectMeta(name=name, namespace=namespace, labels=labels or {}),
+        spec=client.V1ServiceSpec(
+            type=service_type,
+            selector=selector or {},
+            ports=port_objs,
+        ),
+    )
+
+    core = get_core_v1()
+    try:
+        core.create_namespaced_service(namespace=namespace, body=service_body)
+        logger.info(f"[ACTION] Created service {namespace}/{name} (type={service_type})")
+        return {
+            "success":       True,
+            "message":       f"Service '{name}' created in namespace '{namespace}'.",
+            "service_name":  name,
+        }
+    except ApiException as e:
+        logger.error(f"Failed to create service {namespace}/{name}: {e}")
+        return {"success": False, "message": str(e)}
+
+
+def patch_service(
+    name: str,
+    namespace: str = "default",
+    selector: Optional[dict] = None,
+    labels: Optional[dict] = None,
+    ports: Optional[list[dict]] = None,
+) -> dict:
+    """
+    Update a Service's selector, labels, or ports.
+
+    ⚠️  ACTION — requires user approval.
+
+    Args:
+        name:       Service name
+        namespace:  Namespace
+        selector:   New pod selector (replaces current)
+        labels:     New service labels (replaces current)
+        ports:      New port spec (replaces current)
+
+    Returns:
+        {"success": bool, "message": str}
+    """
+    from kubernetes import client
+    
+    patch_body = {}
+
+    if labels is not None:
+        patch_body["metadata"] = {"labels": labels}
+
+    if selector is not None:
+        patch_body["spec"] = {"selector": selector}
+
+    if ports is not None:
+        port_objs = []
+        for p in ports:
+            port_objs.append(
+                client.V1ServicePort(
+                    port=p.get("port"),
+                    target_port=p.get("target_port"),
+                    protocol=p.get("protocol", "TCP"),
+                    name=p.get("name"),
+                )
+            )
+        if "spec" not in patch_body:
+            patch_body["spec"] = {}
+        patch_body["spec"]["ports"] = port_objs
+
+    if not patch_body:
+        return {"success": False, "message": "No patch data provided (selector, labels, or ports)."}
+
+    core = get_core_v1()
+    try:
+        core.patch_namespaced_service(name=name, namespace=namespace, body=patch_body)
+        logger.info(f"[ACTION] Patched service {namespace}/{name}")
+        return {
+            "success": True,
+            "message": f"Service '{name}' in namespace '{namespace}' updated.",
+        }
+    except ApiException as e:
+        logger.error(f"Failed to patch service {namespace}/{name}: {e}")
+        return {"success": False, "message": str(e)}
+
+
+def delete_service(name: str, namespace: str = "default") -> dict:
+    """
+    Delete a Service.
+
+    ⚠️  ACTION — requires user approval.
+
+    Args:
+        name:      Service name
+        namespace: Namespace
+
+    Returns:
+        {"success": bool, "message": str}
+    """
+    core = get_core_v1()
+    try:
+        core.delete_namespaced_service(name=name, namespace=namespace)
+        logger.info(f"[ACTION] Deleted service {namespace}/{name}")
+        return {
+            "success": True,
+            "message": f"Service '{name}' deleted from namespace '{namespace}'.",
+        }
+    except ApiException as e:
+        logger.error(f"Failed to delete service {namespace}/{name}: {e}")
+        return {"success": False, "message": str(e)}
+
+
+# ─────────────────────────────────────────────
 # HELPERS
 # ─────────────────────────────────────────────
 
@@ -121,7 +285,7 @@ def _summarize_service(svc) -> dict:
         "namespace":      svc.metadata.namespace,
         "type":           svc.spec.type,  # ClusterIP, NodePort, LoadBalancer, ExternalName
         "cluster_ip":     svc.spec.cluster_ip,
-        "external_ips":   svc.spec.external_ips or [],
+        "external_ips":   svc.spec.external_i_ps or [],
         "ports":          ports,
         "selector":       svc.spec.selector or {},
         "endpoints":      endpoints,

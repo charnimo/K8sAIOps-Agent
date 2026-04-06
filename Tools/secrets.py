@@ -1,5 +1,5 @@
 """
-Tools/secrets.py
+tools/secrets.py
 
 Kubernetes Secret read and write operations.
 
@@ -196,6 +196,33 @@ def update_secret(
     except ApiException as e:
         logger.error(f"Failed to update secret {namespace}/{name}: {e}")
         return {"success": False, "message": str(e)}
+
+
+def delete_secret(name: str, namespace: str = "default") -> dict:
+    """
+    Delete a Kubernetes Secret.
+
+    ⚠️  ACTION — requires user approval.
+
+    Args:
+        name:      Secret name
+        namespace: Namespace
+
+    Returns:
+        {"success": bool, "message": str}
+    """
+    core = get_core_v1()
+    try:
+        core.delete_namespaced_secret(name=name, namespace=namespace)
+        logger.info(f"[ACTION] Deleted secret {namespace}/{name}")
+        return {
+            "success": True,
+            "message": f"Secret '{name}' deleted from namespace '{namespace}'.",
+        }
+    except ApiException as e:
+        logger.error(f"Failed to delete secret {namespace}/{name}: {e}")
+        return {"success": False, "message": str(e)}
+
     
 def get_secret_metadata(name: str, namespace: str = "default") -> dict:
     """Get secret metadata and key list without returning secret values."""

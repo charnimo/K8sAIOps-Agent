@@ -1,0 +1,236 @@
+# manifests/test-workloads.yaml
+#
+# Deploy these workloads on minikube before running integration tests:
+#
+#   kubectl apply -f manifests/test-workloads.yaml
+#   kubectl apply -f manifests/test-workloads.yaml  # wait for pods to be Ready
+#   kubectl wait --for=condition=available deployment/nginx-test -n default --timeout=60s
+#
+# Teardown:
+#   kubectl delete -f manifests/test-workloads.yaml
+
+---
+# ─── Healthy Deployment (nginx) ─────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nginx-test
+  namespace: default
+  labels:
+    app: nginx-test
+    aiops-test: "true"
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: nginx-test
+  template:
+    metadata:
+      labels:
+        app: nginx-test
+    spec:
+      containers:
+      - name: nginx
+        image: nginx:1.25
+        ports:
+        - containerPort: 80
+        resources:
+          requests:
+            cpu: "50m"
+            memory: "64Mi"
+          limits:
+            cpu: "100m"
+            memory: "128Mi"
+
+---
+# ─── Service for nginx ──────────────────────────────────────────────────────
+apiVersion: v1
+kind: Service
+metadata:
+  name: nginx-test-svc
+  namespace: default
+  labels:
+    aiops-test: "true"
+spec:
+  selector:
+    app: nginx-test
+  ports:
+  - port: 80
+    targetPort: 80
+    protocol: TCP
+  type: ClusterIP
+
+---
+# ─── CrashLoopBackOff Deployment (for issue detection testing) ───────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: crashloop-test
+  namespace: default
+  labels:
+    app: crashloop-test
+    aiops-test: "true"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: crashloop-test
+  template:
+    metadata:
+      labels:
+        app: crashloop-test
+    spec:
+      containers:
+      - name: crasher
+        image: busybox:1.36
+        command: ["sh", "-c", "echo 'Starting...'; sleep 2; echo 'Crashing!'; exit 1"]
+        resources:
+          requests:
+            cpu: "10m"
+            memory: "16Mi"
+          limits:
+            cpu: "50m"
+            memory: "32Mi"
+
+---
+# ─── Pending Deployment (impossible node selector) ──────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pending-test
+  namespace: default
+  labels:
+    app: pending-test
+    aiops-test: "true"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: pending-test
+  template:
+    metadata:
+      labels:
+        app: pending-test
+    spec:
+      nodeSelector:
+        nonexistent-node-label: "true"   # deliberately impossible
+      containers:
+      - name: busybox
+        image: busybox:1.36
+        command: ["sleep", "3600"]
+        resources:
+          requests:
+            cpu: "10m"
+            memory: "16Mi"
+
+---
+# ─── ConfigMap for testing ────────────────────────────────────────────────────
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: aiops-test-config
+  namespace: default
+  labels:
+    aiops-test: "true"
+data:
+  APP_ENV: "test"
+  LOG_LEVEL: "debug"
+  MAX_CONNECTIONS: "100"
+
+---
+# ─── StatefulSet (simple, for STS testing) ───────────────────────────────────
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: redis-test
+  namespace: default
+  labels:
+    app: redis-test
+    aiops-test: "true"
+spec:
+  serviceName: redis-test-headless
+  replicas: 1
+  selector:
+    matchLabels:
+      app: redis-test
+  template:
+    metadata:
+      labels:
+        app: redis-test
+    spec:
+      containers:
+      - name: redis
+        image: redis:7.2-alpine
+        ports:
+        - containerPort: 6379
+        resources:
+          requests:
+            cpu: "50m"
+            memory: "64Mi"
+          limits:
+            cpu: "100m"
+            memory: "128Mi"
+
+---
+# ─── Headless service for StatefulSet ────────────────────────────────────────
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-test-headless
+  namespace: default
+  labels:
+    aiops-test: "true"
+spec:
+  clusterIP: None
+  selector:
+    app: redis-test
+  ports:
+  - port: 6379
+    targetPort: 6379
+
+---
+# ─── Completed Job (for job testing) ─────────────────────────────────────────
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: hello-job
+  namespace: default
+  labels:
+    aiops-test: "true"
+spec:
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: hello
+        image: busybox:1.36
+        command: ["sh", "-c", "echo 'Job completed successfully'; exit 0"]
+        resources:
+          requests:
+            cpu: "10m"
+            memory: "16Mi"
+
+---
+# ─── CronJob (for cronjob testing) ───────────────────────────────────────────
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: heartbeat-cronjob
+  namespace: default
+  labels:
+    aiops-test: "true"
+spec:
+  schedule: "*/5 * * * *"
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: Never
+          containers:
+          - name: heartbeat
+            image: busybox:1.36
+            command: ["sh", "-c", "echo 'heartbeat'"]
+            resources:
+              requests:
+                cpu: "10m"
+                memory: "16Mi"

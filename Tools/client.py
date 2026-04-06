@@ -1,5 +1,5 @@
 """
-Tools/client.py
+tools/client.py
 
 Kubernetes client initialization.
 Supports:

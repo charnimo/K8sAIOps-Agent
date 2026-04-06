@@ -1,5 +1,5 @@
 """
-Tools/metrics.py
+tools/metrics.py
 
 Resource metrics collection via the Kubernetes Metrics Server.
 
