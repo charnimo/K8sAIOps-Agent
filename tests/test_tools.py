@@ -1322,3 +1322,375 @@ class TestDiagnosticsIntegration:
         # The built-in 'kubernetes' service has no pod selector so it may
         # report NoReadyEndpoints — that's the correct behavior
         assert isinstance(result["issues"], list)
+
+
+class TestStorageIntegration:
+    """Integration tests for storage.py (PV, PVC, StorageClasses)."""
+
+    @skip_no_cluster
+    @pytest.mark.integration
+    def test_list_pvs(self):
+        from tools.storage import list_pvs
+        pvs = list_pvs()
+        assert isinstance(pvs, list)
+
+    @skip_no_cluster
+    @pytest.mark.integration
+    def test_list_pvcs(self):
+        from tools.storage import list_pvcs
+        pvcs = list_pvcs(TEST_NS)
+        assert isinstance(pvcs, list)
+
+    @skip_no_cluster
+    @pytest.mark.integration
+    def test_get_pvc(self):
+        from tools.storage import list_pvcs, get_pvc
+        pvcs = list_pvcs(TEST_NS)
+        if not pvcs:
+            pytest.skip("No PVCs in namespace")
+        pvc = get_pvc(pvcs[0]["name"], TEST_NS)
+        assert pvc["name"] == pvcs[0]["name"]
+        assert "phase" in pvc
+
+    @skip_no_cluster
+    @pytest.mark.integration
+    def test_detect_pvc_issues(self):
+        from tools.storage import list_pvcs, detect_pvc_issues
+        pvcs = list_pvcs(TEST_NS)
+        if not pvcs:
+            pytest.skip("No PVCs in namespace")
+        result = detect_pvc_issues(pvcs[0]["name"], TEST_NS)
+        assert "issues" in result
+        assert "severity" in result
+        assert result["severity"] in ("healthy", "warning", "critical")
+
+    @skip_no_cluster
+    @pytest.mark.integration
+    def test_list_storage_classes(self):
+        from tools.storage import list_storage_classes
+        scs = list_storage_classes()
+        assert isinstance(scs, list)
+
+    @skip_no_cluster
+    @pytest.mark.integration
+    def test_get_storage_class(self):
+        from tools.storage import list_storage_classes, get_storage_class
+        scs = list_storage_classes()
+        if not scs:
+            pytest.skip("No StorageClasses in cluster")
+        sc = get_storage_class(scs[0]["name"])
+        assert sc["name"] == scs[0]["name"]
+        assert "provisioner" in sc
+
+    @skip_no_cluster
+    @pytest.mark.integration
+    def test_create_pvc(self):
+        """Test PVC creation and deletion."""
+        from tools.storage import create_pvc, delete_pvc, list_pvcs
+        pvc_name = "aiops-test-pvc"
+        
+        # Cleanup
+        delete_pvc(pvc_name, TEST_NS)
+        
+        # CREATE
+        result = create_pvc(pvc_name, TEST_NS, size="1Gi", storage_class=None)
+        assert result["success"] is True
+        
+        # Verify it appears
+        pvcs = list_pvcs(TEST_NS)
+        pvc_names = [p["name"] for p in pvcs]
+        assert pvc_name in pvc_names
+        
+        # CLEANUP
+        delete_pvc(pvc_name, TEST_NS)
+
+    @skip_no_cluster
+    @pytest.mark.integration
+    def test_patch_pvc(self):
+        """Test PVC patching."""
+        from tools.storage import create_pvc, patch_pvc, get_pvc, delete_pvc
+        pvc_name = "aiops-patch-pvc"
+        
+        delete_pvc(pvc_name, TEST_NS)
+        create_pvc(pvc_name, TEST_NS, size="1Gi")
+        
+        # PATCH
+        result = patch_pvc(pvc_name, TEST_NS, labels={"patched": "true"})
+        assert result["success"] is True
+        
+        pvc = get_pvc(pvc_name, TEST_NS)
+        assert pvc["labels"].get("patched") == "true"
+        
+        delete_pvc(pvc_name, TEST_NS)
+
+
+class TestIngressIntegration:
+    """Integration tests for ingress.py."""
+
+    @skip_no_cluster
+    @pytest.mark.integration
+    def test_list_ingresses(self):
+        from tools.ingress import list_ingresses
+        ings = list_ingresses(TEST_NS)
+        assert isinstance(ings, list)
+
+    @skip_no_cluster
+    @pytest.mark.integration
+    def test_list_all_ingresses(self):
+        from tools.ingress import list_all_ingresses
+        ings = list_all_ingresses()
+        assert isinstance(ings, list)
+
+    @skip_no_cluster
+    @pytest.mark.integration
+    def test_get_ingress(self):
+        from tools.ingress import list_all_ingresses, get_ingress
+        ings = list_all_ingresses()
+        if not ings:
+            pytest.skip("No Ingresses in cluster")
+        ing = get_ingress(ings[0]["name"], ings[0]["namespace"])
+        assert ing["name"] == ings[0]["name"]
+        assert "hosts" in ing
+
+    @skip_no_cluster
+    @pytest.mark.integration
+    def test_detect_ingress_issues(self):
+        from tools.ingress import list_all_ingresses, detect_ingress_issues
+        ings = list_all_ingresses()
+        if not ings:
+            pytest.skip("No Ingresses in cluster")
+        result = detect_ingress_issues(ings[0]["name"], ings[0]["namespace"])
+        assert "issues" in result
+        assert "severity" in result
+
+    @skip_no_cluster
+    @pytest.mark.integration
+    def test_create_ingress(self):
+        """Test Ingress creation."""
+        from tools.ingress import create_ingress, delete_ingress, list_ingresses
+        ing_name = "aiops-test-ingress"
+        
+        delete_ingress(ing_name, TEST_NS)
+        
+        # CREATE
+        rules = [
+            {
+                "host": "example.local",
+                "paths": [{"path": "/api", "service": "api-svc", "port": 8080}]
+            }
+        ]
+        result = create_ingress(ing_name, TEST_NS, rules=rules)
+        assert result["success"] is True
+        
+        # Verify
+        ings = list_ingresses(TEST_NS)
+        ing_names = [i["name"] for i in ings]
+        assert ing_name in ing_names
+        
+        delete_ingress(ing_name, TEST_NS)
+
+    @skip_no_cluster
+    @pytest.mark.integration
+    def test_patch_ingress(self):
+        """Test Ingress patching."""
+        from tools.ingress import create_ingress, patch_ingress, get_ingress, delete_ingress
+        ing_name = "aiops-patch-ingress"
+        
+        delete_ingress(ing_name, TEST_NS)
+        rules = [{"host": "example.local", "paths": [{"path": "/", "service": "default", "port": 80}]}]
+        create_ingress(ing_name, TEST_NS, rules=rules)
+        
+        # PATCH
+        result = patch_ingress(ing_name, TEST_NS, labels={"patched": "true"})
+        assert result["success"] is True
+        
+        ing = get_ingress(ing_name, TEST_NS)
+        assert ing["labels"].get("patched") == "true"
+        
+        delete_ingress(ing_name, TEST_NS)
+
+
+class TestRBACIntegration:
+    """Integration tests for rbac.py."""
+
+    @skip_no_cluster
+    @pytest.mark.integration
+    def test_list_service_accounts(self):
+        from tools.rbac import list_service_accounts
+        sas = list_service_accounts(TEST_NS)
+        assert isinstance(sas, list)
+
+    @skip_no_cluster
+    @pytest.mark.integration
+    def test_list_all_service_accounts(self):
+        from tools.rbac import list_all_service_accounts
+        sas = list_all_service_accounts()
+        assert isinstance(sas, list)
+        # Should include default service account in each namespace
+        assert len(sas) >= 1
+
+    @skip_no_cluster
+    @pytest.mark.integration
+    def test_get_service_account(self):
+        from tools.rbac import list_service_accounts, get_service_account
+        sas = list_service_accounts(TEST_NS)
+        assert len(sas) >= 1  # default SA always exists
+        sa = get_service_account(sas[0]["name"], TEST_NS)
+        assert sa["name"] == sas[0]["name"]
+        assert "automount_token" in sa
+
+    @skip_no_cluster
+    @pytest.mark.integration
+    def test_list_roles(self):
+        from tools.rbac import list_roles
+        roles = list_roles(TEST_NS)
+        assert isinstance(roles, list)
+
+    @skip_no_cluster
+    @pytest.mark.integration
+    def test_get_role(self):
+        from tools.rbac import list_roles, get_role
+        roles = list_roles("kube-system")
+        if not roles:
+            pytest.skip("No Roles in kube-system")
+        role = get_role(roles[0]["name"], "kube-system")
+        assert role["name"] == roles[0]["name"]
+        assert "rule_count" in role
+
+    @skip_no_cluster
+    @pytest.mark.integration
+    def test_list_cluster_roles(self):
+        from tools.rbac import list_cluster_roles
+        crs = list_cluster_roles()
+        assert isinstance(crs, list)
+        # Should include system ClusterRoles
+        cr_names = [cr["name"] for cr in crs]
+        assert "view" in cr_names or "edit" in cr_names or len(crs) > 0
+
+    @skip_no_cluster
+    @pytest.mark.integration
+    def test_get_cluster_role(self):
+        from tools.rbac import list_cluster_roles, get_cluster_role
+        crs = list_cluster_roles()
+        if not crs:
+            pytest.skip("No ClusterRoles in cluster")
+        cr = get_cluster_role(crs[0]["name"])
+        assert cr["name"] == crs[0]["name"]
+        assert "rule_count" in cr
+
+    @skip_no_cluster
+    @pytest.mark.integration
+    def test_list_role_bindings(self):
+        from tools.rbac import list_role_bindings
+        rbs = list_role_bindings(TEST_NS)
+        assert isinstance(rbs, list)
+
+    @skip_no_cluster
+    @pytest.mark.integration
+    def test_list_cluster_role_bindings(self):
+        from tools.rbac import list_cluster_role_bindings
+        crbs = list_cluster_role_bindings()
+        assert isinstance(crbs, list)
+        # Should include system ClusterRoleBindings
+        assert len(crbs) >= 1
+
+
+class TestHPAIntegration:
+    """Integration tests for hpa.py (HorizontalPodAutoscaler)."""
+
+    @skip_no_cluster
+    @pytest.mark.integration
+    def test_list_hpas(self):
+        from tools.hpa import list_hpas
+        hpas = list_hpas(TEST_NS)
+        assert isinstance(hpas, list)
+
+    @skip_no_cluster
+    @pytest.mark.integration
+    def test_list_all_hpas(self):
+        from tools.hpa import list_all_hpas
+        hpas = list_all_hpas()
+        assert isinstance(hpas, list)
+
+    @skip_no_cluster
+    @pytest.mark.integration
+    def test_get_hpa(self):
+        from tools.hpa import list_all_hpas, get_hpa
+        hpas = list_all_hpas()
+        if not hpas:
+            pytest.skip("No HPAs in cluster")
+        hpa = get_hpa(hpas[0]["name"], hpas[0]["namespace"])
+        assert hpa["name"] == hpas[0]["name"]
+        assert "min_replicas" in hpa
+
+    @skip_no_cluster
+    @pytest.mark.integration
+    def test_detect_hpa_issues(self):
+        from tools.hpa import list_all_hpas, detect_hpa_issues
+        hpas = list_all_hpas()
+        if not hpas:
+            pytest.skip("No HPAs in cluster")
+        result = detect_hpa_issues(hpas[0]["name"], hpas[0]["namespace"])
+        assert "issues" in result
+        assert "severity" in result
+        assert result["severity"] in ("healthy", "warning", "critical")
+
+    @skip_no_cluster
+    @pytest.mark.integration
+    def test_create_hpa(self):
+        """Test HPA creation for a deployment."""
+        from tools.hpa import create_hpa, delete_hpa, list_hpas
+        from tools.deployments import list_deployments
+        
+        deps = list_deployments(TEST_NS)
+        if not deps:
+            pytest.skip("No deployments to test with")
+        
+        hpa_name = "aiops-test-hpa"
+        target_deploy = deps[0]["name"]
+        
+        delete_hpa(hpa_name, TEST_NS)
+        
+        # CREATE
+        result = create_hpa(
+            hpa_name, TEST_NS,
+            target_kind="Deployment",
+            target_name=target_deploy,
+            min_replicas=1,
+            max_replicas=5,
+            target_cpu_percent=80
+        )
+        assert result["success"] is True
+        
+        # Verify
+        hpas = list_hpas(TEST_NS)
+        hpa_names = [h["name"] for h in hpas]
+        assert hpa_name in hpa_names
+        
+        delete_hpa(hpa_name, TEST_NS)
+
+    @skip_no_cluster
+    @pytest.mark.integration
+    def test_patch_hpa(self):
+        """Test HPA patching (update scaling limits)."""
+        from tools.hpa import create_hpa, patch_hpa, get_hpa, delete_hpa
+        from tools.deployments import list_deployments
+        
+        deps = list_deployments(TEST_NS)
+        if not deps:
+            pytest.skip("No deployments to test with")
+        
+        hpa_name = "aiops-patch-hpa"
+        target_deploy = deps[0]["name"]
+        
+        delete_hpa(hpa_name, TEST_NS)
+        create_hpa(hpa_name, TEST_NS, target_name=target_deploy, min_replicas=2, max_replicas=10)
+        
+        # PATCH (update max replicas)
+        result = patch_hpa(hpa_name, TEST_NS, max_replicas=15)
+        assert result["success"] is True
+        
+        hpa = get_hpa(hpa_name, TEST_NS)
+        assert hpa["max_replicas"] == 15
+        
+        delete_hpa(hpa_name, TEST_NS)

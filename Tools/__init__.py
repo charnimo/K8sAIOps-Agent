@@ -86,6 +86,10 @@ from . import (
     metrics,
     diagnostics,
     audit,
+    storage,
+    ingress,
+    rbac,
+    hpa,
 )
 
 __all__ = [
@@ -103,13 +107,18 @@ __all__ = [
     "services",
     "configmaps",
     "secrets",
+    "ingress",
     # Infrastructure
     "nodes",
     "namespaces",
+    "storage",
     # Diagnostics & Analysis
     "events",
     "metrics",
     "diagnostics",
+    # Governance & Scaling
+    "rbac",
+    "hpa",
     # Audit & Governance
     "audit",
 ]
