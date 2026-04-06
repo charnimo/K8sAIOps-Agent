@@ -18,11 +18,12 @@ from datetime import datetime, timezone
 from typing import Optional
 from kubernetes.client.exceptions import ApiException
 from .client import get_core_v1
-from .utils import fmt_duration
+from .utils import fmt_duration, retry_on_transient, validate_namespace, validate_name, sanitize_input
 
 logger = logging.getLogger(__name__)
 
 
+@retry_on_transient(max_attempts=3, backoff_base=1.0)
 def list_services(namespace: str = "default", label_selector: Optional[str] = None) -> list[dict]:
     """
     List services in a namespace with status and endpoint info.
@@ -34,6 +35,11 @@ def list_services(namespace: str = "default", label_selector: Optional[str] = No
     Returns:
         List of service dicts with name, type, cluster_ip, endpoints, age.
     """
+    # Input validation
+    namespace = validate_namespace(namespace)
+    if label_selector:
+        label_selector = sanitize_input(label_selector, "label_selector")
+    
     core = get_core_v1()
     try:
         svc_list = core.list_namespaced_service(namespace=namespace, label_selector=label_selector)
@@ -233,7 +239,23 @@ def delete_service(name: str, namespace: str = "default") -> dict:
     Returns:
         {"success": bool, "message": str}
     """
+    # Input validation + defensive check
+    try:
+        name = validate_name(name)
+        namespace = validate_namespace(namespace)
+    except ValueError as e:
+        return {"success": False, "message": f"Invalid input: {str(e)}"}
+    
     core = get_core_v1()
+    
+    # Defensive check: verify service exists before deleting
+    try:
+        core.read_namespaced_service(name=name, namespace=namespace)
+    except ApiException as e:
+        if e.status == 404:
+            return {"success": False, "message": f"Service {namespace}/{name} not found"}
+        raise
+    
     try:
         core.delete_namespaced_service(name=name, namespace=namespace)
         logger.info(f"[ACTION] Deleted service {namespace}/{name}")

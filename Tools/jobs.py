@@ -22,11 +22,12 @@ from datetime import datetime, timezone
 from typing import Optional
 from kubernetes.client.exceptions import ApiException
 from .client import get_batch_v1
-from .utils import fmt_duration, fmt_time
+from .utils import fmt_duration, fmt_time, retry_on_transient, validate_namespace, validate_name, sanitize_input
 
 logger = logging.getLogger(__name__)
 
 
+@retry_on_transient(max_attempts=3, backoff_base=1.0)
 def list_jobs(namespace: str = "default", label_selector: Optional[str] = None) -> list[dict]:
     """List Jobs in a namespace with status.
 
@@ -110,6 +111,7 @@ def detect_job_issues(name: str, namespace: str = "default") -> dict:
     }
 
 
+@retry_on_transient(max_attempts=3, backoff_base=1.0)
 def list_cronjobs(namespace: str = "default") -> list[dict]:
     """
     List all CronJobs in a namespace.

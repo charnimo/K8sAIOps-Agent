@@ -24,7 +24,7 @@ from kubernetes.client import AppsV1Api
 from kubernetes.client.exceptions import ApiException
 
 from .client import get_apps_v1
-from .utils import fmt_duration, fmt_time
+from .utils import fmt_duration, fmt_time, retry_on_transient, validate_namespace, validate_name, sanitize_input
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +33,7 @@ logger = logging.getLogger(__name__)
 # READ OPERATIONS
 # ─────────────────────────────────────────────
 
+@retry_on_transient(max_attempts=3, backoff_base=1.0)
 def list_daemonsets(namespace: str = "default", label_selector: Optional[str] = None) -> list[dict]:
     """
     List all DaemonSets in a namespace with their status.

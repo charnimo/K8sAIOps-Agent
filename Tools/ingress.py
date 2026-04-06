@@ -13,7 +13,7 @@ from typing import Optional
 
 from kubernetes.client.exceptions import ApiException
 
-from .utils import fmt_time
+from .utils import fmt_time, retry_on_transient
 
 logger = logging.getLogger(__name__)
 
@@ -22,6 +22,7 @@ logger = logging.getLogger(__name__)
 # READ OPERATIONS
 # ─────────────────────────────────────────────
 
+@retry_on_transient(max_attempts=3, backoff_base=1.0)
 def list_ingresses(namespace: str = "default", label_selector: Optional[str] = None) -> list[dict]:
     """
     List Ingress objects in a namespace.

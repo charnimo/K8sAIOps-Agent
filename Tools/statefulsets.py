@@ -25,7 +25,7 @@ from kubernetes import client
 from kubernetes.client.exceptions import ApiException
 
 from .client import get_apps_v1
-from .utils import fmt_duration, fmt_time
+from .utils import fmt_duration, fmt_time, retry_on_transient, validate_namespace, validate_name, validate_replicas, sanitize_input
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +34,7 @@ logger = logging.getLogger(__name__)
 # READ OPERATIONS
 # ─────────────────────────────────────────────
 
+@retry_on_transient(max_attempts=3, backoff_base=1.0)
 def list_statefulsets(namespace: str = "default") -> list[dict]:
     """
     List all StatefulSets in a namespace with their status.
@@ -51,6 +52,7 @@ def list_statefulsets(namespace: str = "default") -> list[dict]:
     return [_summarize_statefulset(sts) for sts in sts_list.items]
 
 
+@retry_on_transient(max_attempts=3, backoff_base=1.0)
 def list_all_statefulsets() -> list[dict]:
     """List StatefulSets across ALL namespaces."""
     apps = get_apps_v1()

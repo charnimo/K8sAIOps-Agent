@@ -18,12 +18,15 @@ from typing import Optional
 from kubernetes import client
 from kubernetes.client.exceptions import ApiException
 from .client import get_core_v1
+from .utils import retry_on_transient, validate_namespace, validate_name, sanitize_input
 
 logger = logging.getLogger(__name__)
 
 
+@retry_on_transient(max_attempts=3, backoff_base=1.0)
 def list_configmaps(namespace: str = "default") -> list[dict]:
     """List all ConfigMaps in a namespace (names + key counts, not full data)."""
+    namespace = validate_namespace(namespace)
     core = get_core_v1()
     try:
         cm_list = core.list_namespaced_config_map(namespace=namespace)
@@ -40,6 +43,7 @@ def list_configmaps(namespace: str = "default") -> list[dict]:
     ]
 
 
+@retry_on_transient(max_attempts=3, backoff_base=1.0)
 def get_configmap(name: str, namespace: str = "default") -> dict:
     """
     Fetch the full data of a ConfigMap.
@@ -47,6 +51,8 @@ def get_configmap(name: str, namespace: str = "default") -> dict:
     Returns:
         {"name": "my-config", "namespace": "default", "data": {"KEY": "value", ...}}
     """
+    name = validate_name(name)
+    namespace = validate_namespace(namespace)
     core = get_core_v1()
     try:
         cm = core.read_namespaced_config_map(name=name, namespace=namespace)
@@ -175,7 +181,23 @@ def delete_configmap(name: str, namespace: str = "default") -> dict:
     Returns:
         {"success": bool, "message": str}
     """
+    # Input validation
+    try:
+        name = validate_name(name)
+        namespace = validate_namespace(namespace)
+    except ValueError as e:
+        return {"success": False, "message": f"Invalid input: {str(e)}"}
+    
     core = get_core_v1()
+    
+    # Defensive check: verify configmap exists before deleting
+    try:
+        core.read_namespaced_config_map(name=name, namespace=namespace)
+    except ApiException as e:
+        if e.status == 404:
+            return {"success": False, "message": f"ConfigMap {namespace}/{name} not found"}
+        raise
+    
     try:
         core.delete_namespaced_config_map(name=name, namespace=namespace)
         logger.info(f"[ACTION] Deleted ConfigMap {namespace}/{name}")

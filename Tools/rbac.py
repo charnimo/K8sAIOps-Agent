@@ -14,7 +14,7 @@ from typing import Optional
 
 from kubernetes.client.exceptions import ApiException
 
-from .utils import fmt_time
+from .utils import fmt_time, retry_on_transient
 
 logger = logging.getLogger(__name__)
 

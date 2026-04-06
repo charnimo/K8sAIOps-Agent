@@ -40,6 +40,11 @@ def diagnose_pod(name: str, namespace: str = "default") -> dict:
     2. Understand why
     3. Suggest a fix
 
+    SMART COLLECTION: Skips unnecessary API calls based on pod status
+    - If Pending: Don't collect logs (pod hasn't started)
+    - If Pending: Don't collect metrics (meaningless)
+    - Only collect prev_logs if pod has CrashLoopBackOff/OOMKilled
+
     Returns:
         {
           "target":     {"kind": "Pod", "name": ..., "namespace": ...},
@@ -63,7 +68,7 @@ def diagnose_pod(name: str, namespace: str = "default") -> dict:
         "metrics":   {},
     }
 
-    # 1. Issue detection
+    # 1. Issue detection (ALWAYS run first — determines rest of collection)
     try:
         issue_data = detect_pod_issues(name, namespace)
         result["issues"]   = issue_data["issues"]
@@ -72,32 +77,36 @@ def diagnose_pod(name: str, namespace: str = "default") -> dict:
     except Exception as e:
         logger.warning(f"Could not detect issues for pod {namespace}/{name}: {e}")
         result["severity"] = "unknown"
+        return result  # Early exit if we can't determine status
 
-    # 2. Events
-    try:
-        result["events"] = get_pod_events(name, namespace)
-    except Exception as e:
-        logger.warning(f"Could not fetch events for pod {namespace}/{name}: {e}")
+    # 2. Events (skip if Pending — won't tell us much)
+    if "Pending" not in result["issues"]:
+        try:
+            result["events"] = get_pod_events(name, namespace)
+        except Exception as e:
+            logger.warning(f"Could not fetch events for pod {namespace}/{name}: {e}")
 
-    # 3. Current logs
-    try:
-        result["logs"] = get_pod_logs(name, namespace, tail_lines=100)
-    except Exception as e:
-        logger.warning(f"Could not fetch logs for pod {namespace}/{name}: {e}")
+    # 3. Current logs (SKIP if Pending — pod hasn't started running)
+    if "Pending" not in result["issues"]:
+        try:
+            result["logs"] = get_pod_logs(name, namespace, tail_lines=100)
+        except Exception as e:
+            logger.warning(f"Could not fetch logs for pod {namespace}/{name}: {e}")
 
-    # 4. Previous logs (useful for CrashLoopBackOff)
+    # 4. Previous logs (ONLY if crashed - saves API call for healthy pods)
     if any(issue in result["issues"] for issue in ["CrashLoopBackOff", "OOMKilled", "HighRestartCount"]):
         try:
             result["prev_logs"] = get_pod_logs(name, namespace, previous=True, tail_lines=100)
         except Exception:
             result["prev_logs"] = "[No previous logs available]"
 
-    # 5. Metrics
-    try:
-        result["metrics"] = get_pod_metrics(name, namespace)
-    except Exception as e:
-        logger.warning(f"Could not fetch metrics for pod {namespace}/{name}: {e}")
-        result["metrics"] = {"error": "Metrics Server unavailable"}
+    # 5. Metrics (SKIP if Pending — pod not running yet)
+    if "Pending" not in result["issues"]:
+        try:
+            result["metrics"] = get_pod_metrics(name, namespace)
+        except Exception as e:
+            logger.warning(f"Could not fetch metrics for pod {namespace}/{name}: {e}")
+            result["metrics"] = {"error": "Metrics Server unavailable"}
 
     return result
 

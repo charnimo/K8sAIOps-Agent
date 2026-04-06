@@ -21,7 +21,7 @@ from typing import Optional
 from kubernetes.client.exceptions import ApiException
 
 from .client import get_core_v1
-from .utils import fmt_duration, fmt_time
+from .utils import fmt_duration, fmt_time, retry_on_transient, validate_name, sanitize_input
 from .events import _sort_events
 
 logger = logging.getLogger(__name__)
@@ -40,6 +40,7 @@ _BAD_CONDITIONS = {
 # READ OPERATIONS
 # ─────────────────────────────────────────────
 
+@retry_on_transient(max_attempts=3, backoff_base=1.0)
 def list_nodes() -> list[dict]:
     """List all cluster nodes with status summaries."""
     core = get_core_v1()

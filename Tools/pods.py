@@ -23,15 +23,16 @@ from kubernetes.client import CoreV1Api
 from kubernetes.client.exceptions import ApiException
 
 from .client import get_core_v1
-from .utils import fmt_time, fmt_duration
+from .utils import fmt_time, fmt_duration, retry_on_transient, validate_namespace, sanitize_input
 from .events import _sort_events
 
 logger = logging.getLogger(__name__)
 
 # ─────────────────────────────────────────────
-# READ OPERATIONS
+# READ OPERATIONS (with retry logic)
 # ─────────────────────────────────────────────
 
+@retry_on_transient(max_attempts=3, backoff_base=1.0)
 def list_pods(namespace: str = "default", label_selector: Optional[str] = None) -> list[dict]:
     """
     List pods in a namespace with their key status fields.
@@ -43,6 +44,11 @@ def list_pods(namespace: str = "default", label_selector: Optional[str] = None) 
     Returns a list of dicts with:
       name, namespace, phase, ready, restarts, node, age, conditions, containers
     """
+    # Input validation
+    namespace = validate_namespace(namespace)
+    if label_selector:
+        label_selector = sanitize_input(label_selector, "label_selector")
+    
     core: CoreV1Api = get_core_v1()
     try:
         pod_list = core.list_namespaced_pod(namespace=namespace, label_selector=label_selector)
@@ -314,9 +320,23 @@ def delete_pod(name: str, namespace: str = "default") -> dict:
 
     Returns: {"success": True/False, "message": str}
     """
+    # Defensive check + input validation
+    name = sanitize_input(name, "pod_name")
+    namespace = validate_namespace(namespace)
+    
     core: CoreV1Api = get_core_v1()
+    
+    # Check pod exists before deleting (defensive)
     try:
-        core.delete_namespaced_pod(name=name, namespace=namespace)
+        core.read_namespaced_pod(name=name, namespace=namespace)
+    except ApiException as e:
+        if e.status == 404:
+            logger.warning(f"Pod {namespace}/{name} not found (already deleted?)")
+            return {"success": False, "message": "Pod not found (already deleted?)"}
+        raise
+    
+    try:
+        core.delete_namespaced_pod(name=name, namespace=namespace, grace_period_seconds=30)
         logger.info(f"[ACTION] Deleted pod {namespace}/{name} to force restart")
         return {"success": True, "message": f"Pod {namespace}/{name} deleted. It will be recreated by its controller."}
     except ApiException as e:

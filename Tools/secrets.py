@@ -23,6 +23,7 @@ from kubernetes import client
 from kubernetes.client.exceptions import ApiException
 
 from .client import get_core_v1
+from .utils import retry_on_transient, validate_namespace, validate_name, sanitize_input
 
 logger = logging.getLogger(__name__)
 
@@ -40,9 +41,10 @@ def _summarize_secret(sec) -> dict:
 
 
 # ─────────────────────────────────────────────
-# READ OPERATIONS
+# READ OPERATIONS (with retry)
 # ─────────────────────────────────────────────
 
+@retry_on_transient(max_attempts=3, backoff_base=1.0)
 def list_secrets(namespace: str = "default") -> list[dict]:
     """
     List all secrets in a namespace.
@@ -58,6 +60,7 @@ def list_secrets(namespace: str = "default") -> list[dict]:
     return [_summarize_secret(sec) for sec in secret_list.items]
 
 
+@retry_on_transient(max_attempts=3, backoff_base=1.0)
 def check_secret(name: str, namespace: str = "default") -> dict:
     """
     Verify a Secret exists and return its key names (NOT values).
@@ -211,7 +214,23 @@ def delete_secret(name: str, namespace: str = "default") -> dict:
     Returns:
         {"success": bool, "message": str}
     """
+    # Input validation
+    try:
+        name = validate_name(name)
+        namespace = validate_namespace(namespace)
+    except ValueError as e:
+        return {"success": False, "message": f"Invalid input: {str(e)}"}
+    
     core = get_core_v1()
+    
+    # Defensive check
+    try:
+        core.read_namespaced_secret(name=name, namespace=namespace)
+    except ApiException as e:
+        if e.status == 404:
+            return {"success": False, "message": f"Secret {namespace}/{name} not found"}
+        raise
+    
     try:
         core.delete_namespaced_secret(name=name, namespace=namespace)
         logger.info(f"[ACTION] Deleted secret {namespace}/{name}")

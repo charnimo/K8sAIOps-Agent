@@ -24,7 +24,7 @@ from kubernetes.client import AppsV1Api
 from kubernetes.client.exceptions import ApiException
 
 from .client import get_apps_v1, get_core_v1
-from .utils import fmt_duration, fmt_time
+from .utils import fmt_duration, fmt_time, retry_on_transient, validate_namespace, validate_replicas, sanitize_input, validate_resource_limits
 from .events import _sort_events
 
 logger = logging.getLogger(__name__)
@@ -122,12 +122,25 @@ def scale_deployment(
     Returns:
         {"success": bool, "message": str, "previous_replicas": int, "new_replicas": int}
     """
-    if replicas < 0:
-        return {"success": False, "message": "Replica count cannot be negative."}
+    # Input validation
+    try:
+        name = sanitize_input(name, "deployment_name")
+        namespace = validate_namespace(namespace)
+        replicas = validate_replicas(replicas)
+    except ValueError as e:
+        return {"success": False, "message": f"Invalid input: {str(e)}"}
 
     apps: AppsV1Api = get_apps_v1()
+    
+    # Defensive check: verify deployment exists before scaling
     try:
         dep = apps.read_namespaced_deployment(name=name, namespace=namespace)
+    except ApiException as e:
+        if e.status == 404:
+            return {"success": False, "message": f"Deployment {namespace}/{name} not found"}
+        raise
+    
+    try:
         previous = dep.spec.replicas
 
         dep.spec.replicas = replicas
