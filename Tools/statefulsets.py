@@ -64,6 +64,7 @@ def list_all_statefulsets() -> list[dict]:
     return [_summarize_statefulset(sts) for sts in sts_list.items]
 
 
+@retry_on_transient(max_attempts=3, backoff_base=1.0)
 def get_statefulset(name: str, namespace: str = "default") -> dict:
     """Fetch a detailed summary for a single StatefulSet."""
     apps = get_apps_v1()

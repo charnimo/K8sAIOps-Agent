@@ -199,7 +199,9 @@ class TestAudit:
         log_file = tmp_path / "audit.jsonl"
         monkeypatch.setenv("K8S_AUDIT_LOG_FILE", str(log_file))
         import importlib
+        import tools.config as config
         import tools.audit as audit
+        importlib.reload(config)
         importlib.reload(audit)
 
         audit.log_action("delete_pod", "broken-pod", "staging", False,
@@ -214,7 +216,9 @@ class TestAudit:
     def test_get_action_history_empty(self, tmp_path, monkeypatch):
         monkeypatch.setenv("K8S_AUDIT_LOG_FILE", str(tmp_path / "empty.jsonl"))
         import importlib
+        import tools.config as config
         import tools.audit as audit
+        importlib.reload(config)
         importlib.reload(audit)
         assert audit.get_action_history() == []
 
@@ -223,7 +227,9 @@ class TestAudit:
         log_file = tmp_path / "audit.jsonl"
         monkeypatch.setenv("K8S_AUDIT_LOG_FILE", str(log_file))
         import importlib
+        import tools.config as config
         import tools.audit as audit
+        importlib.reload(config)
         importlib.reload(audit)
 
         audit.log_action("scale_deployment", "api", "default", True)
@@ -240,7 +246,9 @@ class TestAudit:
         log_file = tmp_path / "audit.jsonl"
         monkeypatch.setenv("K8S_AUDIT_LOG_FILE", str(log_file))
         import importlib
+        import tools.config as config
         import tools.audit as audit
+        importlib.reload(config)
         importlib.reload(audit)
 
         # Write one old and one recent entry

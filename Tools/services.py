@@ -50,6 +50,7 @@ def list_services(namespace: str = "default", label_selector: Optional[str] = No
     return [_summarize_service(svc) for svc in svc_list.items]
 
 
+@retry_on_transient(max_attempts=3, backoff_base=1.0)
 def list_all_services(label_selector: Optional[str] = None) -> list[dict]:
     """List services across ALL namespaces.
     
@@ -65,6 +66,7 @@ def list_all_services(label_selector: Optional[str] = None) -> list[dict]:
     return [_summarize_service(svc) for svc in svc_list.items]
 
 
+@retry_on_transient(max_attempts=3, backoff_base=1.0)
 def get_service(name: str, namespace: str = "default") -> dict:
     """
     Fetch a detailed summary for a single service.

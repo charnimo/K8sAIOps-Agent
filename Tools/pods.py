@@ -24,7 +24,7 @@ from kubernetes.client.exceptions import ApiException
 
 from .client import get_core_v1
 from .utils import fmt_time, fmt_duration, retry_on_transient, validate_namespace, sanitize_input
-from .events import _sort_events
+from .events import sort_events
 
 logger = logging.getLogger(__name__)
 
@@ -242,7 +242,7 @@ def get_pod_events(name: str, namespace: str = "default") -> list[dict]:
             "last_time":  fmt_time(ev.last_timestamp),
         })
 
-    return _sort_events(events)
+    return sort_events(events)
 
 
 def detect_pod_issues(name: str, namespace: str = "default") -> dict:

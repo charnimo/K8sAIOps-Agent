@@ -111,15 +111,17 @@ def diagnose_pod(name: str, namespace: str = "default") -> dict:
     return result
 
 
-def diagnose_deployment(name: str, namespace: str = "default", include_pod_details: bool = False) -> dict:
+def diagnose_deployment(name: str, namespace: str = "default", include_pod_details: bool = False, include_resource_pressure: bool = False) -> dict:
     """
     Produce a diagnosis bundle for a Deployment and its pods.
 
     Args:
-        name:                  Deployment name
-        namespace:             Target namespace
-        include_pod_details:   If True, run full diagnose_pod() on each related pod (slower, more thorough)
-                               If False (default), only return lightweight pod status (fast, ~1-2 API calls total)
+        name:                      Deployment name
+        namespace:                 Target namespace
+        include_pod_details:       If True, run full diagnose_pod() on each related pod (slower, more thorough)
+                                   If False (default), only return lightweight pod status (fast, ~1-2 API calls total)
+        include_resource_pressure: If True, run detect_resource_pressure() for the namespace (expensive — ~N API calls)
+                                   If False (default), skip this analysis (fast, good for large namespaces)
 
     Returns:
         {
@@ -128,7 +130,7 @@ def diagnose_deployment(name: str, namespace: str = "default", include_pod_detai
           "events":      [...],   # deployment events
           "pod_statuses": [...],  # lightweight pod status (always included)
           "pod_diagnoses": [...], # only if include_pod_details=True (expensive!)
-          "resource_pressure": {...},  # memory/cpu pressure analysis
+          "resource_pressure": {...},  # only if include_resource_pressure=True (expensive!)
         }
     """
     result: dict = {
@@ -145,6 +147,10 @@ def diagnose_deployment(name: str, namespace: str = "default", include_pod_detai
         result["deployment"] = get_deployment(name, namespace)
     except Exception as e:
         logger.warning(f"Could not get deployment {namespace}/{name}: {e}")
+        return {
+            **result,
+            "error": f"Failed to get deployment: {e}",
+        }
 
     # 2. Deployment-level events
     try:
@@ -158,31 +164,36 @@ def diagnose_deployment(name: str, namespace: str = "default", include_pod_detai
         all_pods = list_pods(namespace)
         selector = result["deployment"].get("selector", {})
 
-        related_pods = [
-            p for p in all_pods
-            if _labels_match(p.get("labels", {}), selector)
-        ]
-        
-        # Always return lightweight pod status
-        result["pod_statuses"] = related_pods
+        if not selector:
+            logger.warning(f"Deployment {namespace}/{name} has no selector label")
+            result["pod_statuses"] = []
+        else:
+            related_pods = [
+                p for p in all_pods
+                if _labels_match(p.get("labels", {}), selector)
+            ]
+            
+            # Always return lightweight pod status
+            result["pod_statuses"] = related_pods
 
-        # Optionally run expensive per-pod diagnosis (4-5 API calls per pod)
-        if include_pod_details:
-            for pod in related_pods:
-                try:
-                    diag = diagnose_pod(pod["name"], namespace)
-                    result["pod_diagnoses"].append(diag)
-                except Exception as e:
-                    logger.warning(f"Could not diagnose pod {pod['name']}: {e}")
+            # Optionally run expensive per-pod diagnosis (4-5 API calls per pod)
+            if include_pod_details:
+                for pod in related_pods:
+                    try:
+                        diag = diagnose_pod(pod["name"], namespace)
+                        result["pod_diagnoses"].append(diag)
+                    except Exception as e:
+                        logger.warning(f"Could not diagnose pod {pod['name']}: {e}")
 
     except Exception as e:
         logger.warning(f"Could not list pods for deployment {namespace}/{name}: {e}")
 
-    # 4. Resource pressure analysis
-    try:
-        result["resource_pressure"] = detect_resource_pressure(namespace)
-    except Exception as e:
-        logger.warning(f"Resource pressure analysis failed: {e}")
+    # 4. Resource pressure analysis (ONLY if explicitly requested — expensive!)
+    if include_resource_pressure:
+        try:
+            result["resource_pressure"] = detect_resource_pressure(namespace)
+        except Exception as e:
+            logger.warning(f"Resource pressure analysis failed: {e}")
 
     return result
 
@@ -426,24 +437,6 @@ def _safe_call(func, default, context: str):
     except Exception as e:
         logger.debug(f"Safe call failed ({context}): {e}")
         return default
-
-
-def get_apps_v1():
-    """Import lazily to avoid circular imports."""
-    from .client import get_apps_v1 as _get_apps_v1
-    return _get_apps_v1()
-
-
-def list_pods(namespace: str = "default"):
-    """Import lazily."""
-    from .pods import list_pods as _list_pods
-    return _list_pods(namespace)
-
-
-def list_services(namespace: str = "default"):
-    """Import lazily."""
-    from .services import list_services as _list_services
-    return _list_services(namespace)
 
 
 # ─────────────────────────────────────────────

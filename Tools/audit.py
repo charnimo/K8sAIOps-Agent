@@ -18,11 +18,9 @@ from datetime import datetime, timezone, timedelta
 from typing import Optional, Any
 from pathlib import Path
 
-logger = logging.getLogger(__name__)
+from .config import AUDIT_LOG_FILE
 
-# Audit log file location (can be overridden via env var)
-import os
-AUDIT_LOG_FILE = os.getenv("K8S_AUDIT_LOG_FILE", "/tmp/k8s-agent-audit.jsonl")
+logger = logging.getLogger(__name__)
 
 
 def log_action(

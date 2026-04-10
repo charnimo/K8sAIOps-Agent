@@ -28,6 +28,23 @@ from .utils import retry_on_transient, validate_namespace, validate_name, saniti
 logger = logging.getLogger(__name__)
 
 
+def _decode_secret_value(encoded_value: str) -> str:
+    """
+    Decode a base64-encoded secret value.
+    
+    Args:
+        encoded_value: Base64-encoded string from Kubernetes API
+        
+    Returns:
+        Decoded plaintext string
+    """
+    try:
+        return base64.b64decode(encoded_value).decode('utf-8')
+    except Exception as e:
+        logger.warning(f"Failed to decode secret value: {e}")
+        return ""
+
+
 def _summarize_secret(sec) -> dict:
     return {
         "name": sec.metadata.name,
@@ -102,6 +119,78 @@ def check_secret(name: str, namespace: str = "default") -> dict:
 def secret_exists(name: str, namespace: str = "default") -> bool:
     """Return True if a secret exists, False if not."""
     return check_secret(name, namespace)["exists"]
+
+
+@retry_on_transient(max_attempts=3, backoff_base=1.0)
+def get_secret_values(name: str, namespace: str = "default") -> dict:
+    """
+    Get secret key-value pairs with proper base64 decoding.
+
+    ⚠️  Use with caution — returns plaintext secret values.
+    Do NOT log or expose these values in production.
+
+    NOTE: Kubernetes Python SDK behavior varies by version:
+      - Some versions return secret.data values as bytes (need base64 decode)
+      - Other versions return them as already-decoded strings (no decode needed)
+    This function handles both transparently.
+
+    Returns:
+        {
+          "exists": True/False,
+          "name": "my-secret",
+          "namespace": "default",
+          "type": "Opaque",
+          "data": {"DB_PASSWORD": "plaintext_value", ...},  # decoded
+          "error": None  # or error message
+        }
+    """
+    core = get_core_v1()
+    try:
+        secret = core.read_namespaced_secret(name=name, namespace=namespace)
+        decoded_data = {}
+        if secret.data:
+            for key, value in secret.data.items():
+                # Handle different SDK return types
+                if isinstance(value, bytes):
+                    # Bytes: needs base64 decode
+                    try:
+                        decoded_data[key] = base64.b64decode(value).decode('utf-8')
+                    except Exception as e:
+                        logger.warning(f"Failed to decode secret key '{key}': {e}")
+                        decoded_data[key] = ""
+                elif isinstance(value, str):
+                    # String: check if it looks base64 or is already plaintext
+                    # Most K8s API returns base64-encoded strings
+                    try:
+                        decoded_data[key] = base64.b64decode(value).decode('utf-8')
+                    except Exception:
+                        # If it fails to decode as base64, assume it's already plaintext
+                        # (This is rare but can happen with some SDK versions)
+                        decoded_data[key] = value
+                else:
+                    # Unknown type - log warning and skip
+                    logger.warning(f"Secret key '{key}' has unexpected type {type(value)}")
+                    decoded_data[key] = ""
+        
+        return {
+            "exists": True,
+            "name": secret.metadata.name,
+            "namespace": secret.metadata.namespace,
+            "type": secret.type,
+            "data": decoded_data,
+            "error": None,
+        }
+    except ApiException as e:
+        if e.status == 404:
+            return {
+                "exists": False,
+                "name": name,
+                "namespace": namespace,
+                "type": None,
+                "data": {},
+                "error": f"Secret '{name}' not found in namespace '{namespace}'.",
+            }
+        raise
 
 
 # ─────────────────────────────────────────────

@@ -13,6 +13,7 @@ from typing import Optional
 
 from kubernetes.client.exceptions import ApiException
 
+from .client import get_networking_v1
 from .utils import fmt_time, retry_on_transient
 
 logger = logging.getLogger(__name__)
@@ -35,9 +36,7 @@ def list_ingresses(namespace: str = "default", label_selector: Optional[str] = N
         List of Ingress summaries with hosts, backends, TLS info
     """
     try:
-        from kubernetes.client import NetworkingV1Api
-
-        net_api = NetworkingV1Api()
+        net_api = get_networking_v1()
         ingresses = net_api.list_namespaced_ingress(namespace, label_selector=label_selector)
         return [_summarize_ingress(ing) for ing in ingresses.items]
     except ApiException as e:
@@ -48,9 +47,7 @@ def list_ingresses(namespace: str = "default", label_selector: Optional[str] = N
 def list_all_ingresses(label_selector: Optional[str] = None) -> list[dict]:
     """List Ingresses across all namespaces."""
     try:
-        from kubernetes.client import NetworkingV1Api
-
-        net_api = NetworkingV1Api()
+        net_api = get_networking_v1()
         ingresses = net_api.list_ingress_for_all_namespaces(label_selector=label_selector)
         return [_summarize_ingress(ing) for ing in ingresses.items]
     except ApiException as e:
@@ -61,9 +58,7 @@ def list_all_ingresses(label_selector: Optional[str] = None) -> list[dict]:
 def get_ingress(name: str, namespace: str = "default") -> dict:
     """Get a single Ingress object."""
     try:
-        from kubernetes.client import NetworkingV1Api
-
-        net_api = NetworkingV1Api()
+        net_api = get_networking_v1()
         ingress = net_api.read_namespaced_ingress(name, namespace)
         return _summarize_ingress(ingress)
     except ApiException as e:
@@ -79,9 +74,7 @@ def detect_ingress_issues(name: str, namespace: str = "default") -> dict:
         {"issues": [str], "severity": "healthy" | "warning" | "critical"}
     """
     try:
-        from kubernetes.client import NetworkingV1Api
-
-        net_api = NetworkingV1Api()
+        net_api = get_networking_v1()
         ingress = net_api.read_namespaced_ingress(name, namespace)
     except ApiException as e:
         return {"issues": [f"Ingress not found: {e}"], "severity": "critical"}
@@ -136,7 +129,6 @@ def create_ingress(
         {"success": bool, "message": str}
     """
     from kubernetes import client
-    from kubernetes.client import NetworkingV1Api
 
     if not rules:
         rules = []
@@ -188,7 +180,7 @@ def create_ingress(
             ),
         )
 
-        net_api = NetworkingV1Api()
+        net_api = get_networking_v1()
         net_api.create_namespaced_ingress(namespace, ingress_body)
         logger.info(f"[ACTION] Created Ingress {namespace}/{name}")
         return {"success": True, "message": f"Ingress {namespace}/{name} created successfully."}
@@ -207,9 +199,7 @@ def delete_ingress(name: str, namespace: str = "default") -> dict:
         {"success": bool, "message": str}
     """
     try:
-        from kubernetes.client import NetworkingV1Api
-
-        net_api = NetworkingV1Api()
+        net_api = get_networking_v1()
         net_api.delete_namespaced_ingress(name, namespace)
         logger.info(f"[ACTION] Deleted Ingress {namespace}/{name}")
         return {"success": True, "message": f"Ingress {namespace}/{name} deleted."}
@@ -241,9 +231,7 @@ def patch_ingress(
                 patch_body["metadata"] = {}
             patch_body["metadata"]["annotations"] = annotations
 
-        from kubernetes.client import NetworkingV1Api
-
-        net_api = NetworkingV1Api()
+        net_api = get_networking_v1()
         net_api.patch_namespaced_ingress(name, namespace, patch_body)
         logger.info(f"[ACTION] Patched Ingress {namespace}/{name}")
         return {"success": True, "message": f"Ingress {namespace}/{name} patched."}
@@ -258,19 +246,19 @@ def patch_ingress(
 
 def _summarize_ingress(ingress) -> dict:
     """Convert Ingress object to clean dict."""
-    spec = ingress.spec or {}
-    status = ingress.status or {}
+    spec = ingress.spec
+    status = ingress.status
 
     # Extract hosts and paths
     hosts = []
-    if spec.rules:
+    if spec and spec.rules:
         for rule in spec.rules:
             if rule.host:
                 hosts.append(rule.host)
 
     # Extract service backends
     backends = []
-    if spec.rules:
+    if spec and spec.rules:
         for rule in spec.rules:
             if rule.http and rule.http.paths:
                 for path in rule.http.paths:
@@ -285,14 +273,14 @@ def _summarize_ingress(ingress) -> dict:
 
     # Extract ingress IP
     ingress_ip = None
-    if status.load_balancer and status.load_balancer.ingress:
+    if status and status.load_balancer and status.load_balancer.ingress:
         for ing in status.load_balancer.ingress:
             ingress_ip = ing.ip or ing.hostname
             break
 
     # Extract TLS
     tls_hosts = []
-    if spec.tls:
+    if spec and spec.tls:
         for tls in spec.tls:
             tls_hosts.extend(tls.hosts or [])
 

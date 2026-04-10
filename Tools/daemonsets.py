@@ -54,6 +54,7 @@ def list_daemonsets(namespace: str = "default", label_selector: Optional[str] = 
     return [_summarize_daemonset(ds) for ds in ds_list.items]
 
 
+@retry_on_transient(max_attempts=3, backoff_base=1.0)
 def list_all_daemonsets(label_selector: Optional[str] = None) -> list[dict]:
     """List DaemonSets across ALL namespaces.
     
@@ -69,6 +70,7 @@ def list_all_daemonsets(label_selector: Optional[str] = None) -> list[dict]:
     return [_summarize_daemonset(ds) for ds in ds_list.items]
 
 
+@retry_on_transient(max_attempts=3, backoff_base=1.0)
 def get_daemonset(name: str, namespace: str = "default") -> dict:
     """Fetch a detailed summary for a single DaemonSet."""
     apps: AppsV1Api = get_apps_v1()
@@ -86,7 +88,6 @@ def detect_daemonset_issues(name: str, namespace: str = "default") -> dict:
 
     DaemonSet-specific failure modes:
     - NotReady:        fewer ready pods than desired (some nodes not running pod)
-    - UpdateStalled:   update_revision != current_revision (stuck rolling update)
     - Misscheduled:    pods running on nodes they shouldn't be
     - PartiallyReady:  some but not all desired pods are ready
 
@@ -112,16 +113,11 @@ def detect_daemonset_issues(name: str, namespace: str = "default") -> dict:
         if ready > 0:
             issues.append("PartiallyReady")
 
-    # A stuck rolling update
-    if (summary.get("update_revision") and summary.get("current_revision")
-            and summary["update_revision"] != summary["current_revision"]):
-        issues.append("UpdateStalled")
-
     if misscheduled > 0:
         issues.append("Misscheduled")
 
     severity = "healthy"
-    if "NotReady" in issues or "UpdateStalled" in issues:
+    if "NotReady" in issues:
         severity = "critical"
     elif issues:
         severity = "warning"
@@ -153,6 +149,10 @@ def restart_daemonset(name: str, namespace: str = "default") -> dict:
     Returns:
         {"success": bool, "message": str}
     """
+    # Input validation
+    name = sanitize_input(name, "daemonset_name")
+    namespace = validate_namespace(namespace)
+    
     apps: AppsV1Api = get_apps_v1()
     now = fmt_time(datetime.now(timezone.utc))
     patch_body = {
@@ -198,8 +198,16 @@ def update_daemonset_image(
     Returns:
         {"success": bool, "message": str, "previous_image": str, "new_image": str}
     """
+    # Input validation
+    name = sanitize_input(name, "daemonset_name")
+    namespace = validate_namespace(namespace)
+    if container:
+        container = sanitize_input(container, "container_name")
+    if image:
+        image = sanitize_input(image, "image_uri")
+    
     if not container or not image:
-        return {"success": False, "message": "Both container name and image are required."}
+        return {"success": False, "message": "container and image parameters are required."}
 
     apps: AppsV1Api = get_apps_v1()
     try:
@@ -268,9 +276,6 @@ def _summarize_daemonset(ds) -> dict:
         "number_unavailable":            (status.number_unavailable or 0) if status else 0,
         "number_misscheduled":           (status.number_misscheduled or 0) if status else 0,
         "updated_number_scheduled":      (status.updated_number_scheduled or 0) if status else 0,
-        # observed_generation tracks the controller generation (used for update detection)
-        "current_revision":              (status.observed_generation) if status else None,
-        "update_revision":               ds.metadata.generation if ds.metadata else None,
         "containers":                    containers,
         "selector":                      ds.spec.selector.match_labels or {},
         "node_selector":                 ds.spec.template.spec.node_selector or {},

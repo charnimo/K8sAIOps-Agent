@@ -14,6 +14,7 @@ from typing import Optional
 
 from kubernetes.client.exceptions import ApiException
 
+from .client import get_rbac_v1, get_core_v1
 from .utils import fmt_time, retry_on_transient
 
 logger = logging.getLogger(__name__)
@@ -26,9 +27,7 @@ logger = logging.getLogger(__name__)
 def list_service_accounts(namespace: str = "default") -> list[dict]:
     """List ServiceAccounts in a namespace."""
     try:
-        from kubernetes.client import CoreV1Api
-
-        v1 = CoreV1Api()
+        v1 = get_core_v1()
         sas = v1.list_namespaced_service_account(namespace)
         return [_summarize_service_account(sa) for sa in sas.items]
     except ApiException as e:
@@ -39,9 +38,7 @@ def list_service_accounts(namespace: str = "default") -> list[dict]:
 def list_all_service_accounts() -> list[dict]:
     """List all ServiceAccounts across all namespaces."""
     try:
-        from kubernetes.client import CoreV1Api
-
-        v1 = CoreV1Api()
+        v1 = get_core_v1()
         sas = v1.list_service_account_for_all_namespaces()
         return [_summarize_service_account(sa) for sa in sas.items]
     except ApiException as e:
@@ -52,9 +49,7 @@ def list_all_service_accounts() -> list[dict]:
 def get_service_account(name: str, namespace: str = "default") -> dict:
     """Get a single ServiceAccount."""
     try:
-        from kubernetes.client import CoreV1Api
-
-        v1 = CoreV1Api()
+        v1 = get_core_v1()
         sa = v1.read_namespaced_service_account(name, namespace)
         return _summarize_service_account(sa)
     except ApiException as e:
@@ -69,9 +64,7 @@ def get_service_account(name: str, namespace: str = "default") -> dict:
 def list_roles(namespace: str = "default", label_selector: Optional[str] = None) -> list[dict]:
     """List Roles in a namespace."""
     try:
-        from kubernetes.client import RbacAuthorizationV1Api
-
-        rbac_api = RbacAuthorizationV1Api()
+        rbac_api = get_rbac_v1()
         roles = rbac_api.list_namespaced_role(namespace, label_selector=label_selector)
         return [_summarize_role(role) for role in roles.items]
     except ApiException as e:
@@ -82,9 +75,7 @@ def list_roles(namespace: str = "default", label_selector: Optional[str] = None)
 def get_role(name: str, namespace: str = "default") -> dict:
     """Get a single Role."""
     try:
-        from kubernetes.client import RbacAuthorizationV1Api
-
-        rbac_api = RbacAuthorizationV1Api()
+        rbac_api = get_rbac_v1()
         role = rbac_api.read_namespaced_role(name, namespace)
         return _summarize_role(role)
     except ApiException as e:
@@ -99,9 +90,7 @@ def get_role(name: str, namespace: str = "default") -> dict:
 def list_cluster_roles(label_selector: Optional[str] = None) -> list[dict]:
     """List all ClusterRoles in the cluster."""
     try:
-        from kubernetes.client import RbacAuthorizationV1Api
-
-        rbac_api = RbacAuthorizationV1Api()
+        rbac_api = get_rbac_v1()
         cluster_roles = rbac_api.list_cluster_role(label_selector=label_selector)
         return [_summarize_cluster_role(cr) for cr in cluster_roles.items]
     except ApiException as e:
@@ -112,9 +101,7 @@ def list_cluster_roles(label_selector: Optional[str] = None) -> list[dict]:
 def get_cluster_role(name: str) -> dict:
     """Get a single ClusterRole."""
     try:
-        from kubernetes.client import RbacAuthorizationV1Api
-
-        rbac_api = RbacAuthorizationV1Api()
+        rbac_api = get_rbac_v1()
         cluster_role = rbac_api.read_cluster_role(name)
         return _summarize_cluster_role(cluster_role)
     except ApiException as e:
@@ -129,9 +116,7 @@ def get_cluster_role(name: str) -> dict:
 def list_role_bindings(namespace: str = "default", label_selector: Optional[str] = None) -> list[dict]:
     """List RoleBindings in a namespace."""
     try:
-        from kubernetes.client import RbacAuthorizationV1Api
-
-        rbac_api = RbacAuthorizationV1Api()
+        rbac_api = get_rbac_v1()
         bindings = rbac_api.list_namespaced_role_binding(namespace, label_selector=label_selector)
         return [_summarize_role_binding(binding) for binding in bindings.items]
     except ApiException as e:
@@ -142,9 +127,7 @@ def list_role_bindings(namespace: str = "default", label_selector: Optional[str]
 def get_role_binding(name: str, namespace: str = "default") -> dict:
     """Get a single RoleBinding."""
     try:
-        from kubernetes.client import RbacAuthorizationV1Api
-
-        rbac_api = RbacAuthorizationV1Api()
+        rbac_api = get_rbac_v1()
         binding = rbac_api.read_namespaced_role_binding(name, namespace)
         return _summarize_role_binding(binding)
     except ApiException as e:
@@ -159,9 +142,7 @@ def get_role_binding(name: str, namespace: str = "default") -> dict:
 def list_cluster_role_bindings(label_selector: Optional[str] = None) -> list[dict]:
     """List all ClusterRoleBindings in the cluster."""
     try:
-        from kubernetes.client import RbacAuthorizationV1Api
-
-        rbac_api = RbacAuthorizationV1Api()
+        rbac_api = get_rbac_v1()
         bindings = rbac_api.list_cluster_role_binding(label_selector=label_selector)
         return [_summarize_cluster_role_binding(binding) for binding in bindings.items]
     except ApiException as e:
@@ -172,9 +153,7 @@ def list_cluster_role_bindings(label_selector: Optional[str] = None) -> list[dic
 def get_cluster_role_binding(name: str) -> dict:
     """Get a single ClusterRoleBinding."""
     try:
-        from kubernetes.client import RbacAuthorizationV1Api
-
-        rbac_api = RbacAuthorizationV1Api()
+        rbac_api = get_rbac_v1()
         binding = rbac_api.read_cluster_role_binding(name)
         return _summarize_cluster_role_binding(binding)
     except ApiException as e:

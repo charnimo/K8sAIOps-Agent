@@ -48,6 +48,7 @@ def list_jobs(namespace: str = "default", label_selector: Optional[str] = None) 
     return [_summarize_job(job) for job in jobs.items]
 
 
+@retry_on_transient(max_attempts=3, backoff_base=1.0)
 def list_all_jobs(label_selector: Optional[str] = None) -> list[dict]:
     """List jobs across ALL namespaces.
     
@@ -63,6 +64,7 @@ def list_all_jobs(label_selector: Optional[str] = None) -> list[dict]:
     return [_summarize_job(job) for job in jobs.items]
 
 
+@retry_on_transient(max_attempts=3, backoff_base=1.0)
 def get_job(name: str, namespace: str = "default") -> dict:
     """Fetch a detailed summary for a single job."""
     batch = get_batch_v1()

@@ -91,5 +91,5 @@ REQUIRE_METRICS_SERVER = os.getenv("K8S_REQUIRE_METRICS", "false").lower() == "t
 INCLUDE_POD_METRICS_IN_DEPLOYMENT = os.getenv("K8S_INCLUDE_METRICS_IN_DEPLOY", "true").lower() == "true"
 DIAGNOSE_DEPLOYMENT_LIGHTWEIGHT = os.getenv("K8S_DIAGNOSE_LIGHTWEIGHT", "false").lower() == "true"
 
-# Audit logging (set in audit.py)
-# AUDIT_LOG_FILE = os.getenv("K8S_AUDIT_LOG_FILE", "/var/log/k8s-agent-audit.jsonl")
+# Audit logging
+AUDIT_LOG_FILE = os.getenv("K8S_AUDIT_LOG_FILE", "/var/log/k8s-agent-audit.jsonl")

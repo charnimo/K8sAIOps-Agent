@@ -157,8 +157,16 @@ def detect_resource_pressure(namespace: str = "default", threshold_pct: int = No
 
     # Index metrics by pod name → container name → usage
     metrics_index: dict[str, dict[str, dict]] = {}
+    metrics_errors = []  # Track pods where metrics collection failed
     for pm in metrics_list:
         if "error" in pm:
+            # Log and track the error instead of silently skipping
+            error_msg = pm.get("error", "Unknown error")
+            logger.warning(f"Metrics unavailable for pod: {error_msg}")
+            metrics_errors.append({
+                "pod": pm.get("name", "unknown"),
+                "error": error_msg
+            })
             continue
         metrics_index[pm["name"]] = {
             c["name"]: c for c in pm.get("containers", [])
@@ -225,6 +233,7 @@ def detect_resource_pressure(namespace: str = "default", threshold_pct: int = No
         "high_memory": high_memory,
         "high_cpu":    high_cpu,
         "no_limits":   no_limits,
+        "metrics_errors": metrics_errors,  # Pods where metrics collection failed
     }
 
 

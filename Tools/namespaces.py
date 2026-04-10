@@ -16,12 +16,13 @@ from datetime import datetime, timezone
 from kubernetes.client.exceptions import ApiException
 
 from .client import get_core_v1, get_apps_v1
-from .utils import fmt_duration
-from .events import _sort_events
+from .utils import fmt_duration, retry_on_transient
+from .events import sort_events
 
 logger = logging.getLogger(__name__)
 
 
+@retry_on_transient(max_attempts=3, backoff_base=1.0)
 def list_namespaces() -> list[dict]:
     """
     List all namespaces in the cluster.
@@ -150,4 +151,4 @@ def get_namespace_events(name: str, limit: int = 100) -> list[dict]:
             }
         )
 
-    return _sort_events(rows)
+    return sort_events(rows)

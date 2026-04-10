@@ -16,7 +16,7 @@ import logging
 import os
 
 from kubernetes import client, config
-from kubernetes.client import CoreV1Api, AppsV1Api, CustomObjectsApi, BatchV1Api
+from kubernetes.client import CoreV1Api, AppsV1Api, CustomObjectsApi, BatchV1Api, AutoscalingV2Api, NetworkingV1Api, RbacAuthorizationV1Api
 
 logger = logging.getLogger(__name__)
 
@@ -64,3 +64,21 @@ def get_batch_v1() -> BatchV1Api:
     """Return a BatchV1Api client (jobs, cronjobs)."""
     _init_client()
     return client.BatchV1Api()
+
+
+def get_autoscaling_v2() -> AutoscalingV2Api:
+    """Return an AutoscalingV2Api client (HorizontalPodAutoscalers)."""
+    _init_client()
+    return client.AutoscalingV2Api()
+
+
+def get_networking_v1() -> NetworkingV1Api:
+    """Return a NetworkingV1Api client (Ingresses, NetworkPolicies)."""
+    _init_client()
+    return client.NetworkingV1Api()
+
+
+def get_rbac_v1() -> RbacAuthorizationV1Api:
+    """Return an RbacAuthorizationV1Api client (ClusterRoles, Roles, RoleBindings, ClusterRoleBindings)."""
+    _init_client()
+    return client.RbacAuthorizationV1Api()

@@ -13,6 +13,7 @@ from typing import Optional
 
 from kubernetes.client.exceptions import ApiException
 
+from .client import get_autoscaling_v2
 from .utils import fmt_time, retry_on_transient
 
 logger = logging.getLogger(__name__)
@@ -35,9 +36,7 @@ def list_hpas(namespace: str = "default", label_selector: Optional[str] = None) 
         List of HPA summaries with target, min/max replicas, current metrics
     """
     try:
-        from kubernetes.client import AutoscalingV2Api
-
-        auto_api = AutoscalingV2Api()
+        auto_api = get_autoscaling_v2()
         hpas = auto_api.list_namespaced_horizontal_pod_autoscaler(namespace, label_selector=label_selector)
         return [_summarize_hpa(hpa) for hpa in hpas.items]
     except ApiException as e:
@@ -48,9 +47,7 @@ def list_hpas(namespace: str = "default", label_selector: Optional[str] = None) 
 def list_all_hpas(label_selector: Optional[str] = None) -> list[dict]:
     """List HPAs across all namespaces."""
     try:
-        from kubernetes.client import AutoscalingV2Api
-
-        auto_api = AutoscalingV2Api()
+        auto_api = get_autoscaling_v2()
         hpas = auto_api.list_horizontal_pod_autoscaler_for_all_namespaces(label_selector=label_selector)
         return [_summarize_hpa(hpa) for hpa in hpas.items]
     except ApiException as e:
@@ -58,12 +55,11 @@ def list_all_hpas(label_selector: Optional[str] = None) -> list[dict]:
         return []
 
 
+@retry_on_transient(max_attempts=3, backoff_base=1.0)
 def get_hpa(name: str, namespace: str = "default") -> dict:
     """Get a single HorizontalPodAutoscaler."""
     try:
-        from kubernetes.client import AutoscalingV2Api
-
-        auto_api = AutoscalingV2Api()
+        auto_api = get_autoscaling_v2()
         hpa = auto_api.read_namespaced_horizontal_pod_autoscaler(name, namespace)
         return _summarize_hpa(hpa)
     except ApiException as e:
@@ -79,9 +75,7 @@ def detect_hpa_issues(name: str, namespace: str = "default") -> dict:
         {"issues": [str], "severity": "healthy" | "warning" | "critical"}
     """
     try:
-        from kubernetes.client import AutoscalingV2Api
-
-        auto_api = AutoscalingV2Api()
+        auto_api = get_autoscaling_v2()
         hpa = auto_api.read_namespaced_horizontal_pod_autoscaler(name, namespace)
     except ApiException as e:
         return {"issues": [f"HPA not found: {e}"], "severity": "critical"}
@@ -145,7 +139,6 @@ def create_hpa(
         {"success": bool, "message": str}
     """
     from kubernetes import client
-    from kubernetes.client import AutoscalingV2Api
 
     if not target_name:
         return {"success": False, "message": "target_name is required."}
@@ -212,7 +205,7 @@ def create_hpa(
             ),
         )
 
-        auto_api = AutoscalingV2Api()
+        auto_api = get_autoscaling_v2()
         auto_api.create_namespaced_horizontal_pod_autoscaler(namespace, hpa_body)
         logger.info(f"[ACTION] Created HPA {namespace}/{name} for {target_kind}/{target_name}")
         return {"success": True, "message": f"HPA {namespace}/{name} created successfully."}
@@ -231,9 +224,7 @@ def delete_hpa(name: str, namespace: str = "default") -> dict:
         {"success": bool, "message": str}
     """
     try:
-        from kubernetes.client import AutoscalingV2Api
-
-        auto_api = AutoscalingV2Api()
+        auto_api = get_autoscaling_v2()
         auto_api.delete_namespaced_horizontal_pod_autoscaler(name, namespace)
         logger.info(f"[ACTION] Deleted HPA {namespace}/{name}")
         return {"success": True, "message": f"HPA {namespace}/{name} deleted."}
@@ -275,9 +266,7 @@ def patch_hpa(
                 patch_body["metadata"] = {}
             patch_body["metadata"]["labels"] = labels
 
-        from kubernetes.client import AutoscalingV2Api
-
-        auto_api = AutoscalingV2Api()
+        auto_api = get_autoscaling_v2()
         auto_api.patch_namespaced_horizontal_pod_autoscaler(name, namespace, patch_body)
         logger.info(f"[ACTION] Patched HPA {namespace}/{name}")
         return {"success": True, "message": f"HPA {namespace}/{name} patched."}
@@ -292,12 +281,12 @@ def patch_hpa(
 
 def _summarize_hpa(hpa) -> dict:
     """Convert HPA object to clean dict."""
-    spec = hpa.spec or {}
-    status = hpa.status or {}
+    spec = hpa.spec
+    status = hpa.status
 
-    # Extract metrics
+    # Extract metrics (both spec and metrics could be None)
     metrics = []
-    if spec.metrics:
+    if spec and spec.metrics:
         for metric in spec.metrics:
             if metric.type == "Resource" and metric.resource:
                 metrics.append(
@@ -309,7 +298,7 @@ def _summarize_hpa(hpa) -> dict:
                 )
 
     # Scale target ref
-    target = spec.scale_target_ref or {}
+    target = spec.scale_target_ref if spec else None
 
     age = fmt_time(hpa.metadata.creation_timestamp) if hpa.metadata.creation_timestamp else None
 
@@ -317,14 +306,14 @@ def _summarize_hpa(hpa) -> dict:
         "name": hpa.metadata.name,
         "namespace": hpa.metadata.namespace,
         "target": f"{target.kind}/{target.name}" if target else "N/A",
-        "min_replicas": spec.min_replicas or 1,
-        "max_replicas": spec.max_replicas or 10,
-        "current_replicas": status.current_replicas,
-        "desired_replicas": status.desired_replicas,
+        "min_replicas": (spec.min_replicas or 1) if spec else 1,
+        "max_replicas": (spec.max_replicas or 10) if spec else 10,
+        "current_replicas": status.current_replicas if status else None,
+        "desired_replicas": status.desired_replicas if status else None,
         "metrics": metrics,
         "conditions": [
             {"type": c.type, "status": c.status, "message": c.message}
-            for c in (status.conditions or [])
+            for c in (status.conditions or [] if status else [])
         ],
         "age": age,
         "labels": hpa.metadata.labels or {},

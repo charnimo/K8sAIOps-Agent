@@ -25,7 +25,7 @@ from kubernetes.client.exceptions import ApiException
 
 from .client import get_apps_v1, get_core_v1
 from .utils import fmt_duration, fmt_time, retry_on_transient, validate_namespace, validate_replicas, sanitize_input, validate_resource_limits
-from .events import _sort_events
+from .events import sort_events
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +34,7 @@ logger = logging.getLogger(__name__)
 # READ OPERATIONS
 # ─────────────────────────────────────────────
 
+@retry_on_transient(max_attempts=3, backoff_base=1.0)
 def list_deployments(namespace: str = "default", label_selector: Optional[str] = None) -> list[dict]:
     """List deployments in a namespace with key status fields.
     
@@ -50,6 +51,7 @@ def list_deployments(namespace: str = "default", label_selector: Optional[str] =
     return [_summarize_deployment(d) for d in dep_list.items]
 
 
+@retry_on_transient(max_attempts=3, backoff_base=1.0)
 def list_all_deployments(label_selector: Optional[str] = None) -> list[dict]:
     """List deployments across ALL namespaces.
     
@@ -65,6 +67,7 @@ def list_all_deployments(label_selector: Optional[str] = None) -> list[dict]:
     return [_summarize_deployment(d) for d in dep_list.items]
 
 
+@retry_on_transient(max_attempts=3, backoff_base=1.0)
 def get_deployment(name: str, namespace: str = "default") -> dict:
     """Fetch a full summary for a specific deployment."""
     apps: AppsV1Api = get_apps_v1()
@@ -76,6 +79,7 @@ def get_deployment(name: str, namespace: str = "default") -> dict:
     return _summarize_deployment(dep)
 
 
+@retry_on_transient(max_attempts=3, backoff_base=1.0)
 def get_deployment_events(name: str, namespace: str = "default") -> list[dict]:
     """Fetch events related to a specific deployment (and its ReplicaSets)."""
     core = get_core_v1()
@@ -97,7 +101,7 @@ def get_deployment_events(name: str, namespace: str = "default") -> list[dict]:
             "count":      ev.count,
             "last_time":  fmt_time(ev.last_timestamp),
         })
-    return _sort_events(events)
+    return sort_events(events)
 
 
 # ─────────────────────────────────────────────
@@ -167,6 +171,10 @@ def rollout_restart(name: str, namespace: str = "default") -> dict:
 
     ⚠️  ACTION — requires user approval.
     """
+    # Input validation
+    name = sanitize_input(name, "deployment_name")
+    namespace = validate_namespace(namespace)
+    
     apps: AppsV1Api = get_apps_v1()
     now = fmt_time(datetime.now(timezone.utc))
     patch_body = {
@@ -191,79 +199,68 @@ def rollout_restart(name: str, namespace: str = "default") -> dict:
         logger.error(f"Failed to restart {namespace}/{name}: {e}")
         return {"success": False, "message": str(e)}
 
-def rollback_deployment(name: str, namespace: str = "default", revision: int = 0) -> dict:
+def get_deployment_revisions(name: str, namespace: str = "default") -> dict:
     """
-    Roll back a Deployment to a previous revision.
- 
-    Uses the standard Kubernetes rollback mechanism by patching the
-    deployment's rollback annotation. revision=0 means the previous revision.
- 
-    ⚠️  ACTION — requires user approval.
- 
+    List all available revision history for a Deployment.
+
+    Each revision is a snapshot of a past ReplicaSet. Use this to inspect
+    what versions are available before performing a rollback.
+
+    For actual rollback, use: kubectl rollout undo deployment/NAME [--to-revision=N]
+    The Python SDK does not support rollout undo directly, so rollback requires CLI.
+
     Args:
         name:      Deployment name
         namespace: Namespace
-        revision:  Target revision number (0 = previous)
- 
+
     Returns:
-        {"success": bool, "message": str}
+        {
+          "current_revision": int,
+          "revisions": [
+              {"revision": int, "replica_set": "name-abc123", "replicas": int, "age": "2 hours"}
+          ]
+        }
     """
     apps: AppsV1Api = get_apps_v1()
-    patch_body = {
-        "spec": {
-            "rollbackTo": {
-                "revision": revision
-            }
-        }
-    }
-    # Kubernetes v1 rollback via annotation (works for all K8s versions)
-    annotation_patch = {
-        "metadata": {
-            "annotations": {
-                "deployment.kubernetes.io/revision": str(revision) if revision else None
-            }
-        }
-    }
+
     try:
-        # The correct approach: use extensions/v1beta1 rollback or simply
-        # re-apply a previous ReplicaSet's pod template (agent will handle this
-        # via scale + image revert). For now, we trigger via undo annotation.
         dep = apps.read_namespaced_deployment(name=name, namespace=namespace)
- 
-        # Get current revision from annotations
-        current_rev = int(dep.metadata.annotations.get(
-            "deployment.kubernetes.io/revision", "0") if dep.metadata.annotations else "0")
- 
-        logger.info(f"[ACTION] Rollback requested for {namespace}/{name} "
-                    f"(current revision: {current_rev}, target: {revision or 'previous'})")
- 
-        # Patch with rollback annotation trigger
-        apps.patch_namespaced_deployment(
-            name=name,
-            namespace=namespace,
-            body={
-                "metadata": {
-                    "annotations": {
-                        "kubectl.kubernetes.io/last-applied-configuration": None,
-                    }
-                },
-                "spec": {
-                    "paused": False  # ensure not paused
-                }
-            }
-        )
+        current_rev = int(dep.metadata.annotations.get("deployment.kubernetes.io/revision", "0") if dep.metadata.annotations else "0")
+
+        # Find all ReplicaSets owned by this Deployment
+        rs_list = apps.list_namespaced_replica_set(namespace=namespace)
+
+        revisions = []
+        for rs in rs_list.items:
+            if rs.metadata.owner_references:
+                for owner in rs.metadata.owner_references:
+                    if owner.kind == "Deployment" and owner.name == name:
+                        rev_str = rs.metadata.annotations.get("deployment.kubernetes.io/revision", "0") if rs.metadata.annotations else "0"
+                        try:
+                            rev_num = int(rev_str)
+                            age_seconds = (datetime.now(timezone.utc) - rs.metadata.creation_timestamp.replace(tzinfo=timezone.utc)).total_seconds()
+                            revisions.append({
+                                "revision": rev_num,
+                                "replica_set": rs.metadata.name,
+                                "replicas": rs.spec.replicas or 0,
+                                "age": fmt_duration(int(age_seconds)),
+                                "ready": rs.status.ready_replicas or 0,
+                            })
+                        except (ValueError, AttributeError):
+                            pass
+                        break
+
+        # Sort by revision descending (newest first)
+        revisions.sort(key=lambda x: x["revision"], reverse=True)
+
         return {
             "success": True,
-            "message": (
-                f"Rollback initiated for Deployment {namespace}/{name}. "
-                f"To fully rollback, use: kubectl rollout undo deployment/{name} -n {namespace}"
-                + (f" --to-revision={revision}" if revision else "")
-            ),
             "current_revision": current_rev,
-            "target_revision":  revision or current_rev - 1,
+            "revisions": revisions,
+            "message": f"Found {len(revisions)} revision(s) for deployment {namespace}/{name}",
         }
     except ApiException as e:
-        logger.error(f"Failed to rollback {namespace}/{name}: {e}")
+        logger.error(f"Failed to list revisions for {namespace}/{name}: {e}")
         return {"success": False, "message": str(e)}
  
  
@@ -294,6 +291,12 @@ def patch_resource_limits(
     Returns:
         {"success": bool, "message": str, "changes": dict}
     """
+    # Input validation
+    name = sanitize_input(name, "deployment_name")
+    namespace = validate_namespace(namespace)
+    if container_name:
+        container_name = sanitize_input(container_name, "container_name")
+    
     apps: AppsV1Api = get_apps_v1()
     try:
         dep = apps.read_namespaced_deployment(name=name, namespace=namespace)
@@ -369,8 +372,17 @@ def patch_env_var(
     Returns:
         {"success": bool, "message": str, "action": "added" | "updated"}
     """
+    # Input validation
+    name = sanitize_input(name, "deployment_name")
+    namespace = validate_namespace(namespace)
+    if container_name:
+        container_name = sanitize_input(container_name, "container_name")
+    
     if not key:
         return {"success": False, "message": "Environment variable key must not be empty."}
+    
+    key = sanitize_input(key, "env_key")
+    value = sanitize_input(value, "env_value")
 
     apps: AppsV1Api = get_apps_v1()
     try:

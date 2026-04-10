@@ -7,8 +7,10 @@ READ:
   - list_events(namespace)           → recent events in a namespace
   - list_all_events()                → events cluster-wide
   - list_warning_events(namespace)   → only Warning-type events
-  - get_events_for_resource(name, kind, namespace) → events for any resource
-"""
+  - get_events_for_resource(name, kind, namespace) → events for any resource  - sort_events(events)              → normalize event sort order (warnings first)
+
+HELPERS:
+  - get_recent_warning_summary(namespace) → compact warning context for AI"""
 
 import logging
 from typing import Optional
@@ -42,7 +44,7 @@ def list_events(namespace: str = "default", limit: int = 100) -> list[dict]:
         logger.error(f"Failed to list events in {namespace}: {e}")
         raise
 
-    return _sort_events([_fmt_event(ev) for ev in event_list.items])
+    return sort_events([_fmt_event(ev) for ev in event_list.items])
 
 
 def list_all_events(limit: int = 200) -> list[dict]:
@@ -57,7 +59,7 @@ def list_all_events(limit: int = 200) -> list[dict]:
     except ApiException as e:
         logger.error(f"Failed to list all events: {e}")
         raise
-    return _sort_events([_fmt_event(ev) for ev in event_list.items])
+    return sort_events([_fmt_event(ev) for ev in event_list.items])
 
 
 def list_warning_events(namespace: Optional[str] = None, limit: int = 100) -> list[dict]:
@@ -85,7 +87,7 @@ def list_warning_events(namespace: Optional[str] = None, limit: int = 100) -> li
         logger.error(f"Failed to list warning events: {e}")
         raise
 
-    return _sort_events([_fmt_event(ev) for ev in event_list.items])
+    return sort_events([_fmt_event(ev) for ev in event_list.items])
 
 
 def get_events_for_resource(
@@ -118,7 +120,7 @@ def get_events_for_resource(
         logger.error(f"Failed to fetch events for {kind}/{name}: {e}")
         raise
 
-    return _sort_events([_fmt_event(ev) for ev in event_list.items])
+    return sort_events([_fmt_event(ev) for ev in event_list.items])
 
 
 def get_recent_warning_summary(namespace: Optional[str] = None, limit: int = 20) -> list[dict]:
@@ -168,8 +170,12 @@ def _fmt_event(ev) -> dict:
     }
 
 
-def _sort_events(events: list[dict]) -> list[dict]:
-    """Sort: Warning first, then by last_time descending (most recent first)."""
+def sort_events(events: list[dict]) -> list[dict]:
+    """Sort: Warning first, then by last_time descending (most recent first).
+    
+    This is the canonical event sort order for the tools layer.
+    Returns a new sorted list without modifying the input.
+    """
     warnings = [e for e in events if e.get("type") == "Warning"]
     non_warnings = [e for e in events if e.get("type") != "Warning"]
 
