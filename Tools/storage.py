@@ -14,7 +14,7 @@ from typing import Optional
 
 from kubernetes.client.exceptions import ApiException
 
-from .client import get_core_v1
+from .client import get_core_v1, get_storage_v1
 from .utils import fmt_time, retry_on_transient, validate_namespace, validate_name, sanitize_input
 
 logger = logging.getLogger(__name__)
@@ -89,8 +89,7 @@ def get_pvc(name: str, namespace: str = "default") -> dict:
 def list_storage_classes() -> list[dict]:
     """List all StorageClasses in the cluster."""
     try:
-        from kubernetes.client import StorageV1Api
-        sc_api = StorageV1Api()
+        sc_api = get_storage_v1()
         scs = sc_api.list_storage_class()
         return [_summarize_storage_class(sc) for sc in scs.items]
     except ApiException as e:
@@ -101,8 +100,7 @@ def list_storage_classes() -> list[dict]:
 def get_storage_class(name: str) -> dict:
     """Get a single StorageClass."""
     try:
-        from kubernetes.client import StorageV1Api
-        sc_api = StorageV1Api()
+        sc_api = get_storage_v1()
         sc = sc_api.read_storage_class(name)
         return _summarize_storage_class(sc)
     except ApiException as e:
@@ -173,6 +171,11 @@ def create_pvc(
     """
     from kubernetes import client
 
+    # Input validation
+    name = sanitize_input(name, "resource_name")
+    name = validate_name(name)
+    namespace = validate_namespace(namespace)
+
     if not access_modes:
         access_modes = ["ReadWriteOnce"]
 
@@ -206,6 +209,11 @@ def delete_pvc(name: str, namespace: str = "default") -> dict:
     Returns:
         {"success": bool, "message": str}
     """
+    # Input validation
+    name = sanitize_input(name, "resource_name")
+    name = validate_name(name)
+    namespace = validate_namespace(namespace)
+
     try:
         v1 = get_core_v1()
         v1.delete_namespaced_persistent_volume_claim(name, namespace)
@@ -225,6 +233,11 @@ def patch_pvc(name: str, namespace: str = "default", labels: Optional[dict] = No
     Returns:
         {"success": bool, "message": str}
     """
+    # Input validation
+    name = sanitize_input(name, "resource_name")
+    name = validate_name(name)
+    namespace = validate_namespace(namespace)
+
     if not labels:
         return {"success": False, "message": "No labels provided."}
 

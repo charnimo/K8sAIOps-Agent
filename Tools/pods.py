@@ -17,10 +17,11 @@ ACTION functions (all require explicit approval in the agent layer):
 
 import logging
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Optional, Union
 
 from kubernetes.client import CoreV1Api
 from kubernetes.client.exceptions import ApiException
+from kubernetes.stream import stream
 
 from .client import get_core_v1
 from .utils import fmt_time, fmt_duration, retry_on_transient, validate_namespace, sanitize_input
@@ -432,3 +433,233 @@ def _summarize_pod(pod) -> dict:
         "resource_specs": resource_specs,
         "labels":         pod.metadata.labels or {},
     }
+
+
+def describe_pod(name: str, namespace: str = "default") -> dict:
+    """
+    Get a RICH description of a pod for LLM reasoning.
+
+    This is the "debug everything" function — returns the full spec,
+    status, events, and logs so an LLM can reason about why a pod is failing.
+
+    Returns:
+        {
+          "summary": {...},         # standard pod status summary
+          "spec": {...},            # full pod spec (tolerations, affinity, init containers, etc.)
+          "conditions": [...],      # conditions array
+          "events": [...],          # recent events
+          "logs": "...",            # current container logs (or error message)
+          "prev_logs": "...",       # previous logs if crashed
+          "created_at": "...",      # exact creation time
+          "node_info": {...},       # node details if pod is scheduled
+        }
+    """
+    namespace = validate_namespace(namespace)
+    name = sanitize_input(name, "pod_name")
+    
+    core = get_core_v1()
+    try:
+        pod = core.read_namespaced_pod(name=name, namespace=namespace)
+    except Exception as e:
+        logger.error(f"Pod {namespace}/{name} not found: {e}")
+        raise
+
+    result = {
+        "summary": _summarize_pod(pod),
+        "spec": {},
+        "conditions": [],
+        "events": [],
+        "logs": "",
+        "prev_logs": "",
+        "created_at": fmt_time(pod.metadata.creation_timestamp) if pod.metadata.creation_timestamp else None,
+        "node_info": {}
+    }
+
+    # Full spec details
+    if pod.spec:
+        spec = pod.spec
+        result["spec"] = {
+            "containers": [
+                {
+                    "name": c.name,
+                    "image": c.image,
+                    "resources": {
+                        "requests": c.resources.requests if c.resources else {},
+                        "limits": c.resources.limits if c.resources else {},
+                    },
+                    "env": [{"name": e.name, "value": e.value} for e in (c.env or [])],
+                    "volume_mounts": [
+                        {"name": vm.name, "mount_path": vm.mount_path, "read_only": vm.read_only}
+                        for vm in (c.volume_mounts or [])
+                    ],
+                    "security_context": {
+                        "privileged": c.security_context.privileged if c.security_context else False,
+                        "run_as_user": c.security_context.run_as_user if c.security_context else None,
+                    },
+                }
+                for c in spec.containers
+            ],
+            "init_containers": [c.name for c in (spec.init_containers or [])],
+            "volumes": [{"name": v.name, "type": type(v).__name__} for v in (spec.volumes or [])],
+            "tolerations": [
+                {
+                    "key": t.key,
+                    "operator": t.operator,
+                    "effect": t.effect,
+                    "value": t.value,
+                }
+                for t in (spec.tolerations or [])
+            ],
+            "affinity": str(spec.affinity) if spec.affinity else None,
+            "node_selector": spec.node_selector or {},
+            "service_account": spec.service_account_name,
+            "restart_policy": spec.restart_policy,
+            "dns_policy": spec.dns_policy,
+            "share_process_namespace": spec.share_process_namespace or False,
+        }
+
+    # Conditions
+    if pod.status and pod.status.conditions:
+        result["conditions"] = [
+            {"type": c.type, "status": c.status, "reason": c.reason, "message": c.message}
+            for c in pod.status.conditions
+        ]
+
+    # Events
+    try:
+        result["events"] = get_pod_events(name, namespace)
+    except Exception as e:
+        logger.warning(f"Could not fetch events for {namespace}/{name}: {e}")
+
+    # Logs
+    try:
+        result["logs"] = get_pod_logs(name, namespace, tail_lines=200)
+    except Exception as e:
+        result["logs"] = f"[Error fetching logs: {e}]"
+
+    # Previous logs (if crashed)
+    try:
+        result["prev_logs"] = get_pod_logs(name, namespace, previous=True, tail_lines=200)
+    except Exception:
+        result["prev_logs"] = ""
+
+    # Node info (if scheduled)
+    if pod.spec and pod.spec.node_name:
+        try:
+            from .nodes import get_node
+            result["node_info"] = get_node(pod.spec.node_name)
+        except Exception as e:
+            result["node_info"] = {"error": str(e)}
+
+    return result
+
+
+def exec_pod(
+    name: str,
+    namespace: str = "default",
+    command: Union[str, list] = None,
+    stdin: bool = False,
+    stdout: bool = True,
+    stderr: bool = True,
+    tty: bool = False,
+) -> dict:
+    """
+    Execute a command inside a pod (like kubectl exec).
+
+    ⚠️  ACTION — dangerous! Use with extreme caution. Runs arbitrary commands in the container.
+
+    This function uses the Kubernetes exec API to run a command inside a container.
+    Perfect for diagnostics: check connectivity, inspect filesystem, validate config, etc.
+
+    Args:
+        name:      Pod name
+        namespace: Namespace
+        command:   Command to run. Can be:
+                   - String: "ls -la" (will be split by shlex)
+                   - List: ["python", "-c", "import sys; print(sys.version)"]
+        stdin:     Allow stdin (interactive)
+        stdout:    Capture stdout
+        stderr:    Capture stderr
+        tty:       Attach a pseudo-TTY (interactive terminal)
+
+    Returns:
+        {
+          "success": bool,
+          "stdout": "...",
+          "stderr": "...",
+          "returncode": int,
+          "message": "..."
+        }
+
+    Examples:
+        # Check if curl is available
+        exec_pod("nginx-xyz", "default", "which curl")
+
+        # Run Python
+        exec_pod("app-pod", "default", ["python", "-c", "print('hello')"])
+
+        # Inspect environment
+        exec_pod("web-pod", "default", "env | grep DATABASE")
+    """
+    import shlex
+
+    namespace = validate_namespace(namespace)
+    name = sanitize_input(name, "pod_name")
+
+    # Prepare command
+    if isinstance(command, str):
+        command = shlex.split(command)
+    elif not isinstance(command, list):
+        return {
+            "success": False,
+            "message": "command must be str or list",
+            "stdout": "",
+            "stderr": "",
+            "returncode": -1,
+        }
+
+    core = get_core_v1()
+    try:
+        # Check pod exists
+        core.read_namespaced_pod(name=name, namespace=namespace)
+    except Exception as e:
+        logger.error(f"Pod {namespace}/{name} not found: {e}")
+        return {
+            "success": False,
+            "message": f"Pod {namespace}/{name} not found",
+            "stdout": "",
+            "stderr": "",
+            "returncode": -1,
+        }
+
+    try:
+        logger.info(f"[ACTION] Executing command in pod {namespace}/{name}: {' '.join(command)}")
+
+        # Execute command via stream API
+        resp = stream(
+            core.connect_get_namespaced_pod_exec,
+            name,
+            namespace,
+            command=command,
+            stderr=stderr,
+            stdin=stdin,
+            stdout=stdout,
+            tty=tty,
+        )
+
+        return {
+            "success": True,
+            "stdout": resp if stdout else "",
+            "stderr": "",  # stderr mixed with stdout in stream mode
+            "returncode": 0,
+            "message": f"Command executed in {namespace}/{name}",
+        }
+    except Exception as e:
+        logger.error(f"Failed to execute command in pod {namespace}/{name}: {e}")
+        return {
+            "success": False,
+            "message": str(e),
+            "stdout": "",
+            "stderr": "",
+            "returncode": -1,
+        }

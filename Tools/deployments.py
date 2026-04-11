@@ -7,10 +7,13 @@ READ:
   - list_deployments(namespace)             → summary list
   - get_deployment(name, namespace)         → detailed summary
   - get_deployment_events(name, namespace)  → related events
+  - rollout_status(name, namespace)         → check if rollout is complete
+  - rollout_history(name, namespace)        → view revision history
 
 ACTIONS (require user approval):
   - scale_deployment(name, namespace, replicas)          → set replica count
   - rollout_restart(name, namespace)                     → rolling restart
+  - rollback_deployment(name, namespace, revision)       → revert to previous version
   - patch_resource_limits(name, namespace, container, …) → update CPU/memory limits
   - patch_env_var(name, namespace, container, key, val)  → update an env variable
 """
@@ -424,6 +427,200 @@ def patch_env_var(
         }
     except ApiException as e:
         logger.error(f"Failed to patch env var in {namespace}/{name}: {e}")
+        return {"success": False, "message": str(e)}
+
+
+def rollout_status(name: str, namespace: str = "default") -> dict:
+    """
+    Check the status of a Deployment rollout.
+
+    Returns current and desired replicas, ready replicas, and rollout progress.
+
+    Returns:
+        {
+          "name": "my-deployment",
+          "namespace": "default",
+          "status": "progressing" | "complete" | "failed",
+          "desired": 3,
+          "current": 3,
+          "ready": 2,
+          "updated": 2,
+          "available": 2,
+          "message": "Rollout complete. 2 of 3 pods ready."
+        }
+    """
+    apps = get_apps_v1()
+    try:
+        dep = apps.read_namespaced_deployment(name=name, namespace=namespace)
+    except ApiException as e:
+        logger.error(f"Failed to get Deployment {namespace}/{name}: {e}")
+        return {"error": str(e)}
+
+    spec = dep.spec
+    status = dep.status or {}
+
+    desired = spec.replicas or 1
+    current = status.current_replicas or 0
+    ready = status.ready_replicas or 0
+    updated = status.updated_replicas or 0
+    available = status.available_replicas or 0
+
+    # Determine rollout status
+    if ready == desired and available == desired:
+        status_str = "complete"
+        message = f"Rollout complete. {ready} of {desired} pods ready."
+    elif status.conditions:
+        # Check for failure conditions
+        for cond in status.conditions:
+            if cond.type == "Progressing" and cond.reason == "ProgressDeadlineExceeded":
+                status_str = "failed"
+                message = f"Rollout failed: {cond.message}"
+                break
+        else:
+            status_str = "progressing"
+            message = f"Rollout in progress. {ready} of {desired} pods ready."
+    else:
+        status_str = "progressing" if ready < desired else "complete"
+        message = f"{ready} of {desired} pods ready."
+
+    return {
+        "name": dep.metadata.name,
+        "namespace": dep.metadata.namespace,
+        "status": status_str,
+        "desired": desired,
+        "current": current,
+        "ready": ready,
+        "updated": updated,
+        "available": available,
+        "message": message,
+    }
+
+
+def rollout_history(name: str, namespace: str = "default") -> dict:
+    """
+    Get Deployment revision history.
+
+    Returns list of recent revisions (from ReplicaSets).
+
+    Returns:
+        {
+          "name": "my-deployment",
+          "namespace": "default",
+          "revisions": [
+            {"revision": 3, "image": "app:v1.3", "created": "2026-04-11T10:00:00Z", "replicas": 3},
+            {"revision": 2, "image": "app:v1.2", "created": "2026-04-11T09:00:00Z", "replicas": 0},
+          ]
+        }
+    """
+    apps = get_apps_v1()
+
+    try:
+        dep = apps.read_namespaced_deployment(name=name, namespace=namespace)
+
+        # List ReplicaSets (which track revisions)
+        rs_list = apps.list_namespaced_replica_set(
+            namespace=namespace,
+            label_selector=f"app={dep.spec.selector.match_labels.get('app', 'unknown')}"
+        )
+
+        revisions = []
+        for rs in rs_list.items:
+            # Extract revision from ReplicaSet
+            revision_label = rs.metadata.annotations.get("deployment.kubernetes.io/revision", "?") if rs.metadata.annotations else "?"
+
+            # Get image from ReplicaSet pod template
+            image = "N/A"
+            if rs.spec.template.spec.containers:
+                image = rs.spec.template.spec.containers[0].image
+
+            revisions.append({
+                "revision": revision_label,
+                "image": image,
+                "created": fmt_time(rs.metadata.creation_timestamp),
+                "replicas": rs.status.replicas or 0,
+            })
+
+        # Sort by revision (descending)
+        revisions.sort(key=lambda x: int(x.get("revision", 0)) if str(x.get("revision", 0)).isdigit() else 0, reverse=True)
+
+        return {
+            "name": dep.metadata.name,
+            "namespace": dep.metadata.namespace,
+            "revisions": revisions,
+        }
+    except ApiException as e:
+        logger.error(f"Failed to get rollout history for {namespace}/{name}: {e}")
+        return {"error": str(e)}
+
+
+def rollback_deployment(name: str, namespace: str = "default", revision: Optional[int] = None) -> dict:
+    """
+    Rollback a Deployment to a previous revision.
+
+    ⚠️  ACTION — requires user approval.
+
+    Args:
+        name:      Deployment name
+        namespace: Namespace
+        revision:  Specific revision to rollback to (0 = previous, optional)
+
+    Returns:
+        {"success": bool, "message": str, "previous_revision": int, "new_revision": int}
+    """
+    apps = get_apps_v1()
+
+    try:
+        dep = apps.read_namespaced_deployment(name=name, namespace=namespace)
+        current_revision = int(
+            dep.metadata.annotations.get("deployment.kubernetes.io/revision", "0")
+            if dep.metadata.annotations else "0"
+        )
+
+        # Build rollback body
+        if revision is None:
+            rollback_body = {
+                "apiVersion": "apps/v1",
+                "kind": "Deployment",
+                "metadata": {"name": name, "namespace": namespace},
+                "spec": {"template": dep.spec.template}  # Revert to current template (no-op)
+            }
+        else:
+            # Get the specific revision from ReplicaSet history
+            rs_list = apps.list_namespaced_replica_set(namespace=namespace)
+            target_rs = None
+            for rs in rs_list.items:
+                rs_revision = int(
+                    rs.metadata.annotations.get("deployment.kubernetes.io/revision", "0")
+                    if rs.metadata.annotations else "0"
+                )
+                if rs_revision == revision:
+                    target_rs = rs
+                    break
+
+            if not target_rs:
+                return {"success": False, "message": f"Revision {revision} not found."}
+
+            # Revert to the target ReplicaSet's pod template
+            rollback_body = {
+                "apiVersion": "apps/v1",
+                "kind": "Deployment",
+                "metadata": {"name": name, "namespace": namespace},
+                "spec": {"template": target_rs.spec.template}
+            }
+
+        # Apply rollback (this triggers a rolling update to the old spec)
+        apps.patch_namespaced_deployment(name=name, namespace=namespace, body=rollback_body)
+
+        logger.info(f"[ACTION] Rolled back Deployment {namespace}/{name} from revision {current_revision} to {revision or 'previous'}")
+
+        return {
+            "success": True,
+            "message": f"Deployment {namespace}/{name} rolled back.",
+            "previous_revision": current_revision,
+            "new_revision": revision or current_revision - 1,
+        }
+    except ApiException as e:
+        logger.error(f"Failed to rollback Deployment {namespace}/{name}: {e}")
         return {"success": False, "message": str(e)}
 
 

@@ -23,26 +23,10 @@ from kubernetes import client
 from kubernetes.client.exceptions import ApiException
 
 from .client import get_core_v1
+from .audit import log_action
 from .utils import retry_on_transient, validate_namespace, validate_name, sanitize_input
 
 logger = logging.getLogger(__name__)
-
-
-def _decode_secret_value(encoded_value: str) -> str:
-    """
-    Decode a base64-encoded secret value.
-    
-    Args:
-        encoded_value: Base64-encoded string from Kubernetes API
-        
-    Returns:
-        Decoded plaintext string
-    """
-    try:
-        return base64.b64decode(encoded_value).decode('utf-8')
-    except Exception as e:
-        logger.warning(f"Failed to decode secret value: {e}")
-        return ""
 
 
 def _summarize_secret(sec) -> dict:
@@ -128,6 +112,7 @@ def get_secret_values(name: str, namespace: str = "default") -> dict:
 
     ⚠️  Use with caution — returns plaintext secret values.
     Do NOT log or expose these values in production.
+    ⚠️  All access is audited for compliance purposes.
 
     NOTE: Kubernetes Python SDK behavior varies by version:
       - Some versions return secret.data values as bytes (need base64 decode)
@@ -172,6 +157,15 @@ def get_secret_values(name: str, namespace: str = "default") -> dict:
                     logger.warning(f"Secret key '{key}' has unexpected type {type(value)}")
                     decoded_data[key] = ""
         
+        # AUDIT: Log access to secret values (but not the actual values)
+        log_action(
+            "get_secret_values",
+            name,
+            namespace,
+            success=True,
+            details={"key_count": len(decoded_data), "keys": list(decoded_data.keys())},
+        )
+        
         return {
             "exists": True,
             "name": secret.metadata.name,
@@ -182,6 +176,13 @@ def get_secret_values(name: str, namespace: str = "default") -> dict:
         }
     except ApiException as e:
         if e.status == 404:
+            log_action(
+                "get_secret_values",
+                name,
+                namespace,
+                success=False,
+                error_message=f"Secret not found (404)",
+            )
             return {
                 "exists": False,
                 "name": name,
@@ -190,6 +191,14 @@ def get_secret_values(name: str, namespace: str = "default") -> dict:
                 "data": {},
                 "error": f"Secret '{name}' not found in namespace '{namespace}'.",
             }
+        
+        log_action(
+            "get_secret_values",
+            name,
+            namespace,
+            success=False,
+            error_message=str(e),
+        )
         raise
 
 

@@ -148,8 +148,14 @@ def scale_statefulset(
     Returns:
         {"success": bool, "message": str, "previous_replicas": int, "new_replicas": int}
     """
-    if replicas < 0:
-        return {"success": False, "message": "Replica count cannot be negative."}
+    # Input validation
+    name = sanitize_input(name, "statefulset_name")
+    name = validate_name(name)
+    namespace = validate_namespace(namespace)
+    try:
+        replicas = validate_replicas(replicas)
+    except ValueError as e:
+        return {"success": False, "message": f"Invalid input: {str(e)}"}
 
     apps = get_apps_v1()
     try:
@@ -180,6 +186,11 @@ def restart_statefulset(name: str, namespace: str = "default") -> dict:
 
     ⚠️  ACTION — requires user approval.
     """
+    # Input validation
+    name = sanitize_input(name, "statefulset_name")
+    name = validate_name(name)
+    namespace = validate_namespace(namespace)
+    
     apps = get_apps_v1()
     now = fmt_time(datetime.now(timezone.utc))
     patch_body = {

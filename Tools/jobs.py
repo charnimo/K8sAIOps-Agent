@@ -231,6 +231,13 @@ def delete_job(name: str, namespace: str = "default", propagation_policy: str = 
     Returns:
         {"success": bool, "message": str}
     """
+    # Input validation
+    name = sanitize_input(name, "job_name")
+    name = validate_name(name)
+    namespace = validate_namespace(namespace)
+    if propagation_policy not in ("Foreground", "Background", "Orphan"):
+        return {"success": False, "message": f"Invalid propagation_policy: {propagation_policy}"}
+    
     batch = get_batch_v1()
     try:
         batch.delete_namespaced_job(
@@ -261,6 +268,11 @@ def suspend_job(name: str, namespace: str = "default") -> dict:
     Returns:
         {"success": bool, "message": str}
     """
+    # Input validation
+    name = sanitize_input(name, "job_name")
+    name = validate_name(name)
+    namespace = validate_namespace(namespace)
+    
     batch = get_batch_v1()
     try:
         job = batch.read_namespaced_job(name=name, namespace=namespace)
@@ -289,6 +301,11 @@ def suspend_cronjob(name: str, namespace: str = "default") -> dict:
     Returns:
         {"success": bool, "message": str}
     """
+    # Input validation
+    name = sanitize_input(name, "cronjob_name")
+    name = validate_name(name)
+    namespace = validate_namespace(namespace)
+    
     batch = get_batch_v1()
     try:
         cj = batch.read_namespaced_cron_job(name=name, namespace=namespace)
@@ -317,6 +334,11 @@ def resume_cronjob(name: str, namespace: str = "default") -> dict:
     Returns:
         {"success": bool, "message": str}
     """
+    # Input validation
+    name = sanitize_input(name, "cronjob_name")
+    name = validate_name(name)
+    namespace = validate_namespace(namespace)
+    
     batch = get_batch_v1()
     try:
         cj = batch.read_namespaced_cron_job(name=name, namespace=namespace)

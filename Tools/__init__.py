@@ -90,6 +90,8 @@ from . import (
     ingress,
     rbac,
     hpa,
+    network_policies,
+    resource_quotas,
 )
 
 __all__ = [
@@ -108,6 +110,7 @@ __all__ = [
     "configmaps",
     "secrets",
     "ingress",
+    "network_policies",
     # Infrastructure
     "nodes",
     "namespaces",
@@ -119,6 +122,7 @@ __all__ = [
     # Governance & Scaling
     "rbac",
     "hpa",
+    "resource_quotas",
     # Audit & Governance
     "audit",
 ]

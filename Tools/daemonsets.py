@@ -151,6 +151,7 @@ def restart_daemonset(name: str, namespace: str = "default") -> dict:
     """
     # Input validation
     name = sanitize_input(name, "daemonset_name")
+    name = validate_name(name)
     namespace = validate_namespace(namespace)
     
     apps: AppsV1Api = get_apps_v1()

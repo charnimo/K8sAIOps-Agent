@@ -14,7 +14,7 @@ from typing import Optional
 from kubernetes.client.exceptions import ApiException
 
 from .client import get_networking_v1
-from .utils import fmt_time, retry_on_transient
+from .utils import fmt_time, retry_on_transient, sanitize_input, validate_name, validate_namespace
 
 logger = logging.getLogger(__name__)
 
@@ -130,6 +130,11 @@ def create_ingress(
     """
     from kubernetes import client
 
+    # Input validation
+    name = sanitize_input(name, "resource_name")
+    name = validate_name(name)
+    namespace = validate_namespace(namespace)
+
     if not rules:
         rules = []
 
@@ -198,6 +203,11 @@ def delete_ingress(name: str, namespace: str = "default") -> dict:
     Returns:
         {"success": bool, "message": str}
     """
+    # Input validation
+    name = sanitize_input(name, "resource_name")
+    name = validate_name(name)
+    namespace = validate_namespace(namespace)
+
     try:
         net_api = get_networking_v1()
         net_api.delete_namespaced_ingress(name, namespace)
@@ -219,6 +229,11 @@ def patch_ingress(
     Returns:
         {"success": bool, "message": str}
     """
+    # Input validation
+    name = sanitize_input(name, "resource_name")
+    name = validate_name(name)
+    namespace = validate_namespace(namespace)
+
     if not labels and not annotations:
         return {"success": False, "message": "No labels or annotations provided."}
 

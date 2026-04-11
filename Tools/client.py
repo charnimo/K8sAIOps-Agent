@@ -16,7 +16,10 @@ import logging
 import os
 
 from kubernetes import client, config
-from kubernetes.client import CoreV1Api, AppsV1Api, CustomObjectsApi, BatchV1Api, AutoscalingV2Api, NetworkingV1Api, RbacAuthorizationV1Api
+from kubernetes.client import (
+    CoreV1Api, AppsV1Api, CustomObjectsApi, BatchV1Api,
+    AutoscalingV2Api, NetworkingV1Api, RbacAuthorizationV1Api, StorageV1Api
+)
 
 logger = logging.getLogger(__name__)
 
@@ -82,3 +85,9 @@ def get_rbac_v1() -> RbacAuthorizationV1Api:
     """Return an RbacAuthorizationV1Api client (ClusterRoles, Roles, RoleBindings, ClusterRoleBindings)."""
     _init_client()
     return client.RbacAuthorizationV1Api()
+
+
+def get_storage_v1() -> StorageV1Api:
+    """Return a StorageV1Api client (PersistentVolumes, StorageClasses)."""
+    _init_client()
+    return client.StorageV1Api()

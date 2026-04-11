@@ -14,7 +14,7 @@ from typing import Optional
 from kubernetes.client.exceptions import ApiException
 
 from .client import get_autoscaling_v2
-from .utils import fmt_time, retry_on_transient
+from .utils import fmt_time, retry_on_transient, validate_namespace, validate_name, sanitize_input
 
 logger = logging.getLogger(__name__)
 
@@ -82,12 +82,16 @@ def detect_hpa_issues(name: str, namespace: str = "default") -> dict:
 
     issues = []
     status = hpa.status or {}
+    has_scaling_active_false = False
 
-    # Check conditions
+    # Check conditions (check the actual condition type/status, not formatted strings)
     if hpa.status and hpa.status.conditions:
         for cond in hpa.status.conditions:
             if cond.status != "True":
                 issues.append(f"{cond.type}: {cond.message}")
+                # Check if ScalingActive condition is False
+                if cond.type == "ScalingActive" and cond.status != "True":
+                    has_scaling_active_false = True
 
     # Check if scaling is active
     if status.current_replicas is not None:
@@ -100,7 +104,8 @@ def detect_hpa_issues(name: str, namespace: str = "default") -> dict:
         elif current > max_replicas:
             issues.append(f"Current replicas ({current}) exceeds maximum ({max_replicas})")
 
-    severity = "critical" if any("ScalingActive=False" in iss for iss in issues) else "warning" if issues else "healthy"
+    # Determine severity based on actual condition status, not formatted strings
+    severity = "critical" if has_scaling_active_false else "warning" if issues else "healthy"
     return {"issues": issues, "severity": severity}
 
 
@@ -140,8 +145,36 @@ def create_hpa(
     """
     from kubernetes import client
 
+    # Input validation
+    name = sanitize_input(name, "resource_name")
+    name = validate_name(name)
+    namespace = validate_namespace(namespace)
+    
+    # Validate target_kind
+    valid_kinds = ["Deployment", "StatefulSet", "ReplicaSet"]
+    if target_kind not in valid_kinds:
+        return {"success": False, "message": f"target_kind must be one of {valid_kinds}"}
+    
+    # Validate target_name
     if not target_name:
         return {"success": False, "message": "target_name is required."}
+    target_name = sanitize_input(target_name, "resource_name")
+    target_name = validate_name(target_name)
+    
+    # Validate replicas
+    if min_replicas < 1:
+        return {"success": False, "message": "min_replicas must be >= 1"}
+    if max_replicas < min_replicas:
+        return {"success": False, "message": f"max_replicas ({max_replicas}) must be >= min_replicas ({min_replicas})"}
+    
+    # Validate CPU/memory percentages
+    if target_cpu_percent is not None:
+        if not (0 <= target_cpu_percent <= 100):
+            return {"success": False, "message": "target_cpu_percent must be in range [0, 100]"}
+    
+    if target_memory_percent is not None:
+        if not (0 <= target_memory_percent <= 100):
+            return {"success": False, "message": "target_memory_percent must be in range [0, 100]"}
 
     try:
         # Build metrics
@@ -223,6 +256,11 @@ def delete_hpa(name: str, namespace: str = "default") -> dict:
     Returns:
         {"success": bool, "message": str}
     """
+    # Input validation
+    name = sanitize_input(name, "hpa_name")
+    name = validate_name(name)
+    namespace = validate_namespace(namespace)
+    
     try:
         auto_api = get_autoscaling_v2()
         auto_api.delete_namespaced_horizontal_pod_autoscaler(name, namespace)
@@ -248,6 +286,15 @@ def patch_hpa(
     Returns:
         {"success": bool, "message": str}
     """
+    # Input validation
+    name = sanitize_input(name, "hpa_name")
+    name = validate_name(name)
+    namespace = validate_namespace(namespace)
+    if min_replicas is not None and min_replicas < 0:
+        return {"success": False, "message": "min_replicas cannot be negative"}
+    if max_replicas is not None and max_replicas < 0:
+        return {"success": False, "message": "max_replicas cannot be negative"}
+    
     if not any([min_replicas is not None, max_replicas is not None, labels]):
         return {"success": False, "message": "No updates provided."}
 

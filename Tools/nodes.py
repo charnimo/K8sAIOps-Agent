@@ -136,6 +136,10 @@ def cordon_node(name: str) -> dict:
 
     ⚠️  ACTION — requires user approval.
     """
+    # Input validation
+    name = sanitize_input(name, "node_name")
+    name = validate_name(name)
+    
     core = get_core_v1()
     patch = {"spec": {"unschedulable": True}}
     try:
@@ -156,6 +160,10 @@ def uncordon_node(name: str) -> dict:
 
     ⚠️  ACTION — requires user approval.
     """
+    # Input validation
+    name = sanitize_input(name, "node_name")
+    name = validate_name(name)
+    
     core = get_core_v1()
     patch = {"spec": {"unschedulable": False}}
     try:
@@ -176,7 +184,8 @@ def drain_node(name: str, ignore_daemonsets: bool = True, grace_period_seconds: 
 
     ⚠️  DANGEROUS ACTION — permanently moves workloads off this node.
     ⚠️  DaemonSet pods are skipped by default (ignore_daemonsets=True).
-    ⚠️  Respects PodDisruptionBudgets and terminationGracePeriodSeconds.
+    ⚠️  PodDisruptionBudgets are checked and logged as warnings (best-effort).
+    ⚠️  Respects terminationGracePeriodSeconds.
     ⚠️  Requires explicit user approval.
 
     Args:
@@ -185,7 +194,7 @@ def drain_node(name: str, ignore_daemonsets: bool = True, grace_period_seconds: 
         grace_period_seconds:    Grace period for pod termination (default: 30)
 
     Returns:
-        {"success": bool, "message": str, "evicted": list, "skipped": list}
+        {"success": bool, "message": str, "evicted": list, "skipped": list, "pdb_warnings": list}
     """
     # Step 1: Cordon
     result = cordon_node(name)
@@ -195,6 +204,7 @@ def drain_node(name: str, ignore_daemonsets: bool = True, grace_period_seconds: 
     core = get_core_v1()
     evicted = []
     skipped = []
+    pdb_warnings = []
 
     try:
         # Find all pods on this node (across all namespaces)
@@ -221,13 +231,10 @@ def drain_node(name: str, ignore_daemonsets: bool = True, grace_period_seconds: 
                     skipped.append(f"{pod_ns}/{pod_name} (local storage)")
                     continue
 
-            # Check PodDisruptionBudget (defensive — best effort)
-            try:
-                # In a full implementation, check for PDB constraints
-                # For now, just attempt the drain respecting grace period
-                pass
-            except Exception:
-                pass
+            # Check PodDisruptionBudget (best-effort warning)
+            pdb_warning = _check_pod_disruption_budgets(pod, pod_ns, core)
+            if pdb_warning:
+                pdb_warnings.append(pdb_warning)
 
             try:
                 # Delete pod with graceful termination
@@ -249,7 +256,36 @@ def drain_node(name: str, ignore_daemonsets: bool = True, grace_period_seconds: 
         "message": f"Node {name} drained. {len(evicted)} pods evicted, {len(skipped)} skipped.",
         "evicted": evicted,
         "skipped": skipped,
+        "pdb_warnings": pdb_warnings,
     }
+
+
+def _check_pod_disruption_budgets(pod, namespace: str, core) -> Optional[str]:
+    """
+    Check if a pod might violate any PodDisruptionBudgets.
+    Returns a warning string if PDBs are found that might be affected.
+    """
+    try:
+        # List PDBs in the namespace
+        pbds = core.list_namespaced_namespaced_pod_disruption_budget(namespace=namespace)
+        
+        pod_labels = pod.metadata.labels or {}
+        
+        for pbd in pbds.items:
+            # Check if this PDB's selector matches the pod
+            selector = pbd.spec.selector
+            if selector and selector.match_labels:
+                # Simple label match (not full K8s label selector logic)
+                if all(pod_labels.get(k) == v for k, v in selector.match_labels.items()):
+                    return (
+                        f"{namespace}/{pod.metadata.name} may violate PDB {pbd.metadata.name} "
+                        f"(min_available={pbd.spec.min_available}, max_unavailable={pbd.spec.max_unavailable})"
+                    )
+    except Exception as e:
+        # If PDB checking fails, just log and continue
+        logger.debug(f"Could not check PDBs for {namespace}/{pod.metadata.name}: {e}")
+    
+    return None
 
 
 # ─────────────────────────────────────────────
