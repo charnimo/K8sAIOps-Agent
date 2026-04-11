@@ -30,7 +30,6 @@ from .namespaces  import list_namespaces
 
 logger = logging.getLogger(__name__)
 
-
 def diagnose_pod(name: str, namespace: str = "default") -> dict:
     """
     Produce a comprehensive diagnosis bundle for a pod.
@@ -41,75 +40,141 @@ def diagnose_pod(name: str, namespace: str = "default") -> dict:
     3. Suggest a fix
 
     SMART COLLECTION: Skips unnecessary API calls based on pod status
-    - If Pending: Don't collect logs (pod hasn't started)
-    - If Pending: Don't collect metrics (meaningless)
-    - Only collect prev_logs if pod has CrashLoopBackOff/OOMKilled
+    - If no containers have started: skip logs (nothing to read)
+    - If Pending: skip metrics (meaningless until running)
+    - Only collect prev_logs if pod has CrashLoopBackOff/OOMKilled/HighRestartCount
+    - Always collect events (useful even when other calls fail)
+
+    None = "not fetched / not applicable"
+    empty string / [] / {} = "fetched but empty"
 
     Returns:
         {
-          "target":     {"kind": "Pod", "name": ..., "namespace": ...},
-          "issues":     [...],         # detected issue types
-          "severity":   "critical" | "warning" | "healthy",
-          "status":     {...},         # pod status summary
-          "events":     [...],         # recent pod events (warnings first)
-          "logs":       "...",         # last 100 lines of current logs
-          "prev_logs":  "...",         # logs from previous (crashed) instance
-          "metrics":    {...},         # current CPU/memory usage
+          "target":           {"kind": "Pod", "name": ..., "namespace": ...},
+          "issues":           [...],   # detected issue types
+          "severity":         "critical" | "warning" | "healthy" | "unknown",
+          "status":           {...},   # pod status summary (includes container_statuses)
+          "containers":       [...],   # container names present in this pod
+          "events":           [...],   # recent pod events (warnings first), or None on failure
+          "logs":             {...},   # {container_name: "log text"} for started containers
+          "prev_logs":        {...},   # {container_name: "log text"} for crashed containers
+          "metrics":          {...},   # current CPU/memory usage, or None if not fetched
+          "collection_errors": [...],  # non-fatal errors during data gathering
         }
     """
     result: dict = {
-        "target":    {"kind": "Pod", "name": name, "namespace": namespace},
-        "issues":    [],
-        "severity":  "unknown",
-        "status":    {},
-        "events":    [],
-        "logs":      "",
-        "prev_logs": "",
-        "metrics":   {},
+        "target":            {"kind": "Pod", "name": name, "namespace": namespace},
+        "issues":            [],
+        "severity":          "unknown",
+        "status":            {},
+        "containers":        [],
+        "events":            None,   # None = not fetched
+        "logs":              None,
+        "prev_logs":         None,
+        "metrics":           None,
+        "collection_errors": [],
     }
 
-    # 1. Issue detection (ALWAYS run first — determines rest of collection)
+    # 1. Issue detection (ALWAYS run — determines rest of collection)
     try:
-        issue_data = detect_pod_issues(name, namespace)
+        issue_data         = detect_pod_issues(name, namespace)
         result["issues"]   = issue_data["issues"]
         result["severity"] = issue_data["severity"]
         result["status"]   = issue_data["details"]
     except Exception as e:
         logger.warning(f"Could not detect issues for pod {namespace}/{name}: {e}")
-        result["severity"] = "unknown"
-        return result  # Early exit if we can't determine status
+        result["collection_errors"].append(f"issue_detection: {e}")
+        # Don't return early — events may still tell us why detection failed
 
-    # 2. Events (skip if Pending — won't tell us much)
-    if "Pending" not in result["issues"]:
-        try:
-            result["events"] = get_pod_events(name, namespace)
-        except Exception as e:
-            logger.warning(f"Could not fetch events for pod {namespace}/{name}: {e}")
+    # 2. Extract container list from status
+    container_statuses = result["status"].get("container_statuses", [])
+    all_containers     = result["status"].get("containers", [])  # from spec
 
-    # 3. Current logs (SKIP if Pending — pod hasn't started running)
-    if "Pending" not in result["issues"]:
-        try:
-            result["logs"] = get_pod_logs(name, namespace, tail_lines=100)
-        except Exception as e:
-            logger.warning(f"Could not fetch logs for pod {namespace}/{name}: {e}")
+    # Prefer spec-level container list (always present), fall back to status
+    if all_containers:
+        result["containers"] = [c if isinstance(c, str) else c.get("name") for c in all_containers]
+    elif container_statuses:
+        result["containers"] = [cs.get("name") for cs in container_statuses]
 
-    # 4. Previous logs (ONLY if crashed - saves API call for healthy pods)
-    if any(issue in result["issues"] for issue in ["CrashLoopBackOff", "OOMKilled", "HighRestartCount"]):
-        try:
-            result["prev_logs"] = get_pod_logs(name, namespace, previous=True, tail_lines=100)
-        except Exception:
-            result["prev_logs"] = "[No previous logs available]"
+    # 3. Events (ALWAYS attempt — useful even when pod is broken/pending)
+    try:
+        result["events"] = get_pod_events(name, namespace)
+    except Exception as e:
+        logger.warning(f"Could not fetch events for pod {namespace}/{name}: {e}")
+        result["collection_errors"].append(f"events: {e}")
+        result["events"] = []  # empty list, not None — we tried
 
-    # 5. Metrics (SKIP if Pending — pod not running yet)
-    if "Pending" not in result["issues"]:
+    # 4. Determine which containers have actually started
+    def _container_has_started(cs: dict) -> bool:
+        """
+        True if the container has started (running or terminated).
+        Waiting containers have no logs to read.
+        """
+        state = cs.get("state", {})
+        return "running" in state or "terminated" in state
+
+    started_containers = [
+        cs["name"]
+        for cs in container_statuses
+        if isinstance(cs, dict) and _container_has_started(cs)
+    ]
+
+    crashed_containers = [
+        cs["name"]
+        for cs in container_statuses
+        if isinstance(cs, dict) and (
+            cs.get("state", {}).get("terminated", {}).get("reason") in ("OOMKilled", "Error")
+            or cs.get("name") in result["issues"]  # CrashLoopBackOff surfaces per-container
+        )
+    ]
+
+    # 5. Current logs (per started container)
+    crash_issues = {"CrashLoopBackOff", "OOMKilled", "HighRestartCount"}
+    has_crash    = bool(crash_issues & set(result["issues"]))
+
+    if started_containers:
+        result["logs"] = {}
+        for container in started_containers:
+            try:
+                result["logs"][container] = get_pod_logs(
+                    name, namespace,
+                    container=container,
+                    tail_lines=100,
+                )
+            except Exception as e:
+                logger.warning(f"Could not fetch logs for {namespace}/{name}/{container}: {e}")
+                result["collection_errors"].append(f"logs[{container}]: {e}")
+                result["logs"][container] = None
+
+    # 6. Previous logs (ONLY for crashed containers) 
+    if has_crash and crashed_containers:
+        result["prev_logs"] = {}
+        for container in crashed_containers:
+            try:
+                result["prev_logs"][container] = get_pod_logs(
+                    name, namespace,
+                    container=container,
+                    previous=True,
+                    tail_lines=100,
+                )
+            except Exception as e:
+                logger.warning(f"Could not fetch prev logs for {namespace}/{name}/{container}: {e}")
+                result["collection_errors"].append(f"prev_logs[{container}]: {e}")
+                result["prev_logs"][container] = None
+
+    # 7. Metrics (skip if nothing is running yet)
+    if started_containers:
         try:
-            result["metrics"] = get_pod_metrics(name, namespace)
+            metrics = get_pod_metrics(name, namespace)
+            if "error" in metrics:
+                result["collection_errors"].append(f"metrics: {metrics['error']}")
+            else:
+                result["metrics"] = metrics
         except Exception as e:
             logger.warning(f"Could not fetch metrics for pod {namespace}/{name}: {e}")
-            result["metrics"] = {"error": "Metrics Server unavailable"}
+            result["collection_errors"].append(f"metrics: {e}")
 
     return result
-
 
 def diagnose_deployment(name: str, namespace: str = "default", include_pod_details: bool = False, include_resource_pressure: bool = False) -> dict:
     """
