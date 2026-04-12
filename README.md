@@ -36,17 +36,19 @@ In that flow, the agent gathers context from tools, explains likely causes, prop
 
 This repository currently contains the Kubernetes tools backbone of the project:
 
+- `app/` for the initial FastAPI backend scaffold and user-facing endpoints
 - `Tools/` for Kubernetes read and action helpers
 - `diagnostics.py` for aggregated troubleshooting bundles
 - `audit.py` for JSONL audit logging
 - `tests/` for unit and integration coverage
 - `manifests/test-workloads.yaml` for local cluster scenarios
 
-The dashboard, FastAPI gateway, and LangChain agent are part of the project scope and architecture, but are not yet implemented in this repository.
+The FastAPI gateway is now scaffolded in this repository. The dashboard and full LangChain agent are still part of the next implementation steps.
 
 ## Repository Layout
 
 ```text
+app/         FastAPI backend scaffold and API routes
 Tools/       Kubernetes tools package
 tests/       Pytest suite with unit and integration tests
 manifests/   Sample workloads for cluster-backed testing
@@ -85,6 +87,12 @@ Client configuration:
 
 - in-cluster mode uses `KUBERNETES_SERVICE_HOST`
 - local mode uses `KUBECONFIG` or `~/.kube/config`
+
+Run the backend locally:
+
+```bash
+uvicorn app.main:app --reload
+```
 
 Note: the package directory is `Tools/`, while some files still import `tools` in lowercase. That works on case-insensitive filesystems, but should be normalized before cross-platform release.
 

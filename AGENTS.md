@@ -2,11 +2,12 @@
 
 ## Project Structure & Module Organization
 
-Core code lives in `Tools/`, organized by Kubernetes resource or concern: `pods.py`, `deployments.py`, `services.py`, `diagnostics.py`, `audit.py`, and related modules. Tests live in `tests/`, with `test_tools.py` covering both unit and cluster-backed integration behavior. Sample workloads for integration tests are in `manifests/test-workloads.yaml`. Longer-form project docs belong in `docs/`.
+Core code lives in `Tools/`, organized by Kubernetes resource or concern: `pods.py`, `deployments.py`, `services.py`, `diagnostics.py`, `audit.py`, and related modules. The API gateway scaffold lives in `app/`. Tests live in `tests/`, with `test_tools.py` covering both unit and cluster-backed integration behavior. Sample workloads for integration tests are in `manifests/test-workloads.yaml`. Longer-form project docs belong in `docs/`.
 
 ## Build, Test, and Development Commands
 
 - `pip install -r requirements.txt`: install Python and Kubernetes client dependencies.
+- `uvicorn app.main:app --reload`: run the FastAPI backend locally.
 - `pytest tests/test_tools.py -m unit`: run unit tests that do not require a cluster.
 - `kubectl apply -f manifests/test-workloads.yaml`: create sample workloads for integration testing.
 - `pytest tests/test_tools.py -m integration`: run cluster-backed integration tests.
