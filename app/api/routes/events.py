@@ -26,3 +26,27 @@ def list_events(
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
+
+@router.get("/events/summary")
+def get_warning_summary(
+    namespace: Optional[str] = Query(default=None),
+    limit: int = Query(default=20, ge=1, le=500),
+) -> list[dict]:
+    """Return a compact warning summary for UI and agent context."""
+    try:
+        return cluster_events.get_recent_warning_summary(namespace=namespace, limit=limit)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.get("/events/resources/{kind}/{name}")
+def get_resource_events(
+    kind: str,
+    name: str,
+    namespace: str = Query(default="default"),
+) -> list[dict]:
+    """Return events for a specific resource."""
+    try:
+        return cluster_events.get_events_for_resource(name=name, kind=kind, namespace=namespace)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
