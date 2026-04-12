@@ -1,83 +1,120 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" class="dark">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Dashboard</title>
+    <title>Dashboard | K8s AIOps</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        gray: {
+                            750: '#334155',
+                            850: '#1e293b',
+                            900: '#0f172a',
+                            950: '#020617',
+                        }
+                    }
+                }
+            }
+        }
+    </script>
 </head>
-<body class="bg-gray-100 min-h-screen">
+<body class="bg-gray-900 text-gray-200 min-h-screen selection:bg-blue-500 selection:text-white pb-10">
 
-    <nav class="bg-blue-600 p-4 text-white flex justify-between shadow-lg">
-        <div class="font-bold text-xl">K8s AIOps Agent</div>
-        <div>
-            <button id="logoutBtn" class="bg-red-500 px-4 py-2 rounded hover:bg-red-600">Logout</button>
+    <!-- Top Navigation -->
+    <nav class="bg-gray-850 p-4 border-b border-gray-800 shadow-xl sticky top-0 z-40 backdrop-blur-md bg-opacity-90">
+        <div class="container mx-auto flex justify-between items-center">
+            <!-- Brand -->
+            <div class="flex items-center space-x-3">
+                <div class="w-8 h-8 rounded-lg bg-gradient-to-tr from-blue-600 to-indigo-600 flex items-center justify-center shadow-lg">
+                    <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 002-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"></path></svg>
+                </div>
+                <div class="font-bold text-xl tracking-tight text-white">K8s AIOps <span class="text-blue-500 font-medium">Agent</span></div>
+            </div>
+            
+            <!-- Navbar Actions -->
+            <div class="flex items-center space-x-5">
+                <!-- Status -->
+                <div class="flex items-center space-x-2 text-sm bg-gray-900 px-3 py-1.5 rounded-full border border-gray-700 shadow-inner">
+                    <span class="w-2 h-2 bg-emerald-500 rounded-full animate-pulse shadow-[0_0_8px_rgba(16,185,129,0.8)]"></span>
+                    <span class="text-gray-300 font-medium">Connected</span>
+                </div>
+
+                <!-- Namespace -->
+                <div class="flex items-center space-x-2 text-sm bg-gray-900 px-3 py-1.5 rounded-full border border-gray-700 shadow-inner">
+                    <span class="text-gray-400">NS:</span>
+                    <span class="text-blue-400 font-mono font-medium">default</span>
+                </div>
+
+                <div class="w-px h-6 bg-gray-700 mx-2"></div>
+
+                <!-- User Profile Link -->
+                <a href="/static/profile.html" class="flex items-center space-x-2 group hover:bg-gray-800 px-3 py-1.5 rounded-lg transition-colors cursor-pointer">
+                    <div class="w-7 h-7 rounded-full bg-gray-700 flex items-center justify-center border border-gray-600 group-hover:border-blue-500 transition-colors">
+                        <svg class="w-4 h-4 text-gray-300 group-hover:text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path></svg>
+                    </div>
+                    <span class="font-medium text-gray-300 group-hover:text-white transition-colors" id="activeUserDisplay">admin</span>
+                </a>
+
+                <!-- Logout -->
+                <button id="logoutBtn" class="flex items-center space-x-2 bg-gray-800 border border-gray-700 px-3 py-1.5 rounded-lg hover:bg-rose-600 hover:border-rose-500 hover:text-white transition-all duration-300 text-gray-300 font-medium shadow-sm">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"></path></svg>
+                    <span class="text-sm">Logout</span>
+                </button>
+            </div>
         </div>
     </nav>
 
-    <div class="container mx-auto p-8 mt-10">
-        <h1 class="text-3xl font-bold mb-6 text-gray-800">Cluster Pods</h1>
+    <!-- Main Content -->
+    <div class="container mx-auto px-4 mt-10 max-w-6xl relative z-10">
+        <header class="mb-8">
+            <h1 class="text-4xl font-extrabold text-white tracking-tight">Cluster Overview</h1>
+            <p class="text-gray-400 mt-2 text-sm">Monitoring your Kubernetes environment resources in real-time.</p>
+        </header>
 
-        <div id="errorBox" class="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative hidden mb-4">
-            <span class="block sm:inline" id="errorText">Please <a href="/static/login.html" class="underline font-bold">login</a> to view pods.</span>
-        </div>
-
-        <div class="bg-white p-6 rounded shadow-lg">
-            <button id="loadPodsBtn" class="bg-blue-500 text-white px-6 py-2 rounded hover:bg-blue-600 w-full font-bold">Fetch Pods</button>
-            
-            <div class="mt-6">
-                <!-- Pod Data goes here -->
-                <pre id="podsOutput" class="bg-gray-900 text-green-400 p-4 rounded overflow-auto h-96 hidden"></pre>
+        <div class="bg-gray-850 rounded-xl border border-gray-800 shadow-2xl p-10 flex flex-col items-center justify-center min-h-[400px]">
+            <div class="w-16 h-16 bg-gray-800 rounded-full flex items-center justify-center mb-4">
+                <svg class="w-8 h-8 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 002-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"></path></svg>
             </div>
+            <h2 class="text-2xl font-bold text-white mb-2">To be implemented</h2>
         </div>
     </div>
 
-    <!-- Script to handle API call with token -->
+    <!-- Background glow elements -->
+    <div class="fixed top-[-20%] left-[-10%] w-[50%] h-[50%] bg-blue-900 rounded-full blur-[150px] opacity-20 pointer-events-none z-0"></div>
+    <div class="fixed bottom-[-20%] right-[-10%] w-[50%] h-[50%] bg-indigo-900 rounded-full blur-[150px] opacity-20 pointer-events-none z-0"></div>
+
+    <script src="/static/js/toast.js"></script>
     <script>
         const token = localStorage.getItem("jwt_token");
 
-        // Redirect if not logged in
-        if (!token) {
-            window.location.href = "/static/login.html";
+        function parseJwt (token) {
+            try {
+                return JSON.parse(atob(token.split('.')[1]));
+            } catch (e) {
+                return null;
+            }
         }
 
-        // Fetch Pods click event
-        document.getElementById('loadPodsBtn').addEventListener('click', async () => {
-            const token = localStorage.getItem("jwt_token");
-
-            if (!token) {
-                document.getElementById('errorBox').classList.remove("hidden");
-                return;
+        if (!token) {
+            window.location.href = "/static/login.html";
+        } else {
+            const claims = parseJwt(token);
+            if (claims && claims.sub) {
+                document.getElementById('activeUserDisplay').innerText = claims.sub;
             }
+        }
 
-            try {
-                const response = await fetch('/resources/pods', {
-                    method: 'GET',
-                    headers: { 'Authorization': `Bearer ${token}` }
-                });
-
-                if (response.status === 401) {
-                    document.getElementById('errorText').innerText = "Session expired. Please login again.";
-                    document.getElementById('errorBox').classList.remove("hidden");
-                    localStorage.removeItem("jwt_token");
-                    return;
-                }
-
-                const data = await response.json();
-                const output = document.getElementById('podsOutput');
-                output.classList.remove('hidden');
-                output.innerText = JSON.stringify(data, null, 2);
-                document.getElementById('errorBox').classList.add("hidden");
-
-            } catch (err) {
-                alert("Failed to fetch pods. Server error.");
-            }
-        });
-
-        // Logout
         document.getElementById('logoutBtn').addEventListener('click', () => {
             localStorage.removeItem("jwt_token");
-            window.location.href = "/static/login.html";
+            window.showToast("Logging off...", "success");
+            setTimeout(() => {
+                window.location.href = "/static/login.html";
+            }, 800);
         });
     </script>
 </body>

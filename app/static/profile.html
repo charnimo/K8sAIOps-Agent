@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Profile Settings | K8s AIOps</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        gray: {
+                            750: '#334155',
+                            850: '#1e293b',
+                            900: '#0f172a',
+                            950: '#020617',
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+</head>
+<body class="bg-gray-900 text-gray-200 min-h-screen selection:bg-blue-500 selection:text-white">
+
+    <!-- Top Navigation -->
+    <nav class="bg-gray-850 p-4 border-b border-gray-800 shadow-xl sticky top-0 z-40 backdrop-blur-md bg-opacity-90">
+        <div class="container mx-auto flex justify-between items-center">
+            <div class="flex items-center space-x-3">
+                <a href="/static/index.html" class="flex items-center space-x-2 text-gray-400 hover:text-white transition-colors group">
+                    <div class="bg-gray-800 p-2 rounded-lg group-hover:bg-gray-700 transition-colors">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"></path></svg>
+                    </div>
+                    <span class="font-medium">Back to Dashboard</span>
+                </a>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Main Content -->
+    <div class="container mx-auto px-4 mt-16 max-w-3xl relative z-10">
+        <header class="mb-8 text-center">
+            <h1 class="text-4xl font-extrabold text-white tracking-tight">User Profile</h1>
+            <p class="text-gray-400 mt-2">Manage your account settings, themes, and preferences.</p>
+        </header>
+
+        <div class="bg-gray-850 rounded-xl border border-gray-800 shadow-2xl p-10 text-center flex flex-col items-center justify-center min-h-[350px]">
+            <div class="w-24 h-24 mb-5 rounded-full bg-gradient-to-tr from-blue-600 to-indigo-600 flex items-center justify-center shadow-lg border-4 border-gray-800 relative">
+                <span class="text-4xl text-white font-bold" id="profileInitials">U</span>
+            </div>
+            <h2 class="text-3xl font-bold text-white mb-1" id="profileUsername">User</h2>
+            <p class="text-blue-400 font-medium mb-8">Administrator</p>
+            
+            <div class="px-6 py-4 border border-dashed border-gray-700 bg-gray-900/50 rounded-xl max-w-md w-full flex items-center space-x-4">
+                <div class="p-3 bg-gray-800 rounded-lg text-gray-400">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
+                </div>
+                <div class="text-left">
+                    <div class="text-gray-300 font-medium">Placeholder Settings</div>
+                    <div class="text-gray-500 text-sm">Profile implementation coming soon.</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Background glow elements -->
+    <div class="fixed top-[-20%] left-[-10%] w-[50%] h-[50%] bg-blue-900 rounded-full blur-[150px] opacity-20 pointer-events-none z-0"></div>
+    <div class="fixed bottom-[-20%] right-[-10%] w-[50%] h-[50%] bg-indigo-900 rounded-full blur-[150px] opacity-20 pointer-events-none z-0"></div>
+
+    <script>
+        const token = localStorage.getItem("jwt_token");
+
+        function parseJwt (token) {
+            try {
+                return JSON.parse(atob(token.split('.')[1]));
+            } catch (e) {
+                return null;
+            }
+        }
+
+        if (!token) {
+            window.location.href = "/static/login.html";
+        } else {
+            const claims = parseJwt(token);
+            if (claims && claims.sub) {
+                document.getElementById('profileUsername').innerText = claims.sub;
+                document.getElementById('profileInitials').innerText = claims.sub.substring(0, 1).toUpperCase();
+            }
+        }
+    </script>
+</body>
+</html>

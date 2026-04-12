@@ -1,36 +1,105 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" class="dark">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Sign Up | K8s AIOps</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        gray: {
+                            750: '#334155',
+                            850: '#1e293b',
+                            900: '#0f172a',
+                            950: '#020617',
+                        }
+                    }
+                }
+            }
+        }
+    </script>
 </head>
-<body class="bg-gray-100 flex items-center justify-center min-h-screen">
-    <div class="bg-white p-8 rounded shadow-lg w-full max-w-md">
-        <h2 class="text-2xl font-bold text-center text-gray-800 mb-6">Create Account</h2>
-        <form id="signupForm" class="space-y-4">
-            <div class="flex gap-2">
-                <input type="text" id="first_name" placeholder="First Name" required class="w-full px-4 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-400">
-                <input type="text" id="last_name" placeholder="Last Name" required class="w-full px-4 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-400">
+<body class="bg-gray-900 flex items-center justify-center min-h-screen text-gray-200 selection:bg-blue-500 selection:text-white py-12">
+    
+    <div class="bg-gray-850 p-8 rounded-xl shadow-2xl border border-gray-750 w-full max-w-lg relative overflow-hidden">
+        <!-- Subtle Glow Effect -->
+        <div class="absolute -top-20 -right-20 w-48 h-48 bg-blue-600 rounded-full blur-3xl opacity-10 pointer-events-none"></div>
+        <div class="absolute -bottom-20 -left-20 w-48 h-48 bg-indigo-600 rounded-full blur-3xl opacity-10 pointer-events-none"></div>
+
+        <h2 class="text-3xl font-extrabold text-center text-white mb-8 tracking-tight">Create Account<span class="text-blue-500">.</span></h2>
+        
+        <form id="signupForm" class="space-y-5 relative z-10">
+            <div class="flex flex-col sm:flex-row gap-5">
+                <div class="w-full">
+                    <label for="first_name" class="block text-sm font-medium text-gray-400 mb-1">First Name</label>
+                    <input type="text" id="first_name" placeholder="John" required 
+                        class="w-full px-4 py-2.5 bg-gray-900 border border-gray-700 rounded-lg text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-300">
+                </div>
+                <div class="w-full">
+                    <label for="last_name" class="block text-sm font-medium text-gray-400 mb-1">Last Name</label>
+                    <input type="text" id="last_name" placeholder="Doe" required 
+                        class="w-full px-4 py-2.5 bg-gray-900 border border-gray-700 rounded-lg text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-300">
+                </div>
             </div>
-            <input type="text" id="username" placeholder="Username" required class="w-full px-4 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-400">
-            <input type="email" id="email" placeholder="Email" required class="w-full px-4 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-400">
-            <input type="password" id="password" placeholder="Password" required class="w-full px-4 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-400">
-            <input type="file" id="pic" accept="image/*" class="w-full px-4 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-400 text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100">
-            <button type="submit" class="w-full bg-blue-600 text-white font-bold py-2 rounded hover:bg-blue-700 transition">Sign Up</button>
+            
+            <div>
+                <label for="username" class="block text-sm font-medium text-gray-400 mb-1">Username</label>
+                <div class="relative">
+                    <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                        <span class="text-gray-500 font-bold">@</span>
+                    </div>
+                    <input type="text" id="username" placeholder="johndoe" required 
+                        class="w-full pl-9 pr-4 py-2.5 bg-gray-900 border border-gray-700 rounded-lg text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-300">
+                </div>
+            </div>
+
+            <div>
+                <label for="email" class="block text-sm font-medium text-gray-400 mb-1">Email Address</label>
+                <input type="email" id="email" placeholder="john@example.com" required 
+                    class="w-full px-4 py-2.5 bg-gray-900 border border-gray-700 rounded-lg text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-300">
+            </div>
+
+            <div>
+                <label for="password" class="block text-sm font-medium text-gray-400 mb-1">Password</label>
+                <input type="password" id="password" placeholder="••••••••" required 
+                    class="w-full px-4 py-2.5 bg-gray-900 border border-gray-700 rounded-lg text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-300">
+            </div>
+
+            <div>
+                <label for="pic" class="block text-sm font-medium text-gray-400 mb-1">Profile Picture <span class="text-xs text-gray-500 font-normal">(Optional)</span></label>
+                <input type="file" id="pic" accept="image/*" 
+                    class="w-full px-4 py-2 bg-gray-900 border border-gray-700 rounded-lg text-sm text-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-300
+                           file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-gray-800 file:text-blue-400 hover:file:bg-gray-750 file:transition-colors file:cursor-pointer">
+            </div>
+
+            <button type="submit" 
+                class="w-full mt-4 bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-bold py-3 px-4 rounded-lg hover:from-blue-500 hover:to-indigo-500 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-850 focus:ring-blue-500 transform transition-all duration-300 hover:scale-[1.02] shadow-lg">
+                Create Account
+            </button>
         </form>
-        <p class="text-sm text-center text-gray-600 mt-4">Already have an account? <a href="/static/login.html" class="text-blue-500 hover:underline">Log in</a></p>
+        
+        <p class="text-sm text-center text-gray-400 mt-6 font-medium relative z-10">
+            Already have an account? <a href="/static/login.html" class="text-blue-400 hover:text-blue-300 hover:underline transition-colors">Log in</a>
+        </p>
     </div>
 
+    <script src="/static/js/toast.js"></script>
     <script>
-        // Redirect to dashboard if already logged in
         if (localStorage.getItem("jwt_token")) {
             window.location.href = "/";
         }
         document.getElementById('signupForm').addEventListener('submit', async (e) => {
             e.preventDefault();
             
+            const btn = e.target.querySelector('button[type="submit"]');
+            const originalText = btn.innerHTML;
+            btn.innerHTML = `<svg class="animate-spin -ml-1 mr-3 h-5 w-5 text-white inline-block" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg> Creating Account...`;
+            btn.disabled = true;
+
             const formData = new FormData();
             formData.append('first_name', document.getElementById('first_name').value);
             formData.append('last_name', document.getElementById('last_name').value);
@@ -43,18 +112,26 @@
                 formData.append('profile_picture', picFile);
             }
 
-            const response = await fetch('/auth/signup', {
-                method: 'POST',
-                // Note: Do not set Content-Type here, let the browser set it to multipart/form-data with the correct boundary
-                body: formData
-            });
+            try {
+                const response = await fetch('/auth/signup', {
+                    method: 'POST',
+                    body: formData
+                });
 
-            if (response.ok) {
-                alert("Account created! Please log in.");
-                window.location.href = "/static/login.html";
-            } else {
-                const err = await response.json();
-                alert("Signup failed: " + err.detail);
+                if (response.ok) {
+                    window.showToast("Account created successfully! Please log in.", "success");
+                    setTimeout(() => {
+                        window.location.href = "/static/login.html";
+                    }, 1500);
+                } else {
+                    const err = await response.json();
+                    window.showToast("Signup failed: " + (err.detail || "Unknown error"), "error");
+                }
+            } catch (err) {
+                window.showToast("Connection error. Is the server running?", "error");
+            } finally {
+                btn.innerHTML = originalText;
+                btn.disabled = false;
             }
         });
     </script>
