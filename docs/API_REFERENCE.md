@@ -1,22 +1,243 @@
 # API Reference
 
-This document describes the implemented API surface of the `Tools/` package.
+This document covers the implemented API surface of the repository:
 
-The package is organized around Kubernetes resource domains. Most modules follow the same contract:
+- the FastAPI gateway in `app/`
+- the Kubernetes tools package in `Tools/`
 
-- read helpers return normalized dictionaries or lists of dictionaries
-- action helpers return a result dictionary with fields such as `success`, `message`, and action-specific metadata
-- diagnostics modules aggregate data from multiple lower-level modules
+## FastAPI Gateway
 
-## Import note
+Run the API locally with:
 
-The package directory in this repository is `Tools/`.
+```bash
+uvicorn app.main:app --reload
+```
 
-Many existing source docstrings and tests import `tools` in lowercase. On case-sensitive filesystems, treat that as a packaging inconsistency to resolve before shipping.
+Useful entrypoints:
 
-## Core conventions
+- `GET /` returns a small service descriptor for browser visits
+- `GET /health` returns runtime flags and version info
+- `GET /docs` serves Swagger UI
+- `GET /openapi.json` returns the generated OpenAPI schema
 
-### Read functions
+### Conventions
+
+- `GET` endpoints are read-oriented and browser-friendly
+- `POST` endpoints are used for complex payloads such as chat, diagnostics, and action approvals
+- diagnostics support both `POST` payloads and `GET` query-string shortcuts
+- mutating operations are not exposed as direct resource routes; they go through `action-requests`
+
+### Dashboard and events
+
+- `GET /dashboard/summary`
+- `GET /events`
+- `GET /events/summary`
+- `GET /events/resources/{kind}/{name}`
+
+Use these for the landing dashboard, warning feeds, and resource-specific event timelines.
+
+### Resources
+
+- `GET /resources/pods`
+- `GET /resources/pods/{name}`
+- `GET /resources/pods/{name}/logs`
+- `GET /resources/pods/{name}/events`
+- `GET /resources/pods/{name}/issues`
+- `GET /resources/deployments`
+- `GET /resources/deployments/{name}`
+- `GET /resources/deployments/{name}/events`
+- `GET /resources/deployments/{name}/revisions`
+- `GET /resources/deployments/{name}/rollout-status`
+- `GET /resources/deployments/{name}/rollout-history`
+- `GET /resources/services`
+- `GET /resources/services/{name}`
+
+These routes provide the main workload and service inventory used by the UI.
+
+### Workloads
+
+- `GET /workloads/statefulsets`
+- `GET /workloads/statefulsets/{name}`
+- `GET /workloads/statefulsets/{name}/issues`
+- `GET /workloads/daemonsets`
+- `GET /workloads/daemonsets/{name}`
+- `GET /workloads/daemonsets/{name}/issues`
+- `GET /workloads/jobs`
+- `GET /workloads/jobs/{name}`
+- `GET /workloads/jobs/{name}/issues`
+- `GET /workloads/cronjobs`
+- `GET /workloads/cronjobs/{name}`
+
+### Cluster and storage
+
+- `GET /cluster/nodes`
+- `GET /cluster/nodes/{name}`
+- `GET /cluster/nodes/{name}/issues`
+- `GET /cluster/nodes/{name}/events`
+- `GET /cluster/namespaces`
+- `GET /cluster/namespaces/{name}`
+- `GET /cluster/namespaces/{name}/resources`
+- `GET /cluster/namespaces/{name}/events`
+- `GET /cluster/storage/pvs`
+- `GET /cluster/storage/pvs/{name}`
+- `GET /cluster/storage/pvcs`
+- `GET /cluster/storage/pvcs/{name}`
+- `GET /cluster/storage/pvcs/{name}/issues`
+- `GET /cluster/storage/classes`
+- `GET /cluster/storage/classes/{name}`
+
+### Configuration and networking
+
+- `GET /config/configmaps`
+- `GET /config/configmaps/{name}`
+- `GET /config/secrets`
+- `GET /config/secrets/{name}`
+- `GET /config/secrets/{name}/exists`
+- `GET /config/secrets/{name}/metadata`
+- `GET /config/secrets/{name}/values`
+- `GET /config/ingresses`
+- `GET /config/ingresses/{name}`
+- `GET /config/ingresses/{name}/issues`
+- `GET /config/network-policies`
+- `GET /config/network-policies/{name}`
+- `GET /config/network-policies/issues`
+
+Note that `GET /config/secrets/{name}/values` returns plaintext values and should only be used in trusted environments.
+
+### Governance and observability
+
+- `GET /governance/service-accounts`
+- `GET /governance/service-accounts/{name}`
+- `GET /governance/roles`
+- `GET /governance/roles/{name}`
+- `GET /governance/cluster-roles`
+- `GET /governance/cluster-roles/{name}`
+- `GET /governance/role-bindings`
+- `GET /governance/role-bindings/{name}`
+- `GET /governance/cluster-role-bindings`
+- `GET /governance/cluster-role-bindings/{name}`
+- `GET /governance/hpas`
+- `GET /governance/hpas/{name}`
+- `GET /governance/hpas/{name}/issues`
+- `GET /governance/resource-quotas`
+- `GET /governance/resource-quotas/{name}`
+- `GET /governance/limit-ranges`
+- `GET /governance/limit-ranges/{name}`
+- `GET /governance/quota-pressure`
+- `GET /observability/metrics/pods`
+- `GET /observability/metrics/pods/{name}`
+- `GET /observability/metrics/nodes`
+- `GET /observability/metrics/nodes/{name}`
+- `GET /observability/resource-pressure`
+
+### Diagnostics
+
+Payload-based routes:
+
+- `POST /diagnostics/pods`
+- `POST /diagnostics/deployments`
+- `POST /diagnostics/services`
+
+Browser-friendly query routes:
+
+- `GET /diagnostics/pods?name=<pod>&namespace=<ns>`
+- `GET /diagnostics/deployments?name=<deployment>&namespace=<ns>&include_pod_details=true&include_resource_pressure=true`
+- `GET /diagnostics/services?name=<service>&namespace=<ns>`
+- `GET /diagnostics/cluster`
+
+Examples:
+
+```text
+/diagnostics/pods?name=crashloop-test&namespace=default
+/diagnostics/deployments?name=nginx-test&namespace=default&include_pod_details=true
+/diagnostics/services?name=nginx-test-svc&namespace=default
+```
+
+### Chat
+
+- `POST /chat/sessions`
+- `GET /chat/sessions/{session_id}`
+- `POST /chat/sessions/{session_id}/messages`
+
+Current behavior:
+
+- the API stores session state in memory
+- user messages are recorded
+- no artificial assistant reply is generated yet
+- this is the placeholder integration point for the future agent runtime
+
+### Actions and audit
+
+Discovery and request lifecycle:
+
+- `GET /action-types`
+- `POST /action-requests`
+- `GET /action-requests`
+- `GET /action-requests/{action_id}`
+- `POST /action-requests/{action_id}/approve`
+- `POST /action-requests/{action_id}/reject`
+
+Audit:
+
+- `GET /audit-logs`
+- `POST /audit-logs/cleanup`
+
+Mutations are guarded by `AIOPS_READ_ONLY_MODE` and `AIOPS_ENABLE_MUTATIONS`. Approved actions are executed through `app/services/actions.py`, then logged through `Tools.audit`.
+
+Supported action types currently include:
+
+- `delete_pod`
+- `exec_pod`
+- `scale_deployment`
+- `restart_deployment`
+- `rollback_deployment`
+- `patch_resource_limits`
+- `patch_env_var`
+- `scale_statefulset`
+- `restart_statefulset`
+- `restart_daemonset`
+- `update_daemonset_image`
+- `delete_job`
+- `suspend_job`
+- `suspend_cronjob`
+- `resume_cronjob`
+- `create_service`
+- `patch_service`
+- `delete_service`
+- `create_configmap`
+- `patch_configmap`
+- `delete_configmap`
+- `create_secret`
+- `update_secret`
+- `delete_secret`
+- `cordon_node`
+- `uncordon_node`
+- `drain_node`
+- `create_pvc`
+- `patch_pvc`
+- `delete_pvc`
+- `create_ingress`
+- `patch_ingress`
+- `delete_ingress`
+- `create_hpa`
+- `patch_hpa`
+- `delete_hpa`
+
+## Tools Package
+
+The canonical package directory is `Tools/`.
+
+Canonical imports should use:
+
+```python
+from Tools import diagnostics
+```
+
+The repository also provides local compatibility for lowercase `tools` imports in tests and dev runs, but `Tools` should be treated as the canonical package name.
+
+### Core conventions
+
+#### Read helpers
 
 Typical read functions:
 
@@ -30,11 +251,11 @@ Common issue-detection return shape:
 {
     "issues": ["IssueTypeA", "IssueTypeB"],
     "severity": "healthy" | "warning" | "critical" | "unknown",
-    "details": {...},  # when applicable
+    "details": {...},
 }
 ```
 
-### Action functions
+#### Action helpers
 
 Typical action return shape:
 
@@ -45,7 +266,7 @@ Typical action return shape:
 }
 ```
 
-Some action helpers add fields such as:
+Some helpers add fields such as:
 
 - `previous_replicas`
 - `new_replicas`
@@ -74,8 +295,6 @@ Returns a rich pod diagnosis bundle with:
 - pod metrics when available
 - collection errors for non-fatal failures
 
-Use this when you want one call that gathers most of the context needed to troubleshoot a pod.
-
 #### `diagnose_deployment(name, namespace="default", include_pod_details=False, include_resource_pressure=False)`
 
 Returns:
@@ -86,8 +305,6 @@ Returns:
 - optional full pod diagnoses
 - optional namespace resource pressure analysis
 
-Use `include_pod_details=True` only when deeper per-pod inspection is worth the extra API calls.
-
 #### `diagnose_service(name, namespace="default")`
 
 Returns:
@@ -95,10 +312,8 @@ Returns:
 - service summary
 - endpoint readiness counts
 - backend pod matches
-- detected service/networking issues
+- detected service or networking issues
 - severity classification
-
-This is useful for debugging selector mistakes and no-endpoint cases.
 
 #### `quick_summary(namespace="default")`
 
@@ -225,17 +440,6 @@ Action helpers:
 - `delete_pod(name, namespace="default")`
 - `exec_pod(name, namespace="default", command=..., ...)`
 
-Detected issue types include:
-
-- `CrashLoopBackOff`
-- `OOMKilled`
-- `ImagePullBackOff`
-- `Pending`
-- `Evicted`
-- `HighRestartCount`
-- `NotReady`
-- `Unknown`
-
 #### `Tools.deployments`
 
 Read helpers:
@@ -282,7 +486,7 @@ Read helpers:
 Action helpers:
 
 - `restart_daemonset(name, namespace="default")`
-- `update_daemonset_image(name, namespace="default", container_name=None, image="")`
+- `update_daemonset_image(name, namespace="default", container=None, image=None)`
 
 #### `Tools.jobs`
 
@@ -329,7 +533,7 @@ Read helpers:
 Action helpers:
 
 - `patch_configmap(name, namespace="default", data=None)`
-- `create_configmap(name, namespace="default", data=None, labels=None, immutable=False)`
+- `create_configmap(name, namespace="default", data=None, labels=None)`
 - `delete_configmap(name, namespace="default")`
 
 #### `Tools.secrets`
@@ -344,8 +548,8 @@ Read helpers:
 
 Action helpers:
 
-- `create_secret(name, namespace="default", data=None, string_data=None, secret_type="Opaque", labels=None)`
-- `update_secret(name, namespace="default", data=None, string_data=None, labels=None)`
+- `create_secret(name, namespace="default", data=None, secret_type="Opaque")`
+- `update_secret(name, namespace="default", data=None)`
 - `delete_secret(name, namespace="default")`
 
 #### `Tools.ingress`
@@ -359,9 +563,9 @@ Read helpers:
 
 Action helpers:
 
-- `create_ingress(name, namespace="default", rules=None, tls=None, annotations=None, labels=None, ingress_class_name=None)`
+- `create_ingress(name, namespace="default", rules=None, tls=None, annotations=None, labels=None)`
 - `delete_ingress(name, namespace="default")`
-- `patch_ingress(name, namespace="default", labels=None, annotations=None, ingress_class_name=None)`
+- `patch_ingress(name, namespace="default", labels=None, annotations=None)`
 
 #### `Tools.network_policies`
 
@@ -390,15 +594,6 @@ Action helpers:
 - `cordon_node(name)`
 - `uncordon_node(name)`
 - `drain_node(name, ignore_daemonsets=True, grace_period_seconds=30)`
-
-Typical node issues:
-
-- `NotReady`
-- `MemoryPressure`
-- `DiskPressure`
-- `PIDPressure`
-- `NetworkUnavailable`
-- `Cordoned`
 
 #### `Tools.namespaces`
 
@@ -458,9 +653,9 @@ Read helpers:
 
 Action helpers:
 
-- `create_hpa(name, namespace="default", target_kind="Deployment", target_name=None, min_replicas=1, max_replicas=10, target_cpu_percent=None, target_memory_percent=None, behavior=None, labels=None)`
+- `create_hpa(name, namespace="default", target_kind="Deployment", target_name="", min_replicas=1, max_replicas=10, target_cpu_percent=None, target_memory_percent=None, labels=None)`
 - `delete_hpa(name, namespace="default")`
-- `patch_hpa(name, namespace="default", min_replicas=None, max_replicas=None, target_cpu_percent=None, target_memory_percent=None, behavior=None, labels=None)`
+- `patch_hpa(name, namespace="default", min_replicas=None, max_replicas=None, labels=None)`
 
 #### `Tools.resource_quotas`
 
@@ -485,12 +680,7 @@ Read helpers:
 - `list_warning_events(namespace=None, limit=100)`
 - `get_events_for_resource(name, kind="Pod", namespace="default")`
 - `get_recent_warning_summary(namespace=None, limit=20)`
-
-Utility helper:
-
 - `sort_events(events)`
-
-The canonical event ordering is warning events first, then newest first.
 
 #### `Tools.metrics`
 
@@ -504,14 +694,21 @@ Read helpers:
 
 This module depends on Metrics Server. When metrics are unavailable, several functions return graceful error data instead of raising.
 
-## Test coverage map
+## Validation and test coverage
 
-The broadest behavioral contract in the repository is `tests/test_tools.py`.
+Useful commands:
 
-It covers:
+```bash
+python -m pytest tests/test_api.py tests/test_api_coverage.py -q
+python -m pytest tests/test_tools.py -m unit -q
+python -m pytest tests/test_tools.py -m integration -q
+python -m pytest tests -q
+```
 
-- pure utility and config behavior
+The broadest behavioral contract in the repository is `tests/test_tools.py`. It covers:
+
+- utility and config behavior
 - audit logging
 - integration paths for pods, deployments, services, configmaps, secrets, nodes, namespaces, daemonsets, statefulsets, jobs, metrics, diagnostics, storage, ingress, RBAC, and HPA
 
-Use the tests as the authoritative source when you need to confirm how a helper behaves under real cluster conditions.
+For cluster-backed validation, use Minikube with `manifests/test-workloads.yaml`.
