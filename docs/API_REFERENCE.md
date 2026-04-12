@@ -23,9 +23,12 @@ Useful entrypoints:
 ### Conventions
 
 - `GET` endpoints are read-oriented and browser-friendly
-- `POST` endpoints are used for complex payloads such as chat, diagnostics, and action approvals
+- `POST` endpoints create resources or trigger imperative actions such as restart, rollback, or exec
+- `PATCH` endpoints partially update existing resources
+- `DELETE` endpoints remove resources directly
 - diagnostics support both `POST` payloads and `GET` query-string shortcuts
-- mutating operations are not exposed as direct resource routes; they go through `action-requests`
+- direct mutation routes execute the matching `Tools/` helper immediately
+- `action-requests` remains available as the approval-gated alternative for the same mutating tool surface
 
 ### Dashboard and events
 
@@ -43,14 +46,24 @@ Use these for the landing dashboard, warning feeds, and resource-specific event 
 - `GET /resources/pods/{name}/logs`
 - `GET /resources/pods/{name}/events`
 - `GET /resources/pods/{name}/issues`
+- `DELETE /resources/pods/{name}`
+- `POST /resources/pods/{name}/exec`
 - `GET /resources/deployments`
 - `GET /resources/deployments/{name}`
 - `GET /resources/deployments/{name}/events`
 - `GET /resources/deployments/{name}/revisions`
 - `GET /resources/deployments/{name}/rollout-status`
 - `GET /resources/deployments/{name}/rollout-history`
+- `PATCH /resources/deployments/{name}/scale`
+- `POST /resources/deployments/{name}/restart`
+- `POST /resources/deployments/{name}/rollback`
+- `PATCH /resources/deployments/{name}/resource-limits`
+- `PATCH /resources/deployments/{name}/env`
 - `GET /resources/services`
 - `GET /resources/services/{name}`
+- `POST /resources/services`
+- `PATCH /resources/services/{name}`
+- `DELETE /resources/services/{name}`
 
 These routes provide the main workload and service inventory used by the UI.
 
@@ -90,14 +103,23 @@ These routes provide the main workload and service inventory used by the UI.
 
 - `GET /config/configmaps`
 - `GET /config/configmaps/{name}`
+- `POST /config/configmaps`
+- `PATCH /config/configmaps/{name}`
+- `DELETE /config/configmaps/{name}`
 - `GET /config/secrets`
 - `GET /config/secrets/{name}`
 - `GET /config/secrets/{name}/exists`
 - `GET /config/secrets/{name}/metadata`
 - `GET /config/secrets/{name}/values`
+- `POST /config/secrets`
+- `PATCH /config/secrets/{name}`
+- `DELETE /config/secrets/{name}`
 - `GET /config/ingresses`
 - `GET /config/ingresses/{name}`
 - `GET /config/ingresses/{name}/issues`
+- `POST /config/ingresses`
+- `PATCH /config/ingresses/{name}`
+- `DELETE /config/ingresses/{name}`
 - `GET /config/network-policies`
 - `GET /config/network-policies/{name}`
 - `GET /config/network-policies/issues`
@@ -183,6 +205,8 @@ Audit:
 - `POST /audit-logs/cleanup`
 
 Mutations are guarded by `AIOPS_READ_ONLY_MODE` and `AIOPS_ENABLE_MUTATIONS`. Approved actions are executed through `app/services/actions.py`, then logged through `Tools.audit`.
+
+Direct mutation routes are also available for the corresponding tool actions. When you want the explicit approval workflow instead, create an action request with `POST /action-requests`, then approve or reject it later.
 
 Supported action types currently include:
 

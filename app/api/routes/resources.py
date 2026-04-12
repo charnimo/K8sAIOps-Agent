@@ -6,6 +6,16 @@ from fastapi import APIRouter, HTTPException, Query
 from kubernetes.client.exceptions import ApiException
 
 from Tools import deployments, pods, services
+from app.api.mutations import run_direct_action
+from app.schemas.mutations import (
+    CreateServiceRequest,
+    DeploymentEnvPatchRequest,
+    DeploymentResourceLimitsPatchRequest,
+    DeploymentRollbackRequest,
+    PatchServiceRequest,
+    PodExecRequest,
+    ScaleRequest,
+)
 
 
 router = APIRouter()
@@ -101,6 +111,23 @@ def get_pod_issues(name: str, namespace: str = Query(default="default")) -> dict
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
+@router.delete("/pods/{name}")
+def delete_pod(name: str, namespace: str = Query(default="default")) -> dict:
+    """Delete a pod directly."""
+    return run_direct_action("delete_pod", name=name, namespace=namespace)
+
+
+@router.post("/pods/{name}/exec")
+def exec_pod(name: str, payload: PodExecRequest, namespace: str = Query(default="default")) -> dict:
+    """Execute a command in a pod."""
+    return run_direct_action(
+        "exec_pod",
+        name=name,
+        namespace=namespace,
+        params=payload.model_dump(),
+    )
+
+
 @router.get("/deployments")
 def list_deployments(
     namespace: str = Query(default="default"),
@@ -161,6 +188,60 @@ def get_rollout_history(name: str, namespace: str = Query(default="default")) ->
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
+@router.patch("/deployments/{name}/scale")
+def scale_deployment(name: str, payload: ScaleRequest, namespace: str = Query(default="default")) -> dict:
+    """Scale a deployment directly."""
+    return run_direct_action(
+        "scale_deployment",
+        name=name,
+        namespace=namespace,
+        params=payload.model_dump(),
+    )
+
+
+@router.post("/deployments/{name}/restart")
+def restart_deployment(name: str, namespace: str = Query(default="default")) -> dict:
+    """Restart a deployment directly."""
+    return run_direct_action("restart_deployment", name=name, namespace=namespace)
+
+
+@router.post("/deployments/{name}/rollback")
+def rollback_deployment(name: str, payload: DeploymentRollbackRequest) -> dict:
+    """Rollback a deployment directly."""
+    return run_direct_action(
+        "rollback_deployment",
+        name=name,
+        namespace=payload.namespace,
+        params={"revision": payload.revision},
+    )
+
+
+@router.patch("/deployments/{name}/resource-limits")
+def patch_deployment_resource_limits(name: str, payload: DeploymentResourceLimitsPatchRequest) -> dict:
+    """Patch deployment resource limits directly."""
+    params = payload.model_dump()
+    namespace = params.pop("namespace")
+    return run_direct_action(
+        "patch_resource_limits",
+        name=name,
+        namespace=namespace,
+        params=params,
+    )
+
+
+@router.patch("/deployments/{name}/env")
+def patch_deployment_env(name: str, payload: DeploymentEnvPatchRequest) -> dict:
+    """Patch deployment environment variables directly."""
+    params = payload.model_dump()
+    namespace = params.pop("namespace")
+    return run_direct_action(
+        "patch_env_var",
+        name=name,
+        namespace=namespace,
+        params=params,
+    )
+
+
 @router.get("/services")
 def list_services(
     namespace: str = Query(default="default"),
@@ -183,3 +264,26 @@ def get_service(name: str, namespace: str = Query(default="default")) -> dict:
         return services.get_service(name=name, namespace=namespace)
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.post("/services")
+def create_service(payload: CreateServiceRequest) -> dict:
+    """Create a service directly."""
+    params = payload.model_dump()
+    name = params.pop("name")
+    namespace = params.pop("namespace")
+    return run_direct_action("create_service", name=name, namespace=namespace, params=params)
+
+
+@router.patch("/services/{name}")
+def patch_service(name: str, payload: PatchServiceRequest) -> dict:
+    """Patch a service directly."""
+    params = payload.model_dump()
+    namespace = params.pop("namespace")
+    return run_direct_action("patch_service", name=name, namespace=namespace, params=params)
+
+
+@router.delete("/services/{name}")
+def delete_service(name: str, namespace: str = Query(default="default")) -> dict:
+    """Delete a service directly."""
+    return run_direct_action("delete_service", name=name, namespace=namespace)

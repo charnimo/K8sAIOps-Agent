@@ -4,6 +4,7 @@ from types import SimpleNamespace
 
 from kubernetes.client.exceptions import ApiException
 
+from app.api import mutations as mutation_helpers
 from app.api.routes import configuration as configuration_routes
 from app.api.routes import diagnostics as diagnostics_routes
 from app.api.routes import resources as resources_routes
@@ -205,6 +206,208 @@ def test_missing_pod_lookup_returns_404(monkeypatch):
     response = client.get("/resources/pods/missing-pod", params={"namespace": "default"})
     assert response.status_code == 404
     assert response.json()["detail"] == "Pod 'missing-pod' not found in namespace 'default'"
+
+
+def test_delete_pod_direct_route_calls_action(monkeypatch):
+    """DELETE pod routes should dispatch through the shared action executor."""
+    calls = []
+    monkeypatch.setattr(
+        resources_routes,
+        "run_direct_action",
+        lambda action_type, **kwargs: calls.append((action_type, kwargs)) or {"success": True},
+    )
+
+    response = client.delete("/resources/pods/api-pod", params={"namespace": "ops"})
+    assert response.status_code == 200
+    assert response.json() == {"success": True}
+    assert calls == [("delete_pod", {"name": "api-pod", "namespace": "ops"})]
+
+
+def test_exec_pod_direct_route_passes_payload(monkeypatch):
+    """Pod exec routes should preserve command and stream flags."""
+    calls = []
+    monkeypatch.setattr(
+        resources_routes,
+        "run_direct_action",
+        lambda action_type, **kwargs: calls.append((action_type, kwargs)) or {"success": True},
+    )
+
+    response = client.post(
+        "/resources/pods/api-pod/exec?namespace=ops",
+        json={"command": ["sh", "-c", "env"], "stdin": False, "stdout": True, "stderr": True, "tty": False},
+    )
+    assert response.status_code == 200
+    assert calls == [
+        (
+            "exec_pod",
+            {
+                "name": "api-pod",
+                "namespace": "ops",
+                "params": {
+                    "command": ["sh", "-c", "env"],
+                    "stdin": False,
+                    "stdout": True,
+                    "stderr": True,
+                    "tty": False,
+                },
+            },
+        )
+    ]
+
+
+def test_scale_deployment_direct_route_calls_action(monkeypatch):
+    """Deployment scale routes should translate PATCH payloads into action params."""
+    calls = []
+    monkeypatch.setattr(
+        resources_routes,
+        "run_direct_action",
+        lambda action_type, **kwargs: calls.append((action_type, kwargs)) or {"success": True},
+    )
+
+    response = client.patch("/resources/deployments/api/scale?namespace=ops", json={"replicas": 4})
+    assert response.status_code == 200
+    assert calls == [("scale_deployment", {"name": "api", "namespace": "ops", "params": {"replicas": 4}})]
+
+
+def test_create_service_direct_route_calls_action(monkeypatch):
+    """Service creation routes should preserve the request body fields."""
+    calls = []
+    monkeypatch.setattr(
+        resources_routes,
+        "run_direct_action",
+        lambda action_type, **kwargs: calls.append((action_type, kwargs)) or {"success": True},
+    )
+
+    response = client.post(
+        "/resources/services",
+        json={
+            "name": "api-svc",
+            "namespace": "ops",
+            "service_type": "ClusterIP",
+            "selector": {"app": "api"},
+            "ports": [{"port": 80, "target_port": 8080, "protocol": "TCP", "name": "http"}],
+            "labels": {"team": "platform"},
+        },
+    )
+    assert response.status_code == 200
+    assert calls == [
+        (
+            "create_service",
+            {
+                "name": "api-svc",
+                "namespace": "ops",
+                "params": {
+                    "service_type": "ClusterIP",
+                    "selector": {"app": "api"},
+                    "ports": [{"port": 80, "target_port": 8080, "protocol": "TCP", "name": "http"}],
+                    "labels": {"team": "platform"},
+                },
+            },
+        )
+    ]
+
+
+def test_create_configmap_direct_route_calls_action(monkeypatch):
+    """ConfigMap creation routes should dispatch direct create actions."""
+    calls = []
+    monkeypatch.setattr(
+        configuration_routes,
+        "run_direct_action",
+        lambda action_type, **kwargs: calls.append((action_type, kwargs)) or {"success": True},
+    )
+
+    response = client.post(
+        "/config/configmaps",
+        json={"name": "app-config", "namespace": "ops", "data": {"LOG_LEVEL": "debug"}, "labels": {"app": "api"}},
+    )
+    assert response.status_code == 200
+    assert calls == [
+        (
+            "create_configmap",
+            {
+                "name": "app-config",
+                "namespace": "ops",
+                "params": {"data": {"LOG_LEVEL": "debug"}, "labels": {"app": "api"}},
+            },
+        )
+    ]
+
+
+def test_update_secret_direct_route_calls_action(monkeypatch):
+    """Secret update routes should preserve namespace and data."""
+    calls = []
+    monkeypatch.setattr(
+        configuration_routes,
+        "run_direct_action",
+        lambda action_type, **kwargs: calls.append((action_type, kwargs)) or {"success": True},
+    )
+
+    response = client.patch(
+        "/config/secrets/api-secret",
+        json={"namespace": "ops", "data": {"TOKEN": "new-value"}},
+    )
+    assert response.status_code == 200
+    assert calls == [
+        (
+            "update_secret",
+            {
+                "name": "api-secret",
+                "namespace": "ops",
+                "params": {"data": {"TOKEN": "new-value"}},
+            },
+        )
+    ]
+
+
+def test_create_ingress_direct_route_calls_action(monkeypatch):
+    """Ingress creation routes should preserve rules, tls, and metadata."""
+    calls = []
+    monkeypatch.setattr(
+        configuration_routes,
+        "run_direct_action",
+        lambda action_type, **kwargs: calls.append((action_type, kwargs)) or {"success": True},
+    )
+
+    response = client.post(
+        "/config/ingresses",
+        json={
+            "name": "api-ing",
+            "namespace": "ops",
+            "rules": [{"host": "api.example.com", "paths": [{"path": "/", "service": "api-svc", "port": 80}]}],
+            "tls": [{"hosts": ["api.example.com"], "secret_name": "tls-secret"}],
+            "annotations": {"nginx.ingress.kubernetes.io/rewrite-target": "/"},
+            "labels": {"app": "api"},
+        },
+    )
+    assert response.status_code == 200
+    assert calls == [
+        (
+            "create_ingress",
+            {
+                "name": "api-ing",
+                "namespace": "ops",
+                "params": {
+                    "rules": [{"host": "api.example.com", "paths": [{"path": "/", "service": "api-svc", "port": 80}]}],
+                    "tls": [{"hosts": ["api.example.com"], "secret_name": "tls-secret"}],
+                    "annotations": {"nginx.ingress.kubernetes.io/rewrite-target": "/"},
+                    "labels": {"app": "api"},
+                },
+            },
+        )
+    ]
+
+
+def test_direct_mutation_helper_respects_runtime_flags(monkeypatch):
+    """Direct mutation helpers should honor the same runtime flags as approvals."""
+    monkeypatch.setattr(
+        mutation_helpers,
+        "get_settings",
+        lambda: SimpleNamespace(read_only_mode=True, mutations_enabled=False),
+    )
+
+    response = client.delete("/resources/pods/api-pod")
+    assert response.status_code == 409
+    assert "Mutations are disabled" in response.json()["detail"]
 
 
 def test_get_pod_diagnostics_variant_uses_query_params(monkeypatch):
