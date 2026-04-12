@@ -72,14 +72,22 @@ These routes provide the main workload and service inventory used by the UI.
 - `GET /workloads/statefulsets`
 - `GET /workloads/statefulsets/{name}`
 - `GET /workloads/statefulsets/{name}/issues`
+- `PATCH /workloads/statefulsets/{name}/scale`
+- `POST /workloads/statefulsets/{name}/restart`
 - `GET /workloads/daemonsets`
 - `GET /workloads/daemonsets/{name}`
 - `GET /workloads/daemonsets/{name}/issues`
+- `POST /workloads/daemonsets/{name}/restart`
+- `PATCH /workloads/daemonsets/{name}/image`
 - `GET /workloads/jobs`
 - `GET /workloads/jobs/{name}`
 - `GET /workloads/jobs/{name}/issues`
+- `DELETE /workloads/jobs/{name}`
+- `POST /workloads/jobs/{name}/suspend`
 - `GET /workloads/cronjobs`
 - `GET /workloads/cronjobs/{name}`
+- `POST /workloads/cronjobs/{name}/suspend`
+- `POST /workloads/cronjobs/{name}/resume`
 
 ### Cluster and storage
 
@@ -87,6 +95,9 @@ These routes provide the main workload and service inventory used by the UI.
 - `GET /cluster/nodes/{name}`
 - `GET /cluster/nodes/{name}/issues`
 - `GET /cluster/nodes/{name}/events`
+- `POST /cluster/nodes/{name}/cordon`
+- `POST /cluster/nodes/{name}/uncordon`
+- `POST /cluster/nodes/{name}/drain`
 - `GET /cluster/namespaces`
 - `GET /cluster/namespaces/{name}`
 - `GET /cluster/namespaces/{name}/resources`
@@ -96,6 +107,9 @@ These routes provide the main workload and service inventory used by the UI.
 - `GET /cluster/storage/pvcs`
 - `GET /cluster/storage/pvcs/{name}`
 - `GET /cluster/storage/pvcs/{name}/issues`
+- `POST /cluster/storage/pvcs`
+- `PATCH /cluster/storage/pvcs/{name}`
+- `DELETE /cluster/storage/pvcs/{name}`
 - `GET /cluster/storage/classes`
 - `GET /cluster/storage/classes/{name}`
 
@@ -141,6 +155,9 @@ Note that `GET /config/secrets/{name}/values` returns plaintext values and shoul
 - `GET /governance/hpas`
 - `GET /governance/hpas/{name}`
 - `GET /governance/hpas/{name}/issues`
+- `POST /governance/hpas`
+- `PATCH /governance/hpas/{name}`
+- `DELETE /governance/hpas/{name}`
 - `GET /governance/resource-quotas`
 - `GET /governance/resource-quotas/{name}`
 - `GET /governance/limit-ranges`

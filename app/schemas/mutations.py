@@ -160,3 +160,59 @@ class PatchIngressRequest(BaseModel):
     namespace: str = Field(default="default", min_length=1)
     labels: Optional[dict[str, str]] = None
     annotations: Optional[dict[str, str]] = None
+
+
+class DaemonSetImageUpdateRequest(BaseModel):
+    """DaemonSet image update payload."""
+
+    namespace: str = Field(default="default", min_length=1)
+    container: str = Field(..., min_length=1)
+    image: str = Field(..., min_length=1)
+
+
+class NodeDrainRequest(BaseModel):
+    """Node drain payload."""
+
+    ignore_daemonsets: bool = True
+    grace_period_seconds: int = Field(default=30, ge=0)
+
+
+class CreatePvcRequest(BaseModel):
+    """PVC creation payload."""
+
+    name: str = Field(..., min_length=1)
+    namespace: str = Field(default="default", min_length=1)
+    size: str = Field(default="1Gi", min_length=1)
+    access_modes: list[str] = Field(default_factory=lambda: ["ReadWriteOnce"])
+    storage_class: Optional[str] = None
+    labels: dict[str, str] = Field(default_factory=dict)
+
+
+class PatchPvcRequest(BaseModel):
+    """PVC patch payload."""
+
+    namespace: str = Field(default="default", min_length=1)
+    labels: dict[str, str] = Field(..., min_length=1)
+
+
+class CreateHpaRequest(BaseModel):
+    """HPA creation payload."""
+
+    name: str = Field(..., min_length=1)
+    namespace: str = Field(default="default", min_length=1)
+    target_kind: str = Field(default="Deployment", min_length=1)
+    target_name: str = Field(..., min_length=1)
+    min_replicas: int = Field(default=1, ge=1)
+    max_replicas: int = Field(default=10, ge=1)
+    target_cpu_percent: Optional[int] = Field(default=None, ge=0, le=100)
+    target_memory_percent: Optional[int] = Field(default=None, ge=0, le=100)
+    labels: dict[str, str] = Field(default_factory=dict)
+
+
+class PatchHpaRequest(BaseModel):
+    """HPA patch payload."""
+
+    namespace: str = Field(default="default", min_length=1)
+    min_replicas: Optional[int] = Field(default=None, ge=0)
+    max_replicas: Optional[int] = Field(default=None, ge=0)
+    labels: Optional[dict[str, str]] = None

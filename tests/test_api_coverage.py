@@ -50,6 +50,18 @@ EXPECTED_TOOL_PATHS = {
     "/resources/deployments/{name}/env",
     "/config/configmaps/{name}",
     "/config/ingresses/{name}",
+    "/workloads/statefulsets/{name}/scale",
+    "/workloads/statefulsets/{name}/restart",
+    "/workloads/daemonsets/{name}/restart",
+    "/workloads/daemonsets/{name}/image",
+    "/workloads/jobs/{name}/suspend",
+    "/workloads/cronjobs/{name}/suspend",
+    "/workloads/cronjobs/{name}/resume",
+    "/cluster/nodes/{name}/cordon",
+    "/cluster/nodes/{name}/uncordon",
+    "/cluster/nodes/{name}/drain",
+    "/cluster/storage/pvcs/{name}",
+    "/governance/hpas/{name}",
 }
 
 
@@ -69,6 +81,24 @@ EXPECTED_DIRECT_ROUTE_METHODS = {
     "/config/secrets/{name}": {"get", "patch", "delete"},
     "/config/ingresses": {"get", "post"},
     "/config/ingresses/{name}": {"get", "patch", "delete"},
+    "/workloads/statefulsets/{name}": {"get"},
+    "/workloads/statefulsets/{name}/scale": {"patch"},
+    "/workloads/statefulsets/{name}/restart": {"post"},
+    "/workloads/daemonsets/{name}": {"get"},
+    "/workloads/daemonsets/{name}/restart": {"post"},
+    "/workloads/daemonsets/{name}/image": {"patch"},
+    "/workloads/jobs/{name}": {"get", "delete"},
+    "/workloads/jobs/{name}/suspend": {"post"},
+    "/workloads/cronjobs/{name}": {"get"},
+    "/workloads/cronjobs/{name}/suspend": {"post"},
+    "/workloads/cronjobs/{name}/resume": {"post"},
+    "/cluster/nodes/{name}/cordon": {"post"},
+    "/cluster/nodes/{name}/uncordon": {"post"},
+    "/cluster/nodes/{name}/drain": {"post"},
+    "/cluster/storage/pvcs": {"get", "post"},
+    "/cluster/storage/pvcs/{name}": {"get", "patch", "delete"},
+    "/governance/hpas": {"get", "post"},
+    "/governance/hpas/{name}": {"get", "patch", "delete"},
 }
 
 

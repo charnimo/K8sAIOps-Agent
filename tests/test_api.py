@@ -5,9 +5,12 @@ from types import SimpleNamespace
 from kubernetes.client.exceptions import ApiException
 
 from app.api import mutations as mutation_helpers
+from app.api.routes import cluster as cluster_routes
 from app.api.routes import configuration as configuration_routes
 from app.api.routes import diagnostics as diagnostics_routes
+from app.api.routes import governance as governance_routes
 from app.api.routes import resources as resources_routes
+from app.api.routes import workloads as workloads_routes
 from fastapi.testclient import TestClient
 
 from app.main import app
@@ -408,6 +411,161 @@ def test_direct_mutation_helper_respects_runtime_flags(monkeypatch):
     response = client.delete("/resources/pods/api-pod")
     assert response.status_code == 409
     assert "Mutations are disabled" in response.json()["detail"]
+
+
+def test_scale_statefulset_direct_route_calls_action(monkeypatch):
+    """StatefulSet scale routes should translate PATCH payloads into action params."""
+    calls = []
+    monkeypatch.setattr(
+        workloads_routes,
+        "run_direct_action",
+        lambda action_type, **kwargs: calls.append((action_type, kwargs)) or {"success": True},
+    )
+
+    response = client.patch("/workloads/statefulsets/db/scale?namespace=ops", json={"replicas": 2})
+    assert response.status_code == 200
+    assert calls == [("scale_statefulset", {"name": "db", "namespace": "ops", "params": {"replicas": 2}})]
+
+
+def test_update_daemonset_image_direct_route_calls_action(monkeypatch):
+    """DaemonSet image routes should preserve container and image fields."""
+    calls = []
+    monkeypatch.setattr(
+        workloads_routes,
+        "run_direct_action",
+        lambda action_type, **kwargs: calls.append((action_type, kwargs)) or {"success": True},
+    )
+
+    response = client.patch(
+        "/workloads/daemonsets/agent/image",
+        json={"namespace": "ops", "container": "agent", "image": "repo/agent:v2"},
+    )
+    assert response.status_code == 200
+    assert calls == [
+        (
+            "update_daemonset_image",
+            {
+                "name": "agent",
+                "namespace": "ops",
+                "params": {"container": "agent", "image": "repo/agent:v2"},
+            },
+        )
+    ]
+
+
+def test_delete_job_direct_route_calls_action(monkeypatch):
+    """Job delete routes should pass propagation policy through to the action layer."""
+    calls = []
+    monkeypatch.setattr(
+        workloads_routes,
+        "run_direct_action",
+        lambda action_type, **kwargs: calls.append((action_type, kwargs)) or {"success": True},
+    )
+
+    response = client.delete(
+        "/workloads/jobs/data-backfill",
+        params={"namespace": "ops", "propagation_policy": "Background"},
+    )
+    assert response.status_code == 200
+    assert calls == [
+        (
+            "delete_job",
+            {
+                "name": "data-backfill",
+                "namespace": "ops",
+                "params": {"propagation_policy": "Background"},
+            },
+        )
+    ]
+
+
+def test_drain_node_direct_route_calls_action(monkeypatch):
+    """Node drain routes should preserve the drain options payload."""
+    calls = []
+    monkeypatch.setattr(
+        cluster_routes,
+        "run_direct_action",
+        lambda action_type, **kwargs: calls.append((action_type, kwargs)) or {"success": True},
+    )
+
+    response = client.post(
+        "/cluster/nodes/worker-1/drain",
+        json={"ignore_daemonsets": False, "grace_period_seconds": 15},
+    )
+    assert response.status_code == 200
+    assert calls == [
+        (
+            "drain_node",
+            {
+                "name": "worker-1",
+                "params": {"ignore_daemonsets": False, "grace_period_seconds": 15},
+            },
+        )
+    ]
+
+
+def test_create_pvc_direct_route_calls_action(monkeypatch):
+    """PVC creation routes should preserve storage-related fields."""
+    calls = []
+    monkeypatch.setattr(
+        cluster_routes,
+        "run_direct_action",
+        lambda action_type, **kwargs: calls.append((action_type, kwargs)) or {"success": True},
+    )
+
+    response = client.post(
+        "/cluster/storage/pvcs",
+        json={
+            "name": "data",
+            "namespace": "ops",
+            "size": "20Gi",
+            "access_modes": ["ReadWriteOnce"],
+            "storage_class": "fast-ssd",
+            "labels": {"app": "db"},
+        },
+    )
+    assert response.status_code == 200
+    assert calls == [
+        (
+            "create_pvc",
+            {
+                "name": "data",
+                "namespace": "ops",
+                "params": {
+                    "size": "20Gi",
+                    "access_modes": ["ReadWriteOnce"],
+                    "storage_class": "fast-ssd",
+                    "labels": {"app": "db"},
+                },
+            },
+        )
+    ]
+
+
+def test_patch_hpa_direct_route_calls_action(monkeypatch):
+    """HPA patch routes should preserve replica and label updates."""
+    calls = []
+    monkeypatch.setattr(
+        governance_routes,
+        "run_direct_action",
+        lambda action_type, **kwargs: calls.append((action_type, kwargs)) or {"success": True},
+    )
+
+    response = client.patch(
+        "/governance/hpas/api-hpa",
+        json={"namespace": "ops", "min_replicas": 2, "max_replicas": 8, "labels": {"team": "platform"}},
+    )
+    assert response.status_code == 200
+    assert calls == [
+        (
+            "patch_hpa",
+            {
+                "name": "api-hpa",
+                "namespace": "ops",
+                "params": {"min_replicas": 2, "max_replicas": 8, "labels": {"team": "platform"}},
+            },
+        )
+    ]
 
 
 def test_get_pod_diagnostics_variant_uses_query_params(monkeypatch):
