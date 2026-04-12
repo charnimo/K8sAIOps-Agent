@@ -1,5 +1,6 @@
 """Basic API tests for the FastAPI scaffold."""
 
+from app.api.routes import diagnostics as diagnostics_routes
 from fastapi.testclient import TestClient
 
 from app.main import app
@@ -109,3 +110,60 @@ def test_action_types_endpoint_lists_supported_actions():
     payload = response.json()
     assert "scale_deployment" in payload["action_types"]
     assert "create_configmap" in payload["action_types"]
+
+
+def test_get_pod_diagnostics_variant_uses_query_params(monkeypatch):
+    """GET diagnostics should support quick browser testing via query params."""
+    monkeypatch.setattr(
+        diagnostics_routes.diagnostics,
+        "diagnose_pod",
+        lambda name, namespace: {"target": {"name": name, "namespace": namespace}},
+    )
+
+    response = client.get("/diagnostics/pods", params={"name": "crashloop-test", "namespace": "default"})
+    assert response.status_code == 200
+    assert response.json()["target"]["name"] == "crashloop-test"
+
+
+def test_get_deployment_diagnostics_variant_accepts_flags(monkeypatch):
+    """GET deployment diagnostics should pass query flags through to the tool."""
+    monkeypatch.setattr(
+        diagnostics_routes.diagnostics,
+        "diagnose_deployment",
+        lambda name, namespace, include_pod_details, include_resource_pressure: {
+            "target": {"name": name, "namespace": namespace},
+            "flags": {
+                "include_pod_details": include_pod_details,
+                "include_resource_pressure": include_resource_pressure,
+            },
+        },
+    )
+
+    response = client.get(
+        "/diagnostics/deployments",
+        params={
+            "name": "nginx-test",
+            "namespace": "default",
+            "include_pod_details": "true",
+            "include_resource_pressure": "true",
+        },
+    )
+    assert response.status_code == 200
+
+    payload = response.json()
+    assert payload["target"]["name"] == "nginx-test"
+    assert payload["flags"]["include_pod_details"] is True
+    assert payload["flags"]["include_resource_pressure"] is True
+
+
+def test_get_service_diagnostics_variant_uses_query_params(monkeypatch):
+    """GET service diagnostics should support simple browser-driven checks."""
+    monkeypatch.setattr(
+        diagnostics_routes.diagnostics,
+        "diagnose_service",
+        lambda name, namespace: {"target": {"name": name, "namespace": namespace}},
+    )
+
+    response = client.get("/diagnostics/services", params={"name": "nginx-test-svc", "namespace": "default"})
+    assert response.status_code == 200
+    assert response.json()["target"]["name"] == "nginx-test-svc"
