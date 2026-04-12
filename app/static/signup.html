@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sign Up | K8s AIOps</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-100 flex items-center justify-center min-h-screen">
+    <div class="bg-white p-8 rounded shadow-lg w-full max-w-md">
+        <h2 class="text-2xl font-bold text-center text-gray-800 mb-6">Create Account</h2>
+        <form id="signupForm" class="space-y-4">
+            <div class="flex gap-2">
+                <input type="text" id="first_name" placeholder="First Name" required class="w-full px-4 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-400">
+                <input type="text" id="last_name" placeholder="Last Name" required class="w-full px-4 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-400">
+            </div>
+            <input type="text" id="username" placeholder="Username" required class="w-full px-4 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-400">
+            <input type="email" id="email" placeholder="Email" required class="w-full px-4 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-400">
+            <input type="password" id="password" placeholder="Password" required class="w-full px-4 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-400">
+            <input type="file" id="pic" accept="image/*" class="w-full px-4 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-400 text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100">
+            <button type="submit" class="w-full bg-blue-600 text-white font-bold py-2 rounded hover:bg-blue-700 transition">Sign Up</button>
+        </form>
+        <p class="text-sm text-center text-gray-600 mt-4">Already have an account? <a href="/static/login.html" class="text-blue-500 hover:underline">Log in</a></p>
+    </div>
+
+    <script>
+        // Redirect to dashboard if already logged in
+        if (localStorage.getItem("jwt_token")) {
+            window.location.href = "/";
+        }
+        document.getElementById('signupForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const formData = new FormData();
+            formData.append('first_name', document.getElementById('first_name').value);
+            formData.append('last_name', document.getElementById('last_name').value);
+            formData.append('username', document.getElementById('username').value);
+            formData.append('email', document.getElementById('email').value);
+            formData.append('password', document.getElementById('password').value);
+            
+            const picFile = document.getElementById('pic').files[0];
+            if (picFile) {
+                formData.append('profile_picture', picFile);
+            }
+
+            const response = await fetch('/auth/signup', {
+                method: 'POST',
+                // Note: Do not set Content-Type here, let the browser set it to multipart/form-data with the correct boundary
+                body: formData
+            });
+
+            if (response.ok) {
+                alert("Account created! Please log in.");
+                window.location.href = "/static/login.html";
+            } else {
+                const err = await response.json();
+                alert("Signup failed: " + err.detail);
+            }
+        });
+    </script>
+</body>
+</html>

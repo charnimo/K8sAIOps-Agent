@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-100 min-h-screen">
+
+    <nav class="bg-blue-600 p-4 text-white flex justify-between shadow-lg">
+        <div class="font-bold text-xl">K8s AIOps Agent</div>
+        <div>
+            <button id="logoutBtn" class="bg-red-500 px-4 py-2 rounded hover:bg-red-600">Logout</button>
+        </div>
+    </nav>
+
+    <div class="container mx-auto p-8 mt-10">
+        <h1 class="text-3xl font-bold mb-6 text-gray-800">Cluster Pods</h1>
+
+        <div id="errorBox" class="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative hidden mb-4">
+            <span class="block sm:inline" id="errorText">Please <a href="/static/login.html" class="underline font-bold">login</a> to view pods.</span>
+        </div>
+
+        <div class="bg-white p-6 rounded shadow-lg">
+            <button id="loadPodsBtn" class="bg-blue-500 text-white px-6 py-2 rounded hover:bg-blue-600 w-full font-bold">Fetch Pods</button>
+            
+            <div class="mt-6">
+                <!-- Pod Data goes here -->
+                <pre id="podsOutput" class="bg-gray-900 text-green-400 p-4 rounded overflow-auto h-96 hidden"></pre>
+            </div>
+        </div>
+    </div>
+
+    <!-- Script to handle API call with token -->
+    <script>
+        const token = localStorage.getItem("jwt_token");
+
+        // Redirect if not logged in
+        if (!token) {
+            window.location.href = "/static/login.html";
+        }
+
+        // Fetch Pods click event
+        document.getElementById('loadPodsBtn').addEventListener('click', async () => {
+            const token = localStorage.getItem("jwt_token");
+
+            if (!token) {
+                document.getElementById('errorBox').classList.remove("hidden");
+                return;
+            }
+
+            try {
+                const response = await fetch('/resources/pods', {
+                    method: 'GET',
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+
+                if (response.status === 401) {
+                    document.getElementById('errorText').innerText = "Session expired. Please login again.";
+                    document.getElementById('errorBox').classList.remove("hidden");
+                    localStorage.removeItem("jwt_token");
+                    return;
+                }
+
+                const data = await response.json();
+                const output = document.getElementById('podsOutput');
+                output.classList.remove('hidden');
+                output.innerText = JSON.stringify(data, null, 2);
+                document.getElementById('errorBox').classList.add("hidden");
+
+            } catch (err) {
+                alert("Failed to fetch pods. Server error.");
+            }
+        });
+
+        // Logout
+        document.getElementById('logoutBtn').addEventListener('click', () => {
+            localStorage.removeItem("jwt_token");
+            window.location.href = "/static/login.html";
+        });
+    </script>
+</body>
+</html>
