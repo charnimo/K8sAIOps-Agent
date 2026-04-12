@@ -46,18 +46,21 @@ USAGE:
     # Troubleshoot a failing pod
     diag = diagnostics.diagnose_pod("my-app-xyz", "default")
     print(f"Issues: {diag['issues']}, Severity: {diag['severity']}")
-    
+
     # Service connectivity check
     svc_diag = diagnostics.diagnose_service("backend", "default")
-    
+
     # Cluster health overview
     health = diagnostics.cluster_health_snapshot()
-    
+
     # Scale a deployment (audited)
     from tools import deployments, audit
     result = deployments.scale_deployment("api-server", "default", replicas=3)
     audit.audit_deployment_scale("api-server", "default", 3, result["success"])
 """
+
+import sys
+
 
 # Version
 __version__ = "0.1.0"
@@ -126,3 +129,9 @@ __all__ = [
     # Audit & Governance
     "audit",
 ]
+
+
+# Allow code that imports the package as `tools` to resolve to this canonical package.
+sys.modules.setdefault("tools", sys.modules[__name__])
+for module_name in __all__:
+    sys.modules.setdefault(f"tools.{module_name}", globals()[module_name])
