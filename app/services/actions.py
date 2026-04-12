@@ -2,7 +2,21 @@
 
 from typing import Any, Callable, Optional
 
-from Tools import audit, daemonsets, deployments, jobs, pods, statefulsets
+from Tools import (
+    audit,
+    configmaps,
+    daemonsets,
+    deployments,
+    hpa,
+    ingress,
+    jobs,
+    nodes,
+    pods,
+    secrets,
+    services,
+    statefulsets,
+    storage,
+)
 from app.state.store import get_action_request, mark_action_request_executed
 
 
@@ -21,6 +35,23 @@ def _require_param(params: dict[str, Any], key: str) -> Any:
     if key not in params:
         raise ValueError(f"{key} is required in params")
     return params[key]
+
+
+def _bool_param(params: dict[str, Any], key: str, default: bool) -> bool:
+    """Normalize a bool-like request parameter."""
+    value = params.get(key, default)
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "on"}
+    return bool(value)
+
+
+def _keys_for_audit(data: Any) -> list[str]:
+    """Extract dict keys safely for audit payloads."""
+    if isinstance(data, dict):
+        return list(data.keys())
+    return []
 
 
 def _handle_delete_pod(record: dict, params: dict, name: str, namespace: str) -> dict:
@@ -192,8 +223,296 @@ def _handle_resume_cronjob(record: dict, params: dict, name: str, namespace: str
     return result
 
 
+def _handle_create_service(record: dict, params: dict, name: str, namespace: str) -> dict:
+    result = services.create_service(
+        name=name,
+        namespace=namespace,
+        service_type=str(params.get("service_type", "ClusterIP")),
+        selector=params.get("selector"),
+        ports=params.get("ports"),
+        labels=params.get("labels"),
+    )
+    audit.audit_service_action("create", name, namespace, result.get("success", False), _audit_error(result))
+    return result
+
+
+def _handle_patch_service(record: dict, params: dict, name: str, namespace: str) -> dict:
+    result = services.patch_service(
+        name=name,
+        namespace=namespace,
+        selector=params.get("selector"),
+        labels=params.get("labels"),
+        ports=params.get("ports"),
+    )
+    audit.audit_service_action("patch", name, namespace, result.get("success", False), _audit_error(result))
+    return result
+
+
+def _handle_delete_service(record: dict, params: dict, name: str, namespace: str) -> dict:
+    result = services.delete_service(name=name, namespace=namespace)
+    audit.audit_service_action("delete", name, namespace, result.get("success", False), _audit_error(result))
+    return result
+
+
+def _handle_create_configmap(record: dict, params: dict, name: str, namespace: str) -> dict:
+    data = _require_param(params, "data")
+    result = configmaps.create_configmap(
+        name=name,
+        namespace=namespace,
+        data=data,
+        labels=params.get("labels"),
+    )
+    audit.audit_configmap_action(
+        "create",
+        name,
+        namespace,
+        result.get("success", False),
+        keys=_keys_for_audit(data),
+        error=_audit_error(result),
+    )
+    return result
+
+
+def _handle_patch_configmap(record: dict, params: dict, name: str, namespace: str) -> dict:
+    data = _require_param(params, "data")
+    result = configmaps.patch_configmap(name=name, namespace=namespace, data=data)
+    audit.audit_configmap_action(
+        "patch",
+        name,
+        namespace,
+        result.get("success", False),
+        keys=_keys_for_audit(data),
+        error=_audit_error(result),
+    )
+    return result
+
+
+def _handle_delete_configmap(record: dict, params: dict, name: str, namespace: str) -> dict:
+    result = configmaps.delete_configmap(name=name, namespace=namespace)
+    audit.audit_configmap_action("delete", name, namespace, result.get("success", False), error=_audit_error(result))
+    return result
+
+
+def _handle_create_secret(record: dict, params: dict, name: str, namespace: str) -> dict:
+    data = _require_param(params, "data")
+    result = secrets.create_secret(
+        name=name,
+        namespace=namespace,
+        data=data,
+        secret_type=str(params.get("secret_type", "Opaque")),
+    )
+    audit.audit_secret_action(
+        "create",
+        name,
+        namespace,
+        result.get("success", False),
+        keys=_keys_for_audit(data),
+        error=_audit_error(result),
+    )
+    return result
+
+
+def _handle_update_secret(record: dict, params: dict, name: str, namespace: str) -> dict:
+    data = _require_param(params, "data")
+    result = secrets.update_secret(name=name, namespace=namespace, data=data)
+    audit.audit_secret_action(
+        "update",
+        name,
+        namespace,
+        result.get("success", False),
+        keys=_keys_for_audit(data),
+        error=_audit_error(result),
+    )
+    return result
+
+
+def _handle_delete_secret(record: dict, params: dict, name: str, namespace: str) -> dict:
+    result = secrets.delete_secret(name=name, namespace=namespace)
+    audit.audit_secret_action("delete", name, namespace, result.get("success", False), error=_audit_error(result))
+    return result
+
+
+def _handle_cordon_node(record: dict, params: dict, name: str, namespace: str) -> dict:
+    result = nodes.cordon_node(name=name)
+    audit.audit_node_action("cordon", name, result.get("success", False), _audit_error(result))
+    return result
+
+
+def _handle_uncordon_node(record: dict, params: dict, name: str, namespace: str) -> dict:
+    result = nodes.uncordon_node(name=name)
+    audit.audit_node_action("uncordon", name, result.get("success", False), _audit_error(result))
+    return result
+
+
+def _handle_drain_node(record: dict, params: dict, name: str, namespace: str) -> dict:
+    result = nodes.drain_node(
+        name=name,
+        ignore_daemonsets=_bool_param(params, "ignore_daemonsets", True),
+        grace_period_seconds=int(params.get("grace_period_seconds", 30)),
+    )
+    audit.audit_node_action("drain", name, result.get("success", False), _audit_error(result))
+    return result
+
+
+def _handle_create_pvc(record: dict, params: dict, name: str, namespace: str) -> dict:
+    result = storage.create_pvc(
+        name=name,
+        namespace=namespace,
+        size=str(params.get("size", "1Gi")),
+        access_modes=params.get("access_modes"),
+        storage_class=params.get("storage_class"),
+        labels=params.get("labels"),
+    )
+    audit.log_action(
+        "pvc_create",
+        name,
+        namespace,
+        result.get("success", False),
+        details=params,
+        error_message=_audit_error(result),
+    )
+    return result
+
+
+def _handle_patch_pvc(record: dict, params: dict, name: str, namespace: str) -> dict:
+    labels = _require_param(params, "labels")
+    result = storage.patch_pvc(name=name, namespace=namespace, labels=labels)
+    audit.log_action(
+        "pvc_patch",
+        name,
+        namespace,
+        result.get("success", False),
+        details={"labels": labels},
+        error_message=_audit_error(result),
+    )
+    return result
+
+
+def _handle_delete_pvc(record: dict, params: dict, name: str, namespace: str) -> dict:
+    result = storage.delete_pvc(name=name, namespace=namespace)
+    audit.log_action("pvc_delete", name, namespace, result.get("success", False), error_message=_audit_error(result))
+    return result
+
+
+def _handle_create_ingress(record: dict, params: dict, name: str, namespace: str) -> dict:
+    rules = _require_param(params, "rules")
+    result = ingress.create_ingress(
+        name=name,
+        namespace=namespace,
+        rules=rules,
+        tls=params.get("tls"),
+        annotations=params.get("annotations"),
+        labels=params.get("labels"),
+    )
+    audit.log_action(
+        "ingress_create",
+        name,
+        namespace,
+        result.get("success", False),
+        details={"rules": rules},
+        error_message=_audit_error(result),
+    )
+    return result
+
+
+def _handle_patch_ingress(record: dict, params: dict, name: str, namespace: str) -> dict:
+    result = ingress.patch_ingress(
+        name=name,
+        namespace=namespace,
+        labels=params.get("labels"),
+        annotations=params.get("annotations"),
+    )
+    audit.log_action(
+        "ingress_patch",
+        name,
+        namespace,
+        result.get("success", False),
+        details={"labels": params.get("labels"), "annotations": params.get("annotations")},
+        error_message=_audit_error(result),
+    )
+    return result
+
+
+def _handle_delete_ingress(record: dict, params: dict, name: str, namespace: str) -> dict:
+    result = ingress.delete_ingress(name=name, namespace=namespace)
+    audit.log_action("ingress_delete", name, namespace, result.get("success", False), error_message=_audit_error(result))
+    return result
+
+
+def _handle_create_hpa(record: dict, params: dict, name: str, namespace: str) -> dict:
+    target_name = str(_require_param(params, "target_name"))
+    result = hpa.create_hpa(
+        name=name,
+        namespace=namespace,
+        target_kind=str(params.get("target_kind", "Deployment")),
+        target_name=target_name,
+        min_replicas=int(params.get("min_replicas", 1)),
+        max_replicas=int(params.get("max_replicas", 10)),
+        target_cpu_percent=params.get("target_cpu_percent"),
+        target_memory_percent=params.get("target_memory_percent"),
+        labels=params.get("labels"),
+    )
+    audit.log_action(
+        "hpa_create",
+        name,
+        namespace,
+        result.get("success", False),
+        details={"target_name": target_name},
+        error_message=_audit_error(result),
+    )
+    return result
+
+
+def _handle_patch_hpa(record: dict, params: dict, name: str, namespace: str) -> dict:
+    result = hpa.patch_hpa(
+        name=name,
+        namespace=namespace,
+        min_replicas=params.get("min_replicas"),
+        max_replicas=params.get("max_replicas"),
+        labels=params.get("labels"),
+    )
+    audit.log_action(
+        "hpa_patch",
+        name,
+        namespace,
+        result.get("success", False),
+        details={"min_replicas": params.get("min_replicas"), "max_replicas": params.get("max_replicas")},
+        error_message=_audit_error(result),
+    )
+    return result
+
+
+def _handle_delete_hpa(record: dict, params: dict, name: str, namespace: str) -> dict:
+    result = hpa.delete_hpa(name=name, namespace=namespace)
+    audit.log_action("hpa_delete", name, namespace, result.get("success", False), error_message=_audit_error(result))
+    return result
+
+
+def _handle_exec_pod(record: dict, params: dict, name: str, namespace: str) -> dict:
+    command = _require_param(params, "command")
+    result = pods.exec_pod(
+        name=name,
+        namespace=namespace,
+        command=command,
+        stdin=_bool_param(params, "stdin", False),
+        stdout=_bool_param(params, "stdout", True),
+        stderr=_bool_param(params, "stderr", True),
+        tty=_bool_param(params, "tty", False),
+    )
+    audit.log_action(
+        "pod_exec",
+        name,
+        namespace,
+        result.get("success", False),
+        details={"command": command},
+        error_message=_audit_error(result),
+    )
+    return result
+
+
 ACTION_HANDLERS: dict[str, ActionHandler] = {
     "delete_pod": _handle_delete_pod,
+    "exec_pod": _handle_exec_pod,
     "scale_deployment": _handle_scale_deployment,
     "restart_deployment": _handle_restart_deployment,
     "rollback_deployment": _handle_rollback_deployment,
@@ -207,6 +526,27 @@ ACTION_HANDLERS: dict[str, ActionHandler] = {
     "suspend_job": _handle_suspend_job,
     "suspend_cronjob": _handle_suspend_cronjob,
     "resume_cronjob": _handle_resume_cronjob,
+    "create_service": _handle_create_service,
+    "patch_service": _handle_patch_service,
+    "delete_service": _handle_delete_service,
+    "create_configmap": _handle_create_configmap,
+    "patch_configmap": _handle_patch_configmap,
+    "delete_configmap": _handle_delete_configmap,
+    "create_secret": _handle_create_secret,
+    "update_secret": _handle_update_secret,
+    "delete_secret": _handle_delete_secret,
+    "cordon_node": _handle_cordon_node,
+    "uncordon_node": _handle_uncordon_node,
+    "drain_node": _handle_drain_node,
+    "create_pvc": _handle_create_pvc,
+    "patch_pvc": _handle_patch_pvc,
+    "delete_pvc": _handle_delete_pvc,
+    "create_ingress": _handle_create_ingress,
+    "patch_ingress": _handle_patch_ingress,
+    "delete_ingress": _handle_delete_ingress,
+    "create_hpa": _handle_create_hpa,
+    "patch_hpa": _handle_patch_hpa,
+    "delete_hpa": _handle_delete_hpa,
 }
 
 
