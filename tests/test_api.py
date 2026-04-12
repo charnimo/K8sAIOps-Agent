@@ -33,8 +33,8 @@ def test_create_and_fetch_chat_session():
     assert fetch_response.json()["id"] == session_id
 
 
-def test_post_chat_message_generates_stubbed_reply():
-    """Posting a chat message should append a user and assistant message."""
+def test_post_chat_message_leaves_assistant_empty():
+    """Posting a chat message should not invent an assistant reply."""
     session_id = client.post("/chat/sessions").json()["id"]
 
     response = client.post(
@@ -45,8 +45,8 @@ def test_post_chat_message_generates_stubbed_reply():
 
     payload = response.json()
     assert payload["user_message"]["role"] == "user"
-    assert payload["assistant_message"]["role"] == "assistant"
-    assert len(payload["session"]["messages"]) == 2
+    assert payload["assistant_message"] is None
+    assert len(payload["session"]["messages"]) == 1
 
 
 def test_create_action_request_defaults_to_pending():
