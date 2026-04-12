@@ -550,21 +550,27 @@ ACTION_HANDLERS: dict[str, ActionHandler] = {
 }
 
 
+def execute_action(action_type: str, target: dict, params: Optional[dict] = None) -> dict:
+    """Execute a supported action immediately without persisting a request record."""
+    handler = ACTION_HANDLERS.get(action_type)
+    if handler is None:
+        raise ValueError(f"Unsupported action type: {action_type}")
+
+    params = params or {}
+    name = target["name"]
+    namespace = target.get("namespace", "default")
+    return handler({}, params, name, namespace)
+
+
 def execute_action_request(action_id: str) -> dict:
     """Execute a supported pending action request and persist the outcome."""
     record = get_action_request(action_id)
     if record is None:
         raise ValueError("Action request not found")
 
-    action_type = record["type"]
-    target = record["target"]
-    params = record.get("params", {})
-    name = target["name"]
-    namespace = target.get("namespace", "default")
-
-    handler = ACTION_HANDLERS.get(action_type)
-    if handler is None:
-        raise ValueError(f"Unsupported action type: {action_type}")
-
-    result = handler(record, params, name, namespace)
+    result = execute_action(
+        action_type=record["type"],
+        target=record["target"],
+        params=record.get("params", {}),
+    )
     return mark_action_request_executed(action_id, result)

@@ -5,7 +5,16 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException, Query
 
 from Tools import configmaps, ingress, network_policies, secrets
+from app.api.mutations import run_direct_action
 from app.core.settings import get_settings
+from app.schemas.mutations import (
+    CreateConfigMapRequest,
+    CreateIngressRequest,
+    CreateSecretRequest,
+    PatchConfigMapRequest,
+    PatchIngressRequest,
+    UpdateSecretRequest,
+)
 
 
 router = APIRouter()
@@ -27,6 +36,29 @@ def get_configmap(name: str, namespace: str = Query(default="default")) -> dict:
         return configmaps.get_configmap(name=name, namespace=namespace)
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.post("/configmaps")
+def create_configmap(payload: CreateConfigMapRequest) -> dict:
+    """Create a ConfigMap directly."""
+    params = payload.model_dump()
+    name = params.pop("name")
+    namespace = params.pop("namespace")
+    return run_direct_action("create_configmap", name=name, namespace=namespace, params=params)
+
+
+@router.patch("/configmaps/{name}")
+def patch_configmap(name: str, payload: PatchConfigMapRequest) -> dict:
+    """Patch a ConfigMap directly."""
+    params = payload.model_dump()
+    namespace = params.pop("namespace")
+    return run_direct_action("patch_configmap", name=name, namespace=namespace, params=params)
+
+
+@router.delete("/configmaps/{name}")
+def delete_configmap(name: str, namespace: str = Query(default="default")) -> dict:
+    """Delete a ConfigMap directly."""
+    return run_direct_action("delete_configmap", name=name, namespace=namespace)
 
 
 @router.get("/secrets")
@@ -83,6 +115,29 @@ def get_secret_values(name: str, namespace: str = Query(default="default")) -> d
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
+@router.post("/secrets")
+def create_secret(payload: CreateSecretRequest) -> dict:
+    """Create a secret directly."""
+    params = payload.model_dump()
+    name = params.pop("name")
+    namespace = params.pop("namespace")
+    return run_direct_action("create_secret", name=name, namespace=namespace, params=params)
+
+
+@router.patch("/secrets/{name}")
+def update_secret(name: str, payload: UpdateSecretRequest) -> dict:
+    """Update a secret directly."""
+    params = payload.model_dump()
+    namespace = params.pop("namespace")
+    return run_direct_action("update_secret", name=name, namespace=namespace, params=params)
+
+
+@router.delete("/secrets/{name}")
+def delete_secret(name: str, namespace: str = Query(default="default")) -> dict:
+    """Delete a secret directly."""
+    return run_direct_action("delete_secret", name=name, namespace=namespace)
+
+
 @router.get("/ingresses")
 def list_ingresses(
     namespace: str = Query(default="default"),
@@ -114,6 +169,29 @@ def get_ingress_issues(name: str, namespace: str = Query(default="default")) -> 
         return ingress.detect_ingress_issues(name=name, namespace=namespace)
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.post("/ingresses")
+def create_ingress(payload: CreateIngressRequest) -> dict:
+    """Create an ingress directly."""
+    params = payload.model_dump()
+    name = params.pop("name")
+    namespace = params.pop("namespace")
+    return run_direct_action("create_ingress", name=name, namespace=namespace, params=params)
+
+
+@router.patch("/ingresses/{name}")
+def patch_ingress(name: str, payload: PatchIngressRequest) -> dict:
+    """Patch an ingress directly."""
+    params = payload.model_dump()
+    namespace = params.pop("namespace")
+    return run_direct_action("patch_ingress", name=name, namespace=namespace, params=params)
+
+
+@router.delete("/ingresses/{name}")
+def delete_ingress(name: str, namespace: str = Query(default="default")) -> dict:
+    """Delete an ingress directly."""
+    return run_direct_action("delete_ingress", name=name, namespace=namespace)
 
 
 @router.get("/network-policies")

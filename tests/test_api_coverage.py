@@ -42,6 +42,63 @@ EXPECTED_TOOL_PATHS = {
     "/action-requests",
     "/action-types",
     "/audit-logs",
+    "/resources/pods/{name}/exec",
+    "/resources/deployments/{name}/scale",
+    "/resources/deployments/{name}/restart",
+    "/resources/deployments/{name}/rollback",
+    "/resources/deployments/{name}/resource-limits",
+    "/resources/deployments/{name}/env",
+    "/config/configmaps/{name}",
+    "/config/ingresses/{name}",
+    "/workloads/statefulsets/{name}/scale",
+    "/workloads/statefulsets/{name}/restart",
+    "/workloads/daemonsets/{name}/restart",
+    "/workloads/daemonsets/{name}/image",
+    "/workloads/jobs/{name}/suspend",
+    "/workloads/cronjobs/{name}/suspend",
+    "/workloads/cronjobs/{name}/resume",
+    "/cluster/nodes/{name}/cordon",
+    "/cluster/nodes/{name}/uncordon",
+    "/cluster/nodes/{name}/drain",
+    "/cluster/storage/pvcs/{name}",
+    "/governance/hpas/{name}",
+}
+
+
+EXPECTED_DIRECT_ROUTE_METHODS = {
+    "/resources/pods/{name}": {"get", "delete"},
+    "/resources/pods/{name}/exec": {"post"},
+    "/resources/deployments/{name}/scale": {"patch"},
+    "/resources/deployments/{name}/restart": {"post"},
+    "/resources/deployments/{name}/rollback": {"post"},
+    "/resources/deployments/{name}/resource-limits": {"patch"},
+    "/resources/deployments/{name}/env": {"patch"},
+    "/resources/services": {"get", "post"},
+    "/resources/services/{name}": {"get", "patch", "delete"},
+    "/config/configmaps": {"get", "post"},
+    "/config/configmaps/{name}": {"get", "patch", "delete"},
+    "/config/secrets": {"get", "post"},
+    "/config/secrets/{name}": {"get", "patch", "delete"},
+    "/config/ingresses": {"get", "post"},
+    "/config/ingresses/{name}": {"get", "patch", "delete"},
+    "/workloads/statefulsets/{name}": {"get"},
+    "/workloads/statefulsets/{name}/scale": {"patch"},
+    "/workloads/statefulsets/{name}/restart": {"post"},
+    "/workloads/daemonsets/{name}": {"get"},
+    "/workloads/daemonsets/{name}/restart": {"post"},
+    "/workloads/daemonsets/{name}/image": {"patch"},
+    "/workloads/jobs/{name}": {"get", "delete"},
+    "/workloads/jobs/{name}/suspend": {"post"},
+    "/workloads/cronjobs/{name}": {"get"},
+    "/workloads/cronjobs/{name}/suspend": {"post"},
+    "/workloads/cronjobs/{name}/resume": {"post"},
+    "/cluster/nodes/{name}/cordon": {"post"},
+    "/cluster/nodes/{name}/uncordon": {"post"},
+    "/cluster/nodes/{name}/drain": {"post"},
+    "/cluster/storage/pvcs": {"get", "post"},
+    "/cluster/storage/pvcs/{name}": {"get", "patch", "delete"},
+    "/governance/hpas": {"get", "post"},
+    "/governance/hpas/{name}": {"get", "patch", "delete"},
 }
 
 
@@ -94,3 +151,10 @@ def test_openapi_covers_public_tool_surfaces():
 def test_action_registry_covers_mutating_tools():
     """Approved action execution should cover the supported mutating tools."""
     assert set(ACTION_HANDLERS) == EXPECTED_ACTION_TYPES
+
+
+def test_openapi_exposes_direct_mutation_methods():
+    """The direct API should expose verb-level coverage for core tool mutations."""
+    paths = app.openapi()["paths"]
+    for path, methods in EXPECTED_DIRECT_ROUTE_METHODS.items():
+        assert methods <= set(paths[path])

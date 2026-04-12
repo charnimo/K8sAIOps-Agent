@@ -5,6 +5,8 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException, Query
 
 from Tools import hpa, rbac, resource_quotas
+from app.api.mutations import run_direct_action
+from app.schemas.mutations import CreateHpaRequest, PatchHpaRequest
 
 
 router = APIRouter()
@@ -144,6 +146,29 @@ def get_hpa_issues(name: str, namespace: str = Query(default="default")) -> dict
         return hpa.detect_hpa_issues(name=name, namespace=namespace)
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.post("/hpas")
+def create_hpa(payload: CreateHpaRequest) -> dict:
+    """Create an HPA directly."""
+    params = payload.model_dump()
+    name = params.pop("name")
+    namespace = params.pop("namespace")
+    return run_direct_action("create_hpa", name=name, namespace=namespace, params=params)
+
+
+@router.patch("/hpas/{name}")
+def patch_hpa(name: str, payload: PatchHpaRequest) -> dict:
+    """Patch an HPA directly."""
+    params = payload.model_dump()
+    namespace = params.pop("namespace")
+    return run_direct_action("patch_hpa", name=name, namespace=namespace, params=params)
+
+
+@router.delete("/hpas/{name}")
+def delete_hpa(name: str, namespace: str = Query(default="default")) -> dict:
+    """Delete an HPA directly."""
+    return run_direct_action("delete_hpa", name=name, namespace=namespace)
 
 
 @router.get("/resource-quotas")

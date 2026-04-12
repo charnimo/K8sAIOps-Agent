@@ -5,6 +5,8 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException, Query
 
 from Tools import namespaces, nodes, storage
+from app.api.mutations import run_direct_action
+from app.schemas.mutations import CreatePvcRequest, NodeDrainRequest, PatchPvcRequest
 
 
 router = APIRouter()
@@ -44,6 +46,24 @@ def get_node_events(name: str) -> list[dict]:
         return nodes.get_node_events(name=name)
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.post("/nodes/{name}/cordon")
+def cordon_node(name: str) -> dict:
+    """Cordon a node directly."""
+    return run_direct_action("cordon_node", name=name)
+
+
+@router.post("/nodes/{name}/uncordon")
+def uncordon_node(name: str) -> dict:
+    """Uncordon a node directly."""
+    return run_direct_action("uncordon_node", name=name)
+
+
+@router.post("/nodes/{name}/drain")
+def drain_node(name: str, payload: NodeDrainRequest) -> dict:
+    """Drain a node directly."""
+    return run_direct_action("drain_node", name=name, params=payload.model_dump())
 
 
 @router.get("/namespaces")
@@ -131,6 +151,29 @@ def get_pvc_issues(name: str, namespace: str = Query(default="default")) -> dict
         return storage.detect_pvc_issues(name=name, namespace=namespace)
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.post("/storage/pvcs")
+def create_pvc(payload: CreatePvcRequest) -> dict:
+    """Create a PVC directly."""
+    params = payload.model_dump()
+    name = params.pop("name")
+    namespace = params.pop("namespace")
+    return run_direct_action("create_pvc", name=name, namespace=namespace, params=params)
+
+
+@router.patch("/storage/pvcs/{name}")
+def patch_pvc(name: str, payload: PatchPvcRequest) -> dict:
+    """Patch a PVC directly."""
+    params = payload.model_dump()
+    namespace = params.pop("namespace")
+    return run_direct_action("patch_pvc", name=name, namespace=namespace, params=params)
+
+
+@router.delete("/storage/pvcs/{name}")
+def delete_pvc(name: str, namespace: str = Query(default="default")) -> dict:
+    """Delete a PVC directly."""
+    return run_direct_action("delete_pvc", name=name, namespace=namespace)
 
 
 @router.get("/storage/classes")
