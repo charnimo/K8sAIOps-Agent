@@ -365,14 +365,43 @@ def query_prometheus_range(query_expr: str, start: str, end: str, step: str) -> 
         logger.error(f"Prometheus range query failed: {e}")
         return {"status": "error", "error": str(e), "data": None}
 
-def get_pod_cpu_history(pod_name: str, namespace: str, duration_mins: int = 60, step: str = "1m"):
-    """Template for a specific Prometheus query: Pod CPU history."""
-    # PromQL to get the CPU usage over time for a specific pod
-    query = f'rate(container_cpu_usage_seconds_total{{pod="{pod_name}", namespace="{namespace}"}}[5m])'
+def get_pod_metric_history(pod_name: str, namespace: str, metric_type: str = "cpu", duration_mins: int = 60, step: str = "1m"):
+    """Template for a specific Prometheus query: Pod metrics history."""
+    
+    if metric_type == "memory":
+        query = f'sum(container_memory_working_set_bytes{{pod="{pod_name}", namespace="{namespace}"}}) by (pod)'
+    elif metric_type == "network_receive":
+        query = f'sum(rate(container_network_receive_bytes_total{{pod="{pod_name}", namespace="{namespace}"}}[5m])) by (pod)'
+    elif metric_type == "network_transmit":
+        query = f'sum(rate(container_network_transmit_bytes_total{{pod="{pod_name}", namespace="{namespace}"}}[5m])) by (pod)'
+    else: # cpu
+        query = f'sum(rate(container_cpu_usage_seconds_total{{pod="{pod_name}", namespace="{namespace}"}}[5m])) by (pod)'
     
     # Calculate start and end times dynamically in UNIX timestamps using Python
     import time
     end_time = int(time.time())
     start_time = end_time - (duration_mins * 60)
     
-    return query_prometheus_range(query, str(start_time), str(end_time), step)
+    response = query_prometheus_range(query, str(start_time), str(end_time), step)
+    
+    # If the metrics are missing (common with cAdvisor network metrics on some CNIs/Minikube),
+    # pad the output with zero values so the frontend chart doesn't break or hang.
+    if response and response.get("status") == "success" and response.get("data"):
+        if not response["data"].get("result"):
+            def parse_step_to_seconds(s: str) -> int:
+                unit, val = s[-1], int(s[:-1])
+                if unit == 's': return val
+                if unit == 'm': return val * 60
+                if unit == 'h': return val * 3600
+                if unit == 'd': return val * 86400
+                return val
+            
+            step_secs = parse_step_to_seconds(step)
+            timestamps = list(range(start_time, end_time + 1, step_secs))
+            
+            response["data"]["result"] = [{
+                "metric": {"pod": pod_name, "namespace": namespace, "_synthetic": "true"},
+                "values": [[ts, "0"] for ts in timestamps]
+            }]
+            
+    return response

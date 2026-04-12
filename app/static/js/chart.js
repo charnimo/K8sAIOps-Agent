@@ -45,7 +45,21 @@ export class ChartManager {
                         beginAtZero: true,
                         grid: { color: '#334155', drawBorder: false },
                         suggestedMax: 0.05,
-                        ticks: { callback: function(value) { return value.toFixed(3) + ' c'; } }
+                        title: { display: true, text: 'vCores', color: '#94a3b8' },
+                        ticks: { 
+                            callback: function(value) {
+                                // Default cpu parsing
+                                const metricType = this.chart.options.scales.y.metricFormat || 'cpu';
+                                if (metricType === 'memory' || metricType.startsWith('network')) {
+                                    if (value >= 1073741824) return (value / 1073741824).toFixed(2) + ' GB';
+                                    if (value >= 1048576) return (value / 1048576).toFixed(2) + ' MB';
+                                    if (value >= 1024) return (value / 1024).toFixed(2) + ' KB';
+                                    const suffix = metricType.startsWith('network') ? ' B/s' : ' B';
+                                    return (value % 1 === 0 ? value : value.toFixed(2)) + suffix;
+                                }
+                                return value.toFixed(3) + ' c'; 
+                            }
+                        }
                     }
                 },
                 interaction: { mode: 'nearest', axis: 'x', intersect: false }
@@ -67,5 +81,18 @@ export class ChartManager {
 
     isEmpty() {
         return this.chart.data.labels.length === 0;
+    }
+
+    setMetricType(metricType, metricLabel) {
+        this.chart.options.scales.y.metricFormat = metricType;
+        this.chart.options.scales.y.title.text = metricLabel;
+        this.chart.data.datasets[0].label = ` ${metricLabel}`;
+        
+        if (metricType === 'cpu') {
+            this.chart.options.scales.y.suggestedMax = 0.05;
+        } else {
+            delete this.chart.options.scales.y.suggestedMax;
+        }
+        this.chart.update();
     }
 }

@@ -11,7 +11,13 @@ class Dashboard {
         this.chart = new ChartManager('cpuChart');
         
         this.podSelector = document.getElementById('podSelector');
+        this.metricSelector = document.getElementById('metricSelector');
+        this.timeRangeSelector = document.getElementById('timeRangeSelector');
         this.overlay = document.getElementById('chartLoadingOverlay');
+        
+        this.chartTitle = document.querySelector('#chartTitle span');
+        this.chartTimeLabel = document.getElementById('chartTimeLabel');
+        
         this.refreshInterval = null;
 
         this.init();
@@ -23,11 +29,15 @@ class Dashboard {
     }
 
     setupEventListeners() {
-        this.podSelector.addEventListener('change', (e) => {
-            const podName = e.target.value;
+        const handleChange = () => {
+            if (!this.podSelector.value) return;
             this.chart.clear();
-            this.startMonitoring(podName);
-        });
+            this.startMonitoring();
+        };
+
+        this.podSelector.addEventListener('change', handleChange);
+        this.metricSelector.addEventListener('change', handleChange);
+        this.timeRangeSelector.addEventListener('change', handleChange);
     }
 
     async loadPods() {
@@ -49,24 +59,61 @@ class Dashboard {
                 this.podSelector.appendChild(opt);
             });
 
-            this.startMonitoring(this.podSelector.value);
+            this.startMonitoring();
         } catch (err) {
             console.error(err);
             this.podSelector.innerHTML = '<option disabled>FastAPI connection failed</option>';
         }
     }
 
-    startMonitoring(podName) {
-        this.updateMetrics(podName);
+    startMonitoring() {
+        this.updateMetrics();
         if (this.refreshInterval) clearInterval(this.refreshInterval);
-        this.refreshInterval = setInterval(() => this.updateMetrics(podName), 10000);
+        this.refreshInterval = setInterval(() => this.updateMetrics(), 10000);
     }
 
-    async updateMetrics(podName) {
+    updateUIHeaders(metricType, timeMins) {
+        const titleMap = {
+            'cpu': 'Pod CPU Usage (vCores)',
+            'memory': 'Pod Memory Usage (Bytes)',
+            'network_receive': 'Network Receive (Bytes/s)',
+            'network_transmit': 'Network Transmit (Bytes/s)'
+        };
+        const yAxisMap = {
+            'cpu': 'vCores',
+            'memory': 'Bytes',
+            'network_receive': 'Bytes/s',
+            'network_transmit': 'Bytes/s'
+        };
+
+        if (this.chartTitle) this.chartTitle.innerText = titleMap[metricType] || 'Usage';
+        if (this.chartTimeLabel) {
+            const opt = this.timeRangeSelector.options[this.timeRangeSelector.selectedIndex];
+            this.chartTimeLabel.innerText = opt ? opt.text : `Last ${timeMins} Mins`;
+        }
+        
+        this.chart.setMetricType(metricType, yAxisMap[metricType] || 'Usage');
+    }
+
+    async updateMetrics() {
+        const podName = this.podSelector.value;
+        const metricType = this.metricSelector.value;
+        const durationMins = parseInt(this.timeRangeSelector.value, 10);
+        
+        if (!podName) return;
+        
+        this.updateUIHeaders(metricType, durationMins);
+
+        // Dynamically choose step based on length of time so we don't blow up Prometheus with 15s over a week
+        let step = '15s';
+        if (durationMins > 1440) step = '1h'; // 1 week
+        else if (durationMins > 60) step = '5m';  // 1 day
+        else if (durationMins > 5) step = '1m';   // 1 hour
+        
         if (this.chart.isEmpty()) this.overlay.classList.remove('hidden');
 
         try {
-            const responseData = await this.api.getPodMetrics('default', podName);
+            const responseData = await this.api.getPodMetrics('default', podName, metricType, durationMins, step);
             const results = responseData.data?.result;
 
             if (!results || results.length === 0) {

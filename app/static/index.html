@@ -63,11 +63,31 @@
                 <p class="text-gray-400 mt-2 text-sm">Real-time telemetry powered by Prometheus.</p>
             </div>
             
-            <div class="flex flex-col">
-                <label class="text-xs text-gray-400 font-medium mb-1 ml-1 uppercase tracking-wider">Select Pod to Monitor</label>
-                <select id="podSelector" class="bg-gray-850 border border-gray-700 text-white text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 w-64 p-2.5 shadow-lg outline-none cursor-pointer">
-                    <option value="" disabled selected>Loading pods...</option>
-                </select>
+            <div class="flex flex-col space-y-2 lg:flex-row lg:space-y-0 lg:space-x-4 items-end">
+                <div class="flex flex-col">
+                    <label class="text-xs text-gray-400 font-medium mb-1 ml-1 uppercase tracking-wider">Metric</label>
+                    <select id="metricSelector" class="bg-gray-850 border border-gray-700 text-white text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 w-36 p-2.5 shadow-lg outline-none cursor-pointer">
+                        <option value="cpu" selected>CPU</option>
+                        <option value="memory">Memory</option>
+                        <option value="network_receive">Net Rx</option>
+                        <option value="network_transmit">Net Tx</option>
+                    </select>
+                </div>
+                <div class="flex flex-col">
+                    <label class="text-xs text-gray-400 font-medium mb-1 ml-1 uppercase tracking-wider">Time Range</label>
+                    <select id="timeRangeSelector" class="bg-gray-850 border border-gray-700 text-white text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 w-40 p-2.5 shadow-lg outline-none cursor-pointer">
+                        <option value="5" selected>Last 5 Minutes</option>
+                        <option value="60">Last 1 Hour</option>
+                        <option value="1440">Last 24 Hours</option>
+                        <option value="10080">Last 7 Days</option>
+                    </select>
+                </div>
+                <div class="flex flex-col">
+                    <label class="text-xs text-gray-400 font-medium mb-1 ml-1 uppercase tracking-wider">Select Pod to Monitor</label>
+                    <select id="podSelector" class="bg-gray-850 border border-gray-700 text-white text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 w-64 p-2.5 shadow-lg outline-none cursor-pointer">
+                        <option value="" disabled selected>Loading pods...</option>
+                    </select>
+                </div>
             </div>
         </header>
 
@@ -80,11 +100,11 @@
             </div>
 
             <div class="flex items-center justify-between mb-4 px-2">
-                <h2 class="text-lg font-bold text-white flex items-center">
+                <h2 id="chartTitle" class="text-lg font-bold text-white flex items-center">
                     <svg class="w-5 h-5 mr-2 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"></path></svg>
-                    Pod CPU Usage (vCores)
+                    <span>Pod CPU Usage (vCores)</span>
                 </h2>
-                <div class="text-xs font-mono text-gray-500 bg-gray-900 px-2 py-1 rounded border border-gray-800">Last 5 Minutes</div>
+                <div id="chartTimeLabel" class="text-xs font-mono text-gray-500 bg-gray-900 px-2 py-1 rounded border border-gray-800">Last 5 Minutes</div>
             </div>
 
             <div class="relative h-[350px] w-full">
