@@ -3,11 +3,22 @@
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query
+from kubernetes.client.exceptions import ApiException
 
 from Tools import deployments, pods, services
 
 
 router = APIRouter()
+
+
+def _raise_pod_lookup_http_exception(exc: ApiException, name: str, namespace: str) -> None:
+    """Translate common pod lookup failures into API-friendly responses."""
+    if exc.status == 404:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Pod '{name}' not found in namespace '{namespace}'",
+        ) from exc
+    raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
 @router.get("/pods")
@@ -39,6 +50,8 @@ def get_pod(
         if include_metrics:
             return pods.get_pod_status_with_metrics(name=name, namespace=namespace)
         return pods.get_pod_status(name=name, namespace=namespace)
+    except ApiException as exc:
+        _raise_pod_lookup_http_exception(exc, name=name, namespace=namespace)
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 

@@ -72,6 +72,12 @@ def approve_action(action_id: str) -> dict:
 @router.post("/action-requests/{action_id}/reject")
 def reject_action(action_id: str) -> dict:
     """Reject a pending action request."""
+    record = get_action_request(action_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="Action request not found")
+    if record["status"] != "pending":
+        raise HTTPException(status_code=409, detail="Action request is not pending")
+
     record = mark_action_request_rejected(action_id)
     if record is None:
         raise HTTPException(status_code=404, detail="Action request not found")

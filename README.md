@@ -94,6 +94,8 @@ Run the backend locally:
 uvicorn app.main:app --reload
 ```
 
+Plaintext secret reads through `/config/secrets/{name}/values` are disabled by default. Enable them only in a trusted environment with `AIOPS_ALLOW_PLAINTEXT_SECRET_READS=true`.
+
 Note: the package directory is `Tools/`, while some files still import `tools` in lowercase. That works on case-insensitive filesystems, but should be normalized before cross-platform release.
 
 ## Testing

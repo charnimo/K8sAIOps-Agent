@@ -20,6 +20,7 @@ class Settings:
     api_version: str
     read_only_mode: bool
     mutations_enabled: bool
+    allow_plaintext_secret_reads: bool
 
 
 @lru_cache(maxsize=1)
@@ -27,11 +28,15 @@ def get_settings() -> Settings:
     """Build settings from environment variables once per process."""
     read_only_mode = _as_bool(os.getenv("AIOPS_READ_ONLY_MODE"), default=True)
     mutations_enabled = _as_bool(os.getenv("AIOPS_ENABLE_MUTATIONS"), default=False)
+    allow_plaintext_secret_reads = _as_bool(
+        os.getenv("AIOPS_ALLOW_PLAINTEXT_SECRET_READS"),
+        default=False,
+    )
 
     return Settings(
         api_title=os.getenv("AIOPS_API_TITLE", "K8s AIOps Agent API"),
         api_version=os.getenv("AIOPS_API_VERSION", "0.1.0"),
         read_only_mode=read_only_mode,
         mutations_enabled=mutations_enabled,
+        allow_plaintext_secret_reads=allow_plaintext_secret_reads,
     )
-

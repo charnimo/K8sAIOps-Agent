@@ -5,6 +5,7 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException, Query
 
 from Tools import configmaps, ingress, network_policies, secrets
+from app.core.settings import get_settings
 
 
 router = APIRouter()
@@ -67,6 +68,15 @@ def get_secret_metadata(name: str, namespace: str = Query(default="default")) ->
 @router.get("/secrets/{name}/values")
 def get_secret_values(name: str, namespace: str = Query(default="default")) -> dict:
     """Return plaintext secret values."""
+    settings = get_settings()
+    if not settings.allow_plaintext_secret_reads:
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                "Plaintext secret reads are disabled. "
+                "Set AIOPS_ALLOW_PLAINTEXT_SECRET_READS=true only in a trusted environment."
+            ),
+        )
     try:
         return secrets.get_secret_values(name=name, namespace=namespace)
     except Exception as exc:
@@ -121,19 +131,19 @@ def list_network_policies(
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
-@router.get("/network-policies/{name}")
-def get_network_policy(name: str, namespace: str = Query(default="default")) -> dict:
-    """Fetch a network policy."""
-    try:
-        return network_policies.get_network_policy(name=name, namespace=namespace)
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
-
-
 @router.get("/network-policies/issues")
 def get_network_issues(namespace: str = Query(default="default")) -> dict:
     """Return namespace-level network policy issues."""
     try:
         return network_policies.detect_network_issues(namespace=namespace)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.get("/network-policies/{name}")
+def get_network_policy(name: str, namespace: str = Query(default="default")) -> dict:
+    """Fetch a network policy."""
+    try:
+        return network_policies.get_network_policy(name=name, namespace=namespace)
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
