@@ -271,25 +271,69 @@ def _fmt_node_metrics(item: dict) -> dict:
 import os
 import requests
 import subprocess
+import time
+import atexit
 from typing import Dict, Any, Optional
+import logging
+
+logger = logging.getLogger(__name__)
 
 def get_prometheus_url() -> str:
-    """Dynamically retrieve the Minikube Prometheus NodePort URL, fallback to localhost:9090."""
+    """Dynamically retrieve or proxy Prometheus for Minikube environments."""
     manual_url = os.environ.get("PROMETHEUS_URL")
     if manual_url:
         return manual_url
         
     try:
-        url = subprocess.check_output(
-            ["minikube", "service", "prometheus-server", "-n", "monitoring", "--url"],
+        # Check if port-forward is already running
+        resp = requests.get("http://127.0.0.1:9090/-/ready", timeout=1)
+        if resp.status_code == 200:
+            return "http://127.0.0.1:9090"
+    except Exception:
+        pass
+
+    try:
+        node_ip = subprocess.check_output(
+            ["kubectl", "get", "nodes", "-o", "jsonpath={.items[0].status.addresses[0].address}"],
             stderr=subprocess.DEVNULL
         ).decode("utf-8").strip()
-        if url:
-            return url
+        
+        node_port = subprocess.check_output(
+            ["kubectl", "get", "services", "prometheus-server", "-n", "monitoring", "-o", "jsonpath={.spec.ports[0].nodePort}"],
+            stderr=subprocess.DEVNULL
+        ).decode("utf-8").strip()
+        
+        if node_ip and node_port:
+            url = f"http://{node_ip}:{node_port}"
+            # Test if reachable (will fail on Minikube Linux/Docker without tunnel)
+            try:
+                requests.get(f"{url}/-/ready", timeout=1)
+                return url
+            except requests.exceptions.RequestException:
+                pass
     except Exception:
         pass
         
-    return "http://localhost:9090"
+    # If we got here, we're likely on Linux Docker driver where Node IP is unroutable.
+    # Automatically spawn a background port-forward process.
+    try:
+        logger.info("Spawning background kubectl port-forward for Prometheus on port 9090...")
+        pf_process = subprocess.Popen(
+            ["kubectl", "port-forward", "-n", "monitoring", "svc/prometheus-server", "9090:80"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        
+        # Kill the port-forward when Uvicorn/app exits
+        atexit.register(lambda: pf_process.terminate())
+        
+        # Wait a brief moment to ensure the tunnel establishes
+        time.sleep(2)
+        return "http://127.0.0.1:9090"
+    except Exception as e:
+        logger.error(f"Failed to auto-start port-forward: {e}")
+
+    return "http://127.0.0.1:9090"
 
 PROMETHEUS_URL = get_prometheus_url()
 
