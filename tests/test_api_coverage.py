@@ -5,6 +5,7 @@ from app.services.actions import ACTION_HANDLERS
 
 
 EXPECTED_TOOL_PATHS = {
+    "/",
     "/dashboard/summary",
     "/events",
     "/resources/pods",

@@ -8,6 +8,23 @@ from app.main import app
 client = TestClient(app)
 
 
+def test_root_endpoint_points_to_docs():
+    """Root endpoint should provide a friendly API entrypoint."""
+    response = client.get("/")
+    assert response.status_code == 200
+
+    payload = response.json()
+    assert payload["docs_url"] == "/docs"
+    assert payload["health_url"] == "/health"
+
+
+def test_favicon_endpoint_returns_no_content():
+    """Favicon requests should not produce browser-facing 404 noise."""
+    response = client.get("/favicon.ico")
+    assert response.status_code == 204
+    assert response.content == b""
+
+
 def test_health_endpoint():
     """Health endpoint should expose service metadata and runtime flags."""
     response = client.get("/health")

@@ -1,11 +1,29 @@
-"""Health endpoints."""
+"""Health and browser-friendly utility endpoints."""
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Response
 
 from app.core.settings import get_settings
 
 
 router = APIRouter()
+
+
+@router.get("/")
+def root() -> dict:
+    """Return a small entrypoint payload for browser visits."""
+    settings = get_settings()
+    return {
+        "service": settings.api_title,
+        "version": settings.api_version,
+        "docs_url": "/docs",
+        "health_url": "/health",
+    }
+
+
+@router.get("/favicon.ico", include_in_schema=False)
+def favicon() -> Response:
+    """Return an empty favicon response to avoid browser 404 noise."""
+    return Response(status_code=204)
 
 
 @router.get("/health")
@@ -19,4 +37,3 @@ def health_check() -> dict:
         "read_only_mode": settings.read_only_mode,
         "mutations_enabled": settings.mutations_enabled,
     }
-
