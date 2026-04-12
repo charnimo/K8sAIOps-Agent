@@ -287,3 +287,14 @@ def patch_service(name: str, payload: PatchServiceRequest) -> dict:
 def delete_service(name: str, namespace: str = Query(default="default")) -> dict:
     """Delete a service directly."""
     return run_direct_action("delete_service", name=name, namespace=namespace)
+
+@router.get("/pods/{namespace}/{pod_name}/metrics/history")
+def get_pod_metric_history(namespace: str, pod_name: str, duration_mins: int = 60, step: str = "1m"):
+    """Fetch structured timeseries data from Prometheus for a specific pod."""
+    from Tools.metrics import get_pod_cpu_history
+    data = get_pod_cpu_history(pod_name, namespace, duration_mins, step)
+    
+    if data.get("status") == "error":
+        raise HTTPException(status_code=502, detail=f"Prometheus query failed: {data.get('error')}")
+        
+    return data

@@ -5,18 +5,14 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Dashboard | K8s AIOps</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script>
         tailwind.config = {
             darkMode: 'class',
             theme: {
                 extend: {
                     colors: {
-                        gray: {
-                            750: '#334155',
-                            850: '#1e293b',
-                            900: '#0f172a',
-                            950: '#020617',
-                        }
+                        gray: { 750: '#334155', 850: '#1e293b', 900: '#0f172a', 950: '#020617' }
                     }
                 }
             }
@@ -28,7 +24,6 @@
     <!-- Top Navigation -->
     <nav class="bg-gray-850 p-4 border-b border-gray-800 shadow-xl sticky top-0 z-40 backdrop-blur-md bg-opacity-90">
         <div class="container mx-auto flex justify-between items-center">
-            <!-- Brand -->
             <div class="flex items-center space-x-3">
                 <div class="w-8 h-8 rounded-lg bg-gradient-to-tr from-blue-600 to-indigo-600 flex items-center justify-center shadow-lg">
                     <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 002-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"></path></svg>
@@ -36,31 +31,22 @@
                 <div class="font-bold text-xl tracking-tight text-white">K8s AIOps <span class="text-blue-500 font-medium">Agent</span></div>
             </div>
             
-            <!-- Navbar Actions -->
             <div class="flex items-center space-x-5">
-                <!-- Status -->
                 <div class="flex items-center space-x-2 text-sm bg-gray-900 px-3 py-1.5 rounded-full border border-gray-700 shadow-inner">
                     <span class="w-2 h-2 bg-emerald-500 rounded-full animate-pulse shadow-[0_0_8px_rgba(16,185,129,0.8)]"></span>
                     <span class="text-gray-300 font-medium">Connected</span>
                 </div>
-
-                <!-- Namespace -->
                 <div class="flex items-center space-x-2 text-sm bg-gray-900 px-3 py-1.5 rounded-full border border-gray-700 shadow-inner">
                     <span class="text-gray-400">NS:</span>
                     <span class="text-blue-400 font-mono font-medium">default</span>
                 </div>
-
                 <div class="w-px h-6 bg-gray-700 mx-2"></div>
-
-                <!-- User Profile Link -->
                 <a href="/static/profile.html" class="flex items-center space-x-2 group hover:bg-gray-800 px-3 py-1.5 rounded-lg transition-colors cursor-pointer">
                     <div class="w-7 h-7 rounded-full bg-gray-700 flex items-center justify-center border border-gray-600 group-hover:border-blue-500 transition-colors">
                         <svg class="w-4 h-4 text-gray-300 group-hover:text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path></svg>
                     </div>
                     <span class="font-medium text-gray-300 group-hover:text-white transition-colors" id="activeUserDisplay">admin</span>
                 </a>
-
-                <!-- Logout -->
                 <button id="logoutBtn" class="flex items-center space-x-2 bg-gray-800 border border-gray-700 px-3 py-1.5 rounded-lg hover:bg-rose-600 hover:border-rose-500 hover:text-white transition-all duration-300 text-gray-300 font-medium shadow-sm">
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"></path></svg>
                     <span class="text-sm">Logout</span>
@@ -71,51 +57,211 @@
 
     <!-- Main Content -->
     <div class="container mx-auto px-4 mt-10 max-w-6xl relative z-10">
-        <header class="mb-8">
-            <h1 class="text-4xl font-extrabold text-white tracking-tight">Cluster Overview</h1>
-            <p class="text-gray-400 mt-2 text-sm">Monitoring your Kubernetes environment resources in real-time.</p>
+        <header class="mb-6 flex justify-between items-end">
+            <div>
+                <h1 class="text-4xl font-extrabold text-white tracking-tight">Cluster Overview</h1>
+                <p class="text-gray-400 mt-2 text-sm">Real-time telemetry powered by Prometheus.</p>
+            </div>
+            
+            <div class="flex flex-col">
+                <label class="text-xs text-gray-400 font-medium mb-1 ml-1 uppercase tracking-wider">Select Pod to Monitor</label>
+                <select id="podSelector" class="bg-gray-850 border border-gray-700 text-white text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 w-64 p-2.5 shadow-lg outline-none cursor-pointer">
+                    <option value="" disabled selected>Loading pods...</option>
+                </select>
+            </div>
         </header>
 
-        <div class="bg-gray-850 rounded-xl border border-gray-800 shadow-2xl p-10 flex flex-col items-center justify-center min-h-[400px]">
-            <div class="w-16 h-16 bg-gray-800 rounded-full flex items-center justify-center mb-4">
-                <svg class="w-8 h-8 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 002-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"></path></svg>
+        <!-- Chart Container -->
+        <div class="bg-gray-850 rounded-xl border border-gray-800 shadow-2xl p-6 relative">
+            
+            <div id="chartLoadingOverlay" class="absolute inset-0 bg-gray-850/80 backdrop-blur-sm z-10 flex flex-col items-center justify-center rounded-xl hidden">
+                <svg class="animate-spin w-10 h-10 text-blue-500 mb-3" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                <div class="text-blue-400 font-medium animate-pulse text-sm tracking-wide">QUERYING PROMETHEUS...</div>
             </div>
-            <h2 class="text-2xl font-bold text-white mb-2">To be implemented</h2>
+
+            <div class="flex items-center justify-between mb-4 px-2">
+                <h2 class="text-lg font-bold text-white flex items-center">
+                    <svg class="w-5 h-5 mr-2 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"></path></svg>
+                    Pod CPU Usage (vCores)
+                </h2>
+                <div class="text-xs font-mono text-gray-500 bg-gray-900 px-2 py-1 rounded border border-gray-800">Last 5 Minutes</div>
+            </div>
+
+            <div class="relative h-[350px] w-full">
+                <canvas id="cpuChart"></canvas>
+            </div>
         </div>
     </div>
 
-    <!-- Background glow elements -->
+    <!-- Glow -->
     <div class="fixed top-[-20%] left-[-10%] w-[50%] h-[50%] bg-blue-900 rounded-full blur-[150px] opacity-20 pointer-events-none z-0"></div>
     <div class="fixed bottom-[-20%] right-[-10%] w-[50%] h-[50%] bg-indigo-900 rounded-full blur-[150px] opacity-20 pointer-events-none z-0"></div>
 
     <script src="/static/js/toast.js"></script>
     <script>
         const token = localStorage.getItem("jwt_token");
-
         function parseJwt (token) {
-            try {
-                return JSON.parse(atob(token.split('.')[1]));
-            } catch (e) {
-                return null;
-            }
+            try { return JSON.parse(atob(token.split('.')[1])); } catch (e) { return null; }
         }
-
-        if (!token) {
-            window.location.href = "/static/login.html";
-        } else {
+        if (!token) window.location.href = "/static/login.html";
+        else {
             const claims = parseJwt(token);
-            if (claims && claims.sub) {
-                document.getElementById('activeUserDisplay').innerText = claims.sub;
-            }
+            if (claims && claims.sub) document.getElementById('activeUserDisplay').innerText = claims.sub;
         }
 
         document.getElementById('logoutBtn').addEventListener('click', () => {
             localStorage.removeItem("jwt_token");
-            window.showToast("Logging off...", "success");
-            setTimeout(() => {
-                window.location.href = "/static/login.html";
-            }, 800);
+            window.location.href = "/static/login.html";
         });
+
+        // Chart Setup
+        const ctx = document.getElementById('cpuChart').getContext('2d');
+        Chart.defaults.color = '#94a3b8';
+        Chart.defaults.font.family = 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas';
+
+        let myChart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: [],
+                datasets: [{
+                    label: ' CPU Usage',
+                    data: [],
+                    borderColor: '#3b82f6',
+                    backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                    borderWidth: 2,
+                    pointRadius: 0,
+                    pointHoverRadius: 6,
+                    pointBackgroundColor: '#fff',
+                    pointBorderColor: '#3b82f6',
+                    fill: true,
+                    tension: 0.4
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        mode: 'index',
+                        intersect: false,
+                        backgroundColor: 'rgba(15, 23, 42, 0.9)',
+                        titleColor: '#fff',
+                        bodyColor: '#cbd5e1',
+                        borderColor: '#334155',
+                        borderWidth: 1,
+                        padding: 10,
+                        displayColors: false
+                    }
+                },
+                scales: {
+                    x: { grid: { color: '#334155', drawBorder: false }, ticks: { maxTicksLimit: 8 } },
+                    y: {
+                        beginAtZero: true,
+                        grid: { color: '#334155', drawBorder: false },
+                        suggestedMax: 0.05, // helps graph look better for low-cpu test pods
+                        ticks: { callback: function(value) { return value.toFixed(3) + ' c'; } }
+                    }
+                },
+                interaction: { mode: 'nearest', axis: 'x', intersect: false }
+            }
+        });
+
+        const podSelector = document.getElementById('podSelector');
+        const overlay = document.getElementById('chartLoadingOverlay');
+        let refreshInterval = null;
+
+        async function initDashboard() {
+            try {
+                // Populate dropdown via FastAPI's direct k8s proxy tool we audited earlier
+                const res = await fetch('/resources/pods?namespace=default', {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                const pods = await res.json();
+                
+                podSelector.innerHTML = '';
+                let hasPods = false;
+
+                pods.forEach(pod => {
+                    if (pod.phase !== "Running") return;
+                    hasPods = true;
+                    const opt = document.createElement('option');
+                    opt.value = pod.name;
+                    opt.textContent = pod.name;
+                    podSelector.appendChild(opt);
+                });
+
+                if(!hasPods) {
+                    podSelector.innerHTML = '<option disabled>No running pods found in default NS</option>';
+                    return;
+                }
+
+                // Initial fetch for the first item
+                updateChartForPod(podSelector.value);
+
+                // Set 10-second polling to mimic live WebSocket flow!
+                refreshInterval = setInterval(() => {
+                    updateChartForPod(podSelector.value);
+                }, 10000);
+
+            } catch (err) {
+                console.error(err);
+                podSelector.innerHTML = '<option disabled>FastAPI connection failed</option>';
+            }
+        }
+
+        async function updateChartForPod(podName) {
+            // Only show overlay if the chart contains no data (first load)
+            if(myChart.data.labels.length === 0) overlay.classList.remove('hidden');
+
+            try {
+                const res = await fetch(`/resources/pods/default/${podName}/metrics/history?duration_mins=5&step=15s`, {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                const responseData = await res.json();
+
+                const results = responseData.data?.result;
+                if (!results || results.length === 0) {
+                    overlay.classList.add('hidden');
+                    console.log(`Prometheus has not scraped ${podName} yet. Waiting for next cycle...`);
+                    return;
+                }
+
+                const timeseries = results[0].values;
+                const labels = [];
+                const dataPoints = [];
+
+                timeseries.forEach(point => {
+                    const date = new Date(point[0] * 1000);
+                    labels.push(date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
+                    dataPoints.push(parseFloat(point[1]));
+                });
+
+                myChart.data.labels = labels;
+                myChart.data.datasets[0].data = dataPoints;
+                myChart.update();
+                overlay.classList.add('hidden');
+
+            } catch (err) {
+                console.error("Prometheus fetch failed:", err);
+                overlay.classList.add('hidden');
+            }
+        }
+
+        podSelector.addEventListener('change', (e) => {
+            const podName = e.target.value;
+            // Clear current chart so user sees a smooth transition
+            myChart.data.labels = [];
+            myChart.data.datasets[0].data = [];
+            myChart.update();
+            
+            updateChartForPod(podName);
+
+            if(refreshInterval) clearInterval(refreshInterval);
+            refreshInterval = setInterval(() => { updateChartForPod(podName); }, 10000); 
+        });
+
+        initDashboard();
     </script>
 </body>
 </html>

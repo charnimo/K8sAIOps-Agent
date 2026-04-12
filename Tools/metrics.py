@@ -267,3 +267,68 @@ def _fmt_node_metrics(item: dict) -> dict:
         "memory":    usage.get("memory", "0"),
     }
 
+
+import os
+import requests
+import subprocess
+from typing import Dict, Any, Optional
+
+def get_prometheus_url() -> str:
+    """Dynamically retrieve the Minikube Prometheus NodePort URL, fallback to localhost:9090."""
+    manual_url = os.environ.get("PROMETHEUS_URL")
+    if manual_url:
+        return manual_url
+        
+    try:
+        url = subprocess.check_output(
+            ["minikube", "service", "prometheus-server", "-n", "monitoring", "--url"],
+            stderr=subprocess.DEVNULL
+        ).decode("utf-8").strip()
+        if url:
+            return url
+    except Exception:
+        pass
+        
+    return "http://localhost:9090"
+
+PROMETHEUS_URL = get_prometheus_url()
+
+def query_prometheus(query_expr: str) -> Dict[str, Any]:
+    """Execute an instant query against the Prometheus API."""
+    url = f"{PROMETHEUS_URL}/api/v1/query"
+    try:
+        response = requests.get(url, params={"query": query_expr}, timeout=5)
+        response.raise_for_status()
+        return response.json()
+    except requests.exceptions.RequestException as e:
+        logger.error(f"Prometheus query failed: {e}")
+        return {"status": "error", "error": str(e), "data": None}
+
+def query_prometheus_range(query_expr: str, start: str, end: str, step: str) -> Dict[str, Any]:
+    """Execute a range query (for charts/graphs) against the Prometheus API."""
+    url = f"{PROMETHEUS_URL}/api/v1/query_range"
+    params = {
+        "query": query_expr,
+        "start": start,
+        "end": end,
+        "step": step
+    }
+    try:
+        response = requests.get(url, params=params, timeout=10)
+        response.raise_for_status()
+        return response.json()
+    except requests.exceptions.RequestException as e:
+        logger.error(f"Prometheus range query failed: {e}")
+        return {"status": "error", "error": str(e), "data": None}
+
+def get_pod_cpu_history(pod_name: str, namespace: str, duration_mins: int = 60, step: str = "1m"):
+    """Template for a specific Prometheus query: Pod CPU history."""
+    # PromQL to get the CPU usage over time for a specific pod
+    query = f'rate(container_cpu_usage_seconds_total{{pod="{pod_name}", namespace="{namespace}"}}[5m])'
+    
+    # Calculate start and end times dynamically in UNIX timestamps using Python
+    import time
+    end_time = int(time.time())
+    start_time = end_time - (duration_mins * 60)
+    
+    return query_prometheus_range(query, str(start_time), str(end_time), step)
