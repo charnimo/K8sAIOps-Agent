@@ -68,6 +68,15 @@ def get_action_request(action_id: str) -> Optional[dict]:
     return deepcopy(record) if record else None
 
 
+def list_action_requests(status: Optional[str] = None) -> list[dict]:
+    """Return action requests, optionally filtered by status."""
+    records = list(_action_requests.values())
+    if status is not None:
+        records = [record for record in records if record["status"] == status]
+    records.sort(key=lambda record: record["created_at"], reverse=True)
+    return deepcopy(records)
+
+
 def mark_action_request_executed(action_id: str, result: dict) -> dict:
     """Mark an action request as executed and store the result."""
     record = _action_requests[action_id]

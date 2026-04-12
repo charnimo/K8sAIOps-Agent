@@ -1,13 +1,16 @@
 """Action request and approval endpoints."""
 
-from fastapi import APIRouter, HTTPException
+from typing import Optional
+
+from fastapi import APIRouter, HTTPException, Query
 
 from app.core.settings import get_settings
 from app.schemas.api import ActionRequestCreate
-from app.services.actions import execute_action_request
+from app.services.actions import ACTION_HANDLERS, execute_action_request
 from app.state.store import (
     create_action_request,
     get_action_request,
+    list_action_requests,
     mark_action_request_rejected,
 )
 
@@ -21,6 +24,12 @@ def create_action(payload: ActionRequestCreate) -> dict:
     return create_action_request(payload.model_dump())
 
 
+@router.get("/action-requests")
+def list_actions(status: Optional[str] = Query(default=None)) -> list[dict]:
+    """List action requests, optionally filtered by status."""
+    return list_action_requests(status=status)
+
+
 @router.get("/action-requests/{action_id}")
 def get_action(action_id: str) -> dict:
     """Fetch a single action request."""
@@ -28,6 +37,12 @@ def get_action(action_id: str) -> dict:
     if record is None:
         raise HTTPException(status_code=404, detail="Action request not found")
     return record
+
+
+@router.get("/action-types")
+def get_action_types() -> dict:
+    """List supported approval-gated action types."""
+    return {"action_types": sorted(ACTION_HANDLERS)}
 
 
 @router.post("/action-requests/{action_id}/approve")
@@ -61,4 +76,3 @@ def reject_action(action_id: str) -> dict:
     if record is None:
         raise HTTPException(status_code=404, detail="Action request not found")
     return record
-

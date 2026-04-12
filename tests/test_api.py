@@ -64,3 +64,31 @@ def test_create_action_request_defaults_to_pending():
     payload = response.json()
     assert payload["status"] == "pending"
     assert payload["type"] == "scale_deployment"
+
+
+def test_list_action_requests_includes_created_record():
+    """Action request listing should expose newly created requests."""
+    created = client.post(
+        "/action-requests",
+        json={
+            "type": "delete_pod",
+            "target": {"name": "api-pod", "namespace": "default"},
+            "params": {},
+        },
+    ).json()
+
+    response = client.get("/action-requests")
+    assert response.status_code == 200
+
+    records = response.json()
+    assert any(record["id"] == created["id"] for record in records)
+
+
+def test_action_types_endpoint_lists_supported_actions():
+    """Supported action types should be discoverable for the frontend."""
+    response = client.get("/action-types")
+    assert response.status_code == 200
+
+    payload = response.json()
+    assert "scale_deployment" in payload["action_types"]
+    assert "create_configmap" in payload["action_types"]

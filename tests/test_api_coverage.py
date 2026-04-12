@@ -38,6 +38,8 @@ EXPECTED_TOOL_PATHS = {
     "/diagnostics/deployments",
     "/diagnostics/services",
     "/diagnostics/cluster",
+    "/action-requests",
+    "/action-types",
     "/audit-logs",
 }
 
