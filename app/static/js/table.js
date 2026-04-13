@@ -507,3 +507,213 @@ export class DeploymentTableManager {
         });
     }
 }
+
+
+export class ServiceTableManager {
+    constructor(tbodyId, onDetailsClick, onEditClick, onDeleteClick) {
+        this.tbody = document.getElementById(tbodyId);
+        this.onDetailsClick = onDetailsClick;
+        this.onEditClick = onEditClick;
+        this.onDeleteClick = onDeleteClick;
+        this.sortState = { key: null, direction: null };
+        this.sortableColumns = ["name", "type", "cluster_ip", "ports", "selector", "age", null];
+        this.lastData = [];
+        this.lastSearchTerm = '';
+        this.setupSortableHeaders();
+    }
+
+    setupSortableHeaders() {
+        if (!this.tbody) return;
+        const table = this.tbody.closest('table');
+        if (!table) return;
+
+        const headers = Array.from(table.querySelectorAll('thead th'));
+        headers.forEach((th, index) => {
+            const key = this.sortableColumns[index];
+            if (!key) return;
+            th.classList.add('cursor-pointer', 'select-none', 'hover:text-gray-200', 'transition-colors');
+            if (!th.querySelector('.sort-indicator')) {
+                th.insertAdjacentHTML('beforeend', ' <span class="sort-indicator ml-1 text-[10px] text-gray-600">↕</span>');
+            }
+            th.addEventListener('click', () => this.toggleSort(key));
+        });
+        this.updateSortIndicators();
+    }
+
+    toggleSort(key) {
+        if (this.sortState.key !== key) {
+            this.sortState = { key, direction: 'asc' };
+        } else if (this.sortState.direction === 'asc') {
+            this.sortState = { key, direction: 'desc' };
+        } else if (this.sortState.direction === 'desc') {
+            this.sortState = { key: null, direction: null };
+        } else {
+            this.sortState = { key, direction: 'asc' };
+        }
+
+        this.updateSortIndicators();
+        this.render(this.lastData, this.lastSearchTerm);
+    }
+
+    updateSortIndicators() {
+        if (!this.tbody) return;
+        const table = this.tbody.closest('table');
+        if (!table) return;
+
+        const headers = Array.from(table.querySelectorAll('thead th'));
+        headers.forEach((th, index) => {
+            const key = this.sortableColumns[index];
+            const indicator = th.querySelector('.sort-indicator');
+            if (!key || !indicator) return;
+
+            if (this.sortState.key === key && this.sortState.direction === 'asc') {
+                indicator.textContent = '▲';
+                indicator.className = 'sort-indicator ml-1 text-[10px] text-sky-400';
+            } else if (this.sortState.key === key && this.sortState.direction === 'desc') {
+                indicator.textContent = '▼';
+                indicator.className = 'sort-indicator ml-1 text-[10px] text-sky-400';
+            } else {
+                indicator.textContent = '↕';
+                indicator.className = 'sort-indicator ml-1 text-[10px] text-gray-600';
+            }
+        });
+    }
+
+    parseAgeToSeconds(age) {
+        if (!age || typeof age !== 'string') return -1;
+        const m = age.trim().match(/^(\d+)\s*([smhdw])$/i);
+        if (!m) return -1;
+        const val = parseInt(m[1], 10);
+        const unit = m[2].toLowerCase();
+        if (unit === 's') return val;
+        if (unit === 'm') return val * 60;
+        if (unit === 'h') return val * 3600;
+        if (unit === 'd') return val * 86400;
+        if (unit === 'w') return val * 604800;
+        return -1;
+    }
+
+    applySort(items) {
+        if (!this.sortState.key || !this.sortState.direction) return items;
+        const dir = this.sortState.direction === 'asc' ? 1 : -1;
+
+        const getValue = (svc) => {
+            if (this.sortState.key === 'name') return (svc.name || '').toLowerCase();
+            if (this.sortState.key === 'type') return (svc.type || '').toLowerCase();
+            if (this.sortState.key === 'cluster_ip') return (svc.cluster_ip || '').toLowerCase();
+            if (this.sortState.key === 'ports') return Array.isArray(svc.ports) ? svc.ports.length : 0;
+            if (this.sortState.key === 'selector') return Object.keys(svc.selector || {}).length;
+            if (this.sortState.key === 'age') return this.parseAgeToSeconds(svc.age || '');
+            return '';
+        };
+
+        return [...items].sort((a, b) => {
+            const va = getValue(a);
+            const vb = getValue(b);
+            if (typeof va === 'number' && typeof vb === 'number') return (va - vb) * dir;
+            if (va < vb) return -1 * dir;
+            if (va > vb) return 1 * dir;
+            return 0;
+        });
+    }
+
+    render(services, searchTerm = '') {
+        if (!this.tbody) return;
+        this.tbody.innerHTML = '';
+        this.lastData = Array.isArray(services) ? services : [];
+        this.lastSearchTerm = searchTerm;
+
+        let filtered = this.lastData;
+        if (searchTerm) {
+            const s = searchTerm.toLowerCase();
+            filtered = this.lastData.filter((svc) => {
+                return (svc.name || '').toLowerCase().includes(s)
+                    || (svc.type || '').toLowerCase().includes(s)
+                    || (svc.cluster_ip || '').toLowerCase().includes(s);
+            });
+        }
+
+        filtered = this.applySort(filtered);
+
+        if (!filtered.length) {
+            this.tbody.innerHTML = `
+                <tr>
+                    <td colspan="7" class="px-6 py-8 text-center text-gray-500">No services found matching criteria.</td>
+                </tr>`;
+            return;
+        }
+
+        filtered.forEach((svc) => {
+            const tr = document.createElement('tr');
+            tr.className = 'hover:bg-gray-700/60 transition-colors';
+
+            const ports = Array.isArray(svc.ports) ? svc.ports : [];
+            const portsText = ports.length
+                ? ports.map((p) => `${p.port}/${(p.protocol || 'TCP').toLowerCase()}`).join(', ')
+                : '-';
+            const selectorObj = svc.selector || {};
+            const selectorText = Object.keys(selectorObj).length
+                ? Object.entries(selectorObj).map(([k, v]) => `${k}=${v}`).join(', ')
+                : '-';
+            const typeColor = svc.type === 'LoadBalancer'
+                ? 'text-emerald-400 bg-emerald-900/30 border-emerald-800'
+                : svc.type === 'NodePort'
+                    ? 'text-amber-400 bg-amber-900/30 border-amber-800'
+                    : 'text-sky-400 bg-sky-900/30 border-sky-800';
+
+            tr.innerHTML = `
+                <td class="px-6 py-4 font-mono font-medium text-gray-200">${svc.name || '-'}</td>
+                <td class="px-6 py-4">
+                    <span class="px-2.5 py-1 rounded-md border ${typeColor} text-xs font-semibold tracking-wide">${svc.type || '-'}</span>
+                </td>
+                <td class="px-6 py-4 font-mono text-xs text-gray-300">${svc.cluster_ip || '-'}</td>
+                <td class="px-6 py-4 text-gray-300 text-xs">${portsText}</td>
+                <td class="px-6 py-4 text-gray-400 text-xs max-w-[240px] truncate" title="${selectorText}">${selectorText}</td>
+                <td class="px-6 py-4 text-gray-400">${svc.age || '-'}</td>
+                <td class="px-6 py-4 text-right">
+                    <div class="inline-flex items-center gap-2">
+                        <button aria-label="Details" title="Details" class="group relative action-btn-details text-sky-400 hover:text-sky-300 bg-sky-900/30 hover:bg-sky-900/50 border border-sky-800/50 w-8 h-8 rounded transition-colors inline-flex items-center justify-center" data-svc="${svc.name}">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h7l5 5v11a2 2 0 01-2 2z"/></svg>
+                            <span class="pointer-events-none absolute -top-8 left-1/2 -translate-x-1/2 whitespace-nowrap rounded bg-gray-950 border border-gray-700 px-2 py-1 text-[10px] text-gray-200 opacity-0 group-hover:opacity-100 transition-opacity">Details</span>
+                        </button>
+                        <button aria-label="Edit" title="Edit" class="group relative action-btn-edit text-indigo-400 hover:text-indigo-300 bg-indigo-900/30 hover:bg-indigo-900/50 border border-indigo-800/50 w-8 h-8 rounded transition-colors inline-flex items-center justify-center" data-svc="${svc.name}">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L12 15l-4 1 1-4 8.586-8.586z"/></svg>
+                            <span class="pointer-events-none absolute -top-8 left-1/2 -translate-x-1/2 whitespace-nowrap rounded bg-gray-950 border border-gray-700 px-2 py-1 text-[10px] text-gray-200 opacity-0 group-hover:opacity-100 transition-opacity">Edit</span>
+                        </button>
+                        <button aria-label="Delete" title="Delete" class="group relative action-btn-delete text-rose-400 hover:text-rose-300 bg-rose-900/30 hover:bg-rose-900/50 border border-rose-800/50 w-8 h-8 rounded transition-colors inline-flex items-center justify-center" data-svc="${svc.name}">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 7h12M9 7V5a1 1 0 011-1h4a1 1 0 011 1v2m-7 0l1 12h4l1-12"/></svg>
+                            <span class="pointer-events-none absolute -top-8 left-1/2 -translate-x-1/2 whitespace-nowrap rounded bg-gray-950 border border-gray-700 px-2 py-1 text-[10px] text-gray-200 opacity-0 group-hover:opacity-100 transition-opacity">Delete</span>
+                        </button>
+                    </div>
+                </td>
+            `;
+
+            this.tbody.appendChild(tr);
+        });
+
+        this.setupActionListeners();
+    }
+
+    setupActionListeners() {
+        this.tbody.querySelectorAll('.action-btn-details').forEach((btn) => {
+            btn.addEventListener('click', (e) => {
+                const name = e.currentTarget.getAttribute('data-svc');
+                if (this.onDetailsClick) this.onDetailsClick(name);
+            });
+        });
+
+        this.tbody.querySelectorAll('.action-btn-edit').forEach((btn) => {
+            btn.addEventListener('click', (e) => {
+                const name = e.currentTarget.getAttribute('data-svc');
+                if (this.onEditClick) this.onEditClick(name);
+            });
+        });
+
+        this.tbody.querySelectorAll('.action-btn-delete').forEach((btn) => {
+            btn.addEventListener('click', (e) => {
+                const name = e.currentTarget.getAttribute('data-svc');
+                if (this.onDeleteClick) this.onDeleteClick(name);
+            });
+        });
+    }
+}

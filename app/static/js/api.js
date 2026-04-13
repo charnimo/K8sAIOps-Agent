@@ -179,4 +179,63 @@ export class ApiClient {
         }
         return await res.json();
     }
+
+    async getServices(namespace = 'default') {
+        const res = await fetch(`/resources/services?namespace=${namespace}`, { headers: this.headers });
+        if (!res.ok) throw new Error('Failed to fetch services');
+        return await res.json();
+    }
+
+    async getService(name, namespace = 'default') {
+        const res = await fetch(`/resources/services/${name}?namespace=${namespace}`, { headers: this.headers });
+        if (!res.ok) throw new Error('Failed to fetch service details');
+        return await res.json();
+    }
+
+    async createService(payload) {
+        const res = await fetch('/resources/services', {
+            method: 'POST',
+            headers: { ...this.headers, 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        if (!res.ok) {
+            let errorMsg = 'Failed to create service';
+            try { errorMsg = (await res.json()).detail || errorMsg; } catch (e) {}
+            throw new Error(errorMsg);
+        }
+        return await res.json();
+    }
+
+    async patchService(name, payload, namespace = 'default') {
+        const res = await fetch(`/resources/services/${name}?namespace=${namespace}`, {
+            method: 'PATCH',
+            headers: { ...this.headers, 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        if (!res.ok) {
+            let errorMsg = 'Failed to patch service';
+            try { errorMsg = (await res.json()).detail || errorMsg; } catch (e) {}
+            throw new Error(errorMsg);
+        }
+        return await res.json();
+    }
+
+    async deleteService(name, namespace = 'default') {
+        const res = await fetch(`/resources/services/${name}?namespace=${namespace}`, {
+            method: 'DELETE',
+            headers: this.headers,
+        });
+        if (!res.ok) {
+            let errorMsg = 'Failed to delete service';
+            try { errorMsg = (await res.json()).detail || errorMsg; } catch (e) {}
+            throw new Error(errorMsg);
+        }
+        return await res.json();
+    }
+
+    async getNamespaces() {
+        const res = await fetch('/cluster/namespaces', { headers: this.headers });
+        if (!res.ok) throw new Error('Failed to fetch namespaces');
+        return await res.json();
+    }
 }
