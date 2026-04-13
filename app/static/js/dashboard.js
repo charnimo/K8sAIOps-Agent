@@ -29,9 +29,41 @@ class Dashboard {
         };
 
         this.nav = new NavigationManager((viewId) => this.handleViewLoad(viewId));
+        this.activeViewId = 'view-overview';
+
+        this.setupNamespaceSwitcher();
+        window.addEventListener('namespace-changed', () => {
+            this.handleViewLoad(this.activeViewId || 'view-overview');
+        });
+    }
+
+    async setupNamespaceSwitcher() {
+        const select = document.getElementById('activeNamespaceSelect');
+        if (!select) return;
+
+        const current = this.api.getNamespace();
+        try {
+            const namespaces = await this.api.getNamespaces();
+            const list = Array.isArray(namespaces) && namespaces.length ? namespaces : [{ name: 'default' }];
+            select.innerHTML = list.map((ns) => `<option value="${ns.name}">${ns.name}</option>`).join('');
+            if (!list.find((ns) => ns.name === current)) {
+                this.api.setNamespace(list[0].name);
+            }
+            select.value = this.api.getNamespace();
+        } catch (e) {
+            select.innerHTML = '<option value="default">default</option>';
+            select.value = current || 'default';
+        }
+
+        const clone = select.cloneNode(true);
+        select.parentNode.replaceChild(clone, select);
+        clone.addEventListener('change', () => {
+            this.api.setNamespace(clone.value || 'default');
+        });
     }
 
     handleViewLoad(viewId) {
+        this.activeViewId = viewId;
         // Unmount all active controllers to cleanup intervals/listeners
         Object.values(this.controllers).forEach(ctrl => {
             if (ctrl.unmount) ctrl.unmount();

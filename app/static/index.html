@@ -80,14 +80,17 @@
          </nav>
          <!-- Sidebar Bottom Footer -->
          <div class="p-4 border-t border-gray-800 bg-gray-950 flex flex-col space-y-3">
-            <div class="flex items-center justify-between text-sm px-2 py-1.5 bg-gray-900 rounded-lg border border-gray-800 shadow-inner">
+            <div class="flex items-center justify-between text-sm px-2 py-1.5 bg-gray-900 rounded-lg border border-gray-800 shadow-inner gap-2">
                <span class="text-gray-400">NS:</span>
-               <span class="text-blue-400 font-mono font-medium truncate">default</span>
+               <select id="activeNamespaceSelect" class="bg-gray-800 border border-gray-700 text-blue-300 text-xs rounded px-2 py-1 font-mono max-w-[140px] truncate">
+                  <option value="default">default</option>
+               </select>
             </div>
             <div class="flex items-center justify-between group">
                <a class="flex items-center space-x-2 flex-1 hover:bg-gray-800 p-2 rounded-lg transition-colors cursor-pointer min-w-0" href="/static/profile.html">
-                  <div class="w-7 h-7 rounded-full bg-gray-700 flex-shrink-0 flex items-center justify-center border border-gray-600 group-hover:border-blue-500 transition-colors">
-                     <svg class="w-4 h-4 text-gray-300 group-hover:text-blue-400" fill="none" stroke="currentColor" viewbox="0 0 24 24">
+                  <div class="w-7 h-7 rounded-full bg-gray-700 flex-shrink-0 flex items-center justify-center border border-gray-600 group-hover:border-blue-500 transition-colors overflow-hidden">
+                     <img id="activeUserAvatar" src="" alt="Profile" class="w-full h-full object-cover hidden"/>
+                     <svg id="activeUserAvatarFallback" class="w-4 h-4 text-gray-300 group-hover:text-blue-400" fill="none" stroke="currentColor" viewbox="0 0 24 24">
                         <path d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path>
                      </svg>
                   </div>

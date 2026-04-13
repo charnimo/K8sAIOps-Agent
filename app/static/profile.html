@@ -47,7 +47,8 @@
         </header>
 
         <div class="bg-gray-850 rounded-xl border border-gray-800 shadow-2xl p-10 text-center flex flex-col items-center justify-center min-h-[350px]">
-            <div class="w-24 h-24 mb-5 rounded-full bg-gradient-to-tr from-blue-600 to-indigo-600 flex items-center justify-center shadow-lg border-4 border-gray-800 relative">
+            <div class="w-24 h-24 mb-5 rounded-full bg-gradient-to-tr from-blue-600 to-indigo-600 flex items-center justify-center shadow-lg border-4 border-gray-800 relative overflow-hidden">
+                <img id="profileAvatar" src="" alt="Profile avatar" class="w-full h-full object-cover hidden">
                 <span class="text-4xl text-white font-bold" id="profileInitials">U</span>
             </div>
             <h2 class="text-3xl font-bold text-white mb-1" id="profileUsername">User</h2>
@@ -80,6 +81,35 @@
             }
         }
 
+        async function loadProfile() {
+            try {
+                const response = await fetch('/auth/me', {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                if (!response.ok) return;
+                const profile = await response.json();
+                const initialsEl = document.getElementById('profileInitials');
+                const avatarEl = document.getElementById('profileAvatar');
+
+                if (profile.username) {
+                    document.getElementById('profileUsername').innerText = profile.username;
+                    initialsEl.innerText = profile.username.substring(0, 1).toUpperCase();
+                }
+
+                if (profile.profile_picture) {
+                    avatarEl.src = profile.profile_picture;
+                    avatarEl.classList.remove('hidden');
+                    initialsEl.classList.add('hidden');
+                    avatarEl.onerror = () => {
+                        avatarEl.classList.add('hidden');
+                        initialsEl.classList.remove('hidden');
+                    };
+                }
+            } catch (e) {
+                // Fallback stays as initials.
+            }
+        }
+
         if (!token) {
             window.location.href = "/static/login.html";
         } else {
@@ -88,6 +118,7 @@
                 document.getElementById('profileUsername').innerText = claims.sub;
                 document.getElementById('profileInitials').innerText = claims.sub.substring(0, 1).toUpperCase();
             }
+            loadProfile();
         }
     </script>
 </body>

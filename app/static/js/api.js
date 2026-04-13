@@ -1,35 +1,60 @@
 export class ApiClient {
     constructor(token) {
         this.headers = { 'Authorization': `Bearer ${token}` };
+        this.currentNamespace = localStorage.getItem('active_namespace') || 'default';
     }
 
-    async getPods(namespace = 'default') {
-        const res = await fetch(`/resources/pods?namespace=${namespace}`, { headers: this.headers });
+    _resolveNamespace(namespace) {
+        return namespace || this.currentNamespace || 'default';
+    }
+
+    setNamespace(namespace) {
+        this.currentNamespace = namespace || 'default';
+        localStorage.setItem('active_namespace', this.currentNamespace);
+        window.dispatchEvent(new CustomEvent('namespace-changed', { detail: { namespace: this.currentNamespace } }));
+    }
+
+    getNamespace() {
+        return this.currentNamespace || 'default';
+    }
+
+    async getCurrentUser() {
+        const res = await fetch('/auth/me', { headers: this.headers });
+        if (!res.ok) throw new Error('Failed to fetch current user');
+        return await res.json();
+    }
+
+    async getPods(namespace = null) {
+        const ns = this._resolveNamespace(namespace);
+        const res = await fetch(`/resources/pods?namespace=${ns}`, { headers: this.headers });
         if (!res.ok) throw new Error('Failed to fetch pods');
         return await res.json();
     }
 
     async getPodMetrics(namespace, podName, metric = 'cpu', durationMins = 5, step = null) {
+        const ns = this._resolveNamespace(namespace);
         if (!step) {
             const d = parseInt(durationMins);
             if (d <= 60) step = '15s';
             else if (d <= 1440) step = '2m';
             else step = '15m';
         }
-        const res = await fetch(`/resources/pods/${namespace}/${podName}/metrics/history?metric=${metric}&duration_mins=${durationMins}&step=${step}`, { headers: this.headers });
+        const res = await fetch(`/resources/pods/${ns}/${podName}/metrics/history?metric=${metric}&duration_mins=${durationMins}&step=${step}`, { headers: this.headers });
         if (!res.ok) throw new Error('Failed to fetch pod metrics');
         return await res.json();
     }
 
-    async getPodLogs(podName, tailLines = 100, namespace = "default") {
-        const res = await fetch(`/resources/pods/${podName}/logs?namespace=${namespace}&tail_lines=${tailLines}`, { headers: this.headers });
+    async getPodLogs(podName, tailLines = 100, namespace = null) {
+        const ns = this._resolveNamespace(namespace);
+        const res = await fetch(`/resources/pods/${podName}/logs?namespace=${ns}&tail_lines=${tailLines}`, { headers: this.headers });
         if (!res.ok) throw new Error("Failed to fetch pod logs");
         return await res.json();
     }
 
-    async getPodEvents(podName, namespace = "default") {
+    async getPodEvents(podName, namespace = null) {
+        const ns = this._resolveNamespace(namespace);
 
-        const res = await fetch(`/resources/pods/${podName}/events?namespace=${namespace}`, { headers: this.headers });
+        const res = await fetch(`/resources/pods/${podName}/events?namespace=${ns}`, { headers: this.headers });
 
         if (!res.ok) throw new Error("Failed to fetch pod events");
 
@@ -40,8 +65,9 @@ export class ApiClient {
 
 
 
-    async deletePod(podName, namespace = "default") {
-        const res = await fetch(`/resources/pods/${podName}?namespace=${namespace}`, { 
+    async deletePod(podName, namespace = null) {
+        const ns = this._resolveNamespace(namespace);
+        const res = await fetch(`/resources/pods/${podName}?namespace=${ns}`, {
             method: 'DELETE',
             headers: this.headers 
         });
@@ -56,9 +82,10 @@ export class ApiClient {
         return await res.json();
     }
 
-    async getPodIssues(podName, namespace = "default") {
+    async getPodIssues(podName, namespace = null) {
+        const ns = this._resolveNamespace(namespace);
 
-        const res = await fetch(`/resources/pods/${podName}/issues?namespace=${namespace}`, { headers: this.headers });
+        const res = await fetch(`/resources/pods/${podName}/issues?namespace=${ns}`, { headers: this.headers });
 
         if (!res.ok) throw new Error("Failed to fetch pod issues");
 
@@ -66,26 +93,30 @@ export class ApiClient {
 
     }
 
-    async getPodDetails(podName, namespace = "default") {
-        const res = await fetch(`/resources/pods/${podName}?namespace=${namespace}&include_details=true`, { headers: this.headers });
+    async getPodDetails(podName, namespace = null) {
+        const ns = this._resolveNamespace(namespace);
+        const res = await fetch(`/resources/pods/${podName}?namespace=${ns}&include_details=true`, { headers: this.headers });
         if (!res.ok) throw new Error('Failed to fetch pod details');
         return await res.json();
     }
 
-    async getDeployments(namespace = 'default') {
-        const res = await fetch(`/resources/deployments?namespace=${namespace}`, { headers: this.headers });
+    async getDeployments(namespace = null) {
+        const ns = this._resolveNamespace(namespace);
+        const res = await fetch(`/resources/deployments?namespace=${ns}`, { headers: this.headers });
         if (!res.ok) throw new Error('Failed to fetch deployments');
         return await res.json();
     }
 
-    async getDeployment(name, namespace = 'default') {
-        const res = await fetch(`/resources/deployments/${name}?namespace=${namespace}`, { headers: this.headers });
+    async getDeployment(name, namespace = null) {
+        const ns = this._resolveNamespace(namespace);
+        const res = await fetch(`/resources/deployments/${name}?namespace=${ns}`, { headers: this.headers });
         if (!res.ok) throw new Error('Failed to fetch deployment details');
         return await res.json();
     }
 
-    async scaleDeployment(deploymentName, replicas, namespace = 'default') {
-        const res = await fetch(`/resources/deployments/${deploymentName}/scale?namespace=${namespace}`, {
+    async scaleDeployment(deploymentName, replicas, namespace = null) {
+        const ns = this._resolveNamespace(namespace);
+        const res = await fetch(`/resources/deployments/${deploymentName}/scale?namespace=${ns}`, {
             method: 'PATCH',
             headers: { ...this.headers, 'Content-Type': 'application/json' },
             body: JSON.stringify({ replicas })
@@ -101,8 +132,9 @@ export class ApiClient {
         return await res.json();
     }
 
-    async restartDeployment(deploymentName, namespace = 'default') {
-        const res = await fetch(`/resources/deployments/${deploymentName}/restart?namespace=${namespace}`, {
+    async restartDeployment(deploymentName, namespace = null) {
+        const ns = this._resolveNamespace(namespace);
+        const res = await fetch(`/resources/deployments/${deploymentName}/restart?namespace=${ns}`, {
             method: 'POST',
             headers: this.headers 
         });
@@ -117,29 +149,33 @@ export class ApiClient {
         return await res.json();
     }
 
-    async getDashboardSummary(namespace = 'default') {
-        const res = await fetch(`/dashboard/summary?namespace=${namespace}`, { headers: this.headers });
+    async getDashboardSummary(namespace = null) {
+        const ns = this._resolveNamespace(namespace);
+        const res = await fetch(`/dashboard/summary?namespace=${ns}`, { headers: this.headers });
         if (!res.ok) throw new Error('Failed to fetch dashboard summary');
         return await res.json();
     }
 
-    async getDeploymentEvents(deploymentName, namespace = 'default') {
-        const res = await fetch(`/resources/deployments/${deploymentName}/events?namespace=${namespace}`, { headers: this.headers });
+    async getDeploymentEvents(deploymentName, namespace = null) {
+        const ns = this._resolveNamespace(namespace);
+        const res = await fetch(`/resources/deployments/${deploymentName}/events?namespace=${ns}`, { headers: this.headers });
         if (!res.ok) throw new Error('Failed to fetch deployment events');
         return await res.json();
     }
 
-    async getDeploymentRevisions(deploymentName, namespace = 'default') {
-        const res = await fetch(`/resources/deployments/${deploymentName}/revisions?namespace=${namespace}`, { headers: this.headers });
+    async getDeploymentRevisions(deploymentName, namespace = null) {
+        const ns = this._resolveNamespace(namespace);
+        const res = await fetch(`/resources/deployments/${deploymentName}/revisions?namespace=${ns}`, { headers: this.headers });
         if (!res.ok) throw new Error('Failed to fetch deployment revisions');
         return await res.json();
     }
 
-    async rollbackDeployment(deploymentName, revision = 0, namespace = 'default') {
-        const res = await fetch(`/resources/deployments/${deploymentName}/rollback?namespace=${namespace}`, {
+    async rollbackDeployment(deploymentName, revision = 0, namespace = null) {
+        const ns = this._resolveNamespace(namespace);
+        const res = await fetch(`/resources/deployments/${deploymentName}/rollback?namespace=${ns}`, {
             method: 'POST',
             headers: { ...this.headers, 'Content-Type': 'application/json' },
-            body: JSON.stringify({ namespace, revision })
+            body: JSON.stringify({ namespace: ns, revision })
         });
         if (!res.ok) {
             let errorMsg = "Failed to rollback deployment";
@@ -149,9 +185,10 @@ export class ApiClient {
         return await res.json();
     }
 
-    async updateDeploymentResources(deploymentName, resources, namespace = 'default') {
-        const payload = { namespace, ...resources };
-        const res = await fetch(`/resources/deployments/${deploymentName}/resource-limits?namespace=${namespace}`, {
+    async updateDeploymentResources(deploymentName, resources, namespace = null) {
+        const ns = this._resolveNamespace(namespace);
+        const payload = { namespace: ns, ...resources };
+        const res = await fetch(`/resources/deployments/${deploymentName}/resource-limits?namespace=${ns}`, {
             method: 'PATCH',
             headers: { ...this.headers, 'Content-Type': 'application/json' },
             body: JSON.stringify(payload)
@@ -164,10 +201,11 @@ export class ApiClient {
         return await res.json();
     }
 
-    async updateDeploymentEnv(deploymentName, key, value, containerName = null, namespace = 'default') {
-        const payload = { namespace, key, value };
+    async updateDeploymentEnv(deploymentName, key, value, containerName = null, namespace = null) {
+        const ns = this._resolveNamespace(namespace);
+        const payload = { namespace: ns, key, value };
         if (containerName) payload.container_name = containerName;
-        const res = await fetch(`/resources/deployments/${deploymentName}/env?namespace=${namespace}`, {
+        const res = await fetch(`/resources/deployments/${deploymentName}/env?namespace=${ns}`, {
             method: 'PATCH',
             headers: { ...this.headers, 'Content-Type': 'application/json' },
             body: JSON.stringify(payload)
@@ -180,14 +218,16 @@ export class ApiClient {
         return await res.json();
     }
 
-    async getServices(namespace = 'default') {
-        const res = await fetch(`/resources/services?namespace=${namespace}`, { headers: this.headers });
+    async getServices(namespace = null) {
+        const ns = this._resolveNamespace(namespace);
+        const res = await fetch(`/resources/services?namespace=${ns}`, { headers: this.headers });
         if (!res.ok) throw new Error('Failed to fetch services');
         return await res.json();
     }
 
-    async getService(name, namespace = 'default') {
-        const res = await fetch(`/resources/services/${name}?namespace=${namespace}`, { headers: this.headers });
+    async getService(name, namespace = null) {
+        const ns = this._resolveNamespace(namespace);
+        const res = await fetch(`/resources/services/${name}?namespace=${ns}`, { headers: this.headers });
         if (!res.ok) throw new Error('Failed to fetch service details');
         return await res.json();
     }
@@ -206,8 +246,9 @@ export class ApiClient {
         return await res.json();
     }
 
-    async patchService(name, payload, namespace = 'default') {
-        const res = await fetch(`/resources/services/${name}?namespace=${namespace}`, {
+    async patchService(name, payload, namespace = null) {
+        const ns = this._resolveNamespace(namespace);
+        const res = await fetch(`/resources/services/${name}?namespace=${ns}`, {
             method: 'PATCH',
             headers: { ...this.headers, 'Content-Type': 'application/json' },
             body: JSON.stringify(payload)
@@ -220,8 +261,9 @@ export class ApiClient {
         return await res.json();
     }
 
-    async deleteService(name, namespace = 'default') {
-        const res = await fetch(`/resources/services/${name}?namespace=${namespace}`, {
+    async deleteService(name, namespace = null) {
+        const ns = this._resolveNamespace(namespace);
+        const res = await fetch(`/resources/services/${name}?namespace=${ns}`, {
             method: 'DELETE',
             headers: this.headers,
         });
@@ -333,20 +375,23 @@ export class ApiClient {
         return await res.json();
     }
 
-    async getPVCs(namespace = 'default') {
-        const res = await fetch(`/cluster/storage/pvcs?namespace=${namespace}`, { headers: this.headers });
+    async getPVCs(namespace = null) {
+        const ns = this._resolveNamespace(namespace);
+        const res = await fetch(`/cluster/storage/pvcs?namespace=${ns}`, { headers: this.headers });
         if (!res.ok) throw new Error('Failed to fetch PVCs');
         return await res.json();
     }
 
-    async getPVC(name, namespace = 'default') {
-        const res = await fetch(`/cluster/storage/pvcs/${name}?namespace=${namespace}`, { headers: this.headers });
+    async getPVC(name, namespace = null) {
+        const ns = this._resolveNamespace(namespace);
+        const res = await fetch(`/cluster/storage/pvcs/${name}?namespace=${ns}`, { headers: this.headers });
         if (!res.ok) throw new Error('Failed to fetch PVC details');
         return await res.json();
     }
 
-    async getPVCIssues(name, namespace = 'default') {
-        const res = await fetch(`/cluster/storage/pvcs/${name}/issues?namespace=${namespace}`, { headers: this.headers });
+    async getPVCIssues(name, namespace = null) {
+        const ns = this._resolveNamespace(namespace);
+        const res = await fetch(`/cluster/storage/pvcs/${name}/issues?namespace=${ns}`, { headers: this.headers });
         if (!res.ok) throw new Error('Failed to fetch PVC issues');
         return await res.json();
     }
@@ -365,8 +410,9 @@ export class ApiClient {
         return await res.json();
     }
 
-    async patchPVC(name, payload, namespace = 'default') {
-        const res = await fetch(`/cluster/storage/pvcs/${name}?namespace=${namespace}`, {
+    async patchPVC(name, payload, namespace = null) {
+        const ns = this._resolveNamespace(namespace);
+        const res = await fetch(`/cluster/storage/pvcs/${name}?namespace=${ns}`, {
             method: 'PATCH',
             headers: { ...this.headers, 'Content-Type': 'application/json' },
             body: JSON.stringify(payload),
@@ -379,8 +425,9 @@ export class ApiClient {
         return await res.json();
     }
 
-    async deletePVC(name, namespace = 'default') {
-        const res = await fetch(`/cluster/storage/pvcs/${name}?namespace=${namespace}`, {
+    async deletePVC(name, namespace = null) {
+        const ns = this._resolveNamespace(namespace);
+        const res = await fetch(`/cluster/storage/pvcs/${name}?namespace=${ns}`, {
             method: 'DELETE',
             headers: this.headers,
         });

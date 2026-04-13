@@ -113,7 +113,7 @@ export class PodsController {
                     const duration = timeSel.value;
                     
                     try {
-                        const data = await this.api.getPodMetrics('default', podName, metric, duration);
+                        const data = await this.api.getPodMetrics(this.api.getNamespace(), podName, metric, duration);
                         
                         const titles = {
                             'cpu': 'Pod CPU Usage (vCore)',

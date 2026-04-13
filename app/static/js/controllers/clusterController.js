@@ -10,7 +10,7 @@ export class ClusterController {
         this.pvs = [];
         this.storageClasses = [];
 
-        this.currentPvcNamespace = 'default';
+        this.currentPvcNamespace = this.api.getNamespace();
 
         this.sortState = {
             nodes: { key: null, dir: null },
