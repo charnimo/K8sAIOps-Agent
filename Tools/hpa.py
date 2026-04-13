@@ -15,6 +15,7 @@ from kubernetes.client.exceptions import ApiException
 
 from .client import get_autoscaling_v2
 from .utils import fmt_time, retry_on_transient, validate_namespace, validate_name, sanitize_input
+from .audit import log_action
 
 logger = logging.getLogger(__name__)
 
@@ -241,9 +242,11 @@ def create_hpa(
         auto_api = get_autoscaling_v2()
         auto_api.create_namespaced_horizontal_pod_autoscaler(namespace, hpa_body)
         logger.info(f"[ACTION] Created HPA {namespace}/{name} for {target_kind}/{target_name}")
+        log_action("hpa_create", name, namespace, success=True, details={"target": f"{target_kind}/{target_name}"})
         return {"success": True, "message": f"HPA {namespace}/{name} created successfully."}
     except ApiException as e:
         logger.error(f"Failed to create HPA {namespace}/{name}: {e}")
+        log_action("hpa_create", name, namespace, success=False, error_message=str(e))
         return {"success": False, "message": str(e)}
 
 
@@ -265,9 +268,11 @@ def delete_hpa(name: str, namespace: str = "default") -> dict:
         auto_api = get_autoscaling_v2()
         auto_api.delete_namespaced_horizontal_pod_autoscaler(name, namespace)
         logger.info(f"[ACTION] Deleted HPA {namespace}/{name}")
+        log_action("hpa_delete", name, namespace, success=True)
         return {"success": True, "message": f"HPA {namespace}/{name} deleted."}
     except ApiException as e:
         logger.error(f"Failed to delete HPA {namespace}/{name}: {e}")
+        log_action("hpa_delete", name, namespace, success=False, error_message=str(e))
         return {"success": False, "message": str(e)}
 
 
@@ -316,9 +321,11 @@ def patch_hpa(
         auto_api = get_autoscaling_v2()
         auto_api.patch_namespaced_horizontal_pod_autoscaler(name, namespace, patch_body)
         logger.info(f"[ACTION] Patched HPA {namespace}/{name}")
+        log_action("hpa_patch", name, namespace, success=True)
         return {"success": True, "message": f"HPA {namespace}/{name} patched."}
     except ApiException as e:
         logger.error(f"Failed to patch HPA {namespace}/{name}: {e}")
+        log_action("hpa_patch", name, namespace, success=False, error_message=str(e))
         return {"success": False, "message": str(e)}
 
 

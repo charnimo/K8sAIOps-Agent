@@ -19,6 +19,7 @@ from typing import Optional
 from kubernetes.client.exceptions import ApiException
 from .client import get_core_v1
 from .utils import fmt_duration, retry_on_transient, validate_namespace, validate_name, sanitize_input
+from .audit import audit_service_action
 
 logger = logging.getLogger(__name__)
 
@@ -155,6 +156,7 @@ def create_service(
     try:
         core.create_namespaced_service(namespace=namespace, body=service_body)
         logger.info(f"[ACTION] Created service {namespace}/{name} (type={service_type})")
+        audit_service_action("create", name, namespace, success=True)
         return {
             "success":       True,
             "message":       f"Service '{name}' created in namespace '{namespace}'.",
@@ -162,6 +164,7 @@ def create_service(
         }
     except ApiException as e:
         logger.error(f"Failed to create service {namespace}/{name}: {e}")
+        audit_service_action("create", name, namespace, success=False, error=str(e))
         return {"success": False, "message": str(e)}
 
 
@@ -219,12 +222,14 @@ def patch_service(
     try:
         core.patch_namespaced_service(name=name, namespace=namespace, body=patch_body)
         logger.info(f"[ACTION] Patched service {namespace}/{name}")
+        audit_service_action("patch", name, namespace, success=True)
         return {
             "success": True,
             "message": f"Service '{name}' in namespace '{namespace}' updated.",
         }
     except ApiException as e:
         logger.error(f"Failed to patch service {namespace}/{name}: {e}")
+        audit_service_action("patch", name, namespace, success=False, error=str(e))
         return {"success": False, "message": str(e)}
 
 
@@ -261,12 +266,14 @@ def delete_service(name: str, namespace: str = "default") -> dict:
     try:
         core.delete_namespaced_service(name=name, namespace=namespace)
         logger.info(f"[ACTION] Deleted service {namespace}/{name}")
+        audit_service_action("delete", name, namespace, success=True)
         return {
             "success": True,
             "message": f"Service '{name}' deleted from namespace '{namespace}'.",
         }
     except ApiException as e:
         logger.error(f"Failed to delete service {namespace}/{name}: {e}")
+        audit_service_action("delete", name, namespace, success=False, error=str(e))
         return {"success": False, "message": str(e)}
 
 

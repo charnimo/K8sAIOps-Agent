@@ -29,6 +29,7 @@ from kubernetes.client.exceptions import ApiException
 from .client import get_apps_v1, get_core_v1
 from .utils import fmt_duration, fmt_time, retry_on_transient, validate_namespace, validate_replicas, sanitize_input, validate_resource_limits
 from .events import sort_events
+from .audit import audit_deployment_scale, audit_rollout_restart, audit_patch_resource_limits, audit_patch_env_var, log_action
 
 logger = logging.getLogger(__name__)
 
@@ -154,6 +155,7 @@ def scale_deployment(
         apps.patch_namespaced_deployment(name=name, namespace=namespace, body=dep)
 
         logger.info(f"[ACTION] Scaled {namespace}/{name}: {previous} → {replicas} replicas")
+        audit_deployment_scale(name, namespace, replicas, success=True)
         return {
             "success":           True,
             "message":           f"Deployment {namespace}/{name} scaled from {previous} to {replicas} replicas.",
@@ -162,6 +164,7 @@ def scale_deployment(
         }
     except ApiException as e:
         logger.error(f"Failed to scale {namespace}/{name}: {e}")
+        audit_deployment_scale(name, namespace, replicas, success=False, error=str(e))
         return {"success": False, "message": str(e)}
 
 
@@ -194,12 +197,14 @@ def rollout_restart(name: str, namespace: str = "default") -> dict:
     try:
         apps.patch_namespaced_deployment(name=name, namespace=namespace, body=patch_body)
         logger.info(f"[ACTION] Rolling restart triggered for {namespace}/{name}")
+        audit_rollout_restart(name, namespace, "Deployment", success=True)
         return {
             "success": True,
             "message": f"Rolling restart triggered for deployment {namespace}/{name}.",
         }
     except ApiException as e:
         logger.error(f"Failed to restart {namespace}/{name}: {e}")
+        audit_rollout_restart(name, namespace, "Deployment", success=False, error=str(e))
         return {"success": False, "message": str(e)}
 
 def get_deployment_revisions(name: str, namespace: str = "default") -> dict:
@@ -350,6 +355,7 @@ def patch_resource_limits(
     try:
         apps.patch_namespaced_deployment(name=name, namespace=namespace, body=dep)
         logger.info(f"[ACTION] Patched resources for {namespace}/{name}/{target.name}: {changes}")
+        audit_patch_resource_limits(name, namespace, target.name, changes, success=True)
         return {
             "success": True,
             "message": f"Resource limits updated for container '{target.name}' in {namespace}/{name}.",
@@ -357,6 +363,7 @@ def patch_resource_limits(
         }
     except ApiException as e:
         logger.error(f"Failed to patch resources for {namespace}/{name}: {e}")
+        audit_patch_resource_limits(name, namespace, target.name, changes, success=False, error=str(e))
         return {"success": False, "message": str(e)}
 
 
@@ -420,6 +427,7 @@ def patch_env_var(
     try:
         apps.patch_namespaced_deployment(name=name, namespace=namespace, body=dep)
         logger.info(f"[ACTION] {action.capitalize()} env var {key} in {namespace}/{name}/{target.name}")
+        audit_patch_env_var(name, namespace, target.name, key, success=True)
         return {
             "success": True,
             "message": f"Environment variable '{key}' {action} in container '{target.name}' of {namespace}/{name}.",
@@ -427,6 +435,7 @@ def patch_env_var(
         }
     except ApiException as e:
         logger.error(f"Failed to patch env var in {namespace}/{name}: {e}")
+        audit_patch_env_var(name, namespace, target.name, key, success=False, error=str(e))
         return {"success": False, "message": str(e)}
 
 
@@ -612,6 +621,13 @@ def rollback_deployment(name: str, namespace: str = "default", revision: Optiona
         apps.patch_namespaced_deployment(name=name, namespace=namespace, body=rollback_body)
 
         logger.info(f"[ACTION] Rolled back Deployment {namespace}/{name} from revision {current_revision} to {revision or 'previous'}")
+        log_action(
+            "deployment_rollback",
+            name,
+            namespace,
+            success=True,
+            details={"from_revision": current_revision, "to_revision": revision or "previous"},
+        )
 
         return {
             "success": True,
@@ -621,6 +637,13 @@ def rollback_deployment(name: str, namespace: str = "default", revision: Optiona
         }
     except ApiException as e:
         logger.error(f"Failed to rollback Deployment {namespace}/{name}: {e}")
+        log_action(
+            "deployment_rollback",
+            name,
+            namespace,
+            success=False,
+            error_message=str(e),
+        )
         return {"success": False, "message": str(e)}
 
 

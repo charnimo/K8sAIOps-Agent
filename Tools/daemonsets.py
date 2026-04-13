@@ -25,6 +25,7 @@ from kubernetes.client.exceptions import ApiException
 
 from .client import get_apps_v1
 from .utils import fmt_duration, fmt_time, retry_on_transient, validate_namespace, validate_name, sanitize_input
+from .audit import audit_daemonset_image_update, log_action
 
 logger = logging.getLogger(__name__)
 
@@ -170,12 +171,25 @@ def restart_daemonset(name: str, namespace: str = "default") -> dict:
     try:
         apps.patch_namespaced_daemon_set(name=name, namespace=namespace, body=patch_body)
         logger.info(f"[ACTION] Rolling restart triggered for DaemonSet {namespace}/{name}")
+        log_action(
+            "daemonset_restart",
+            name,
+            namespace,
+            success=True,
+        )
         return {
             "success": True,
             "message": f"Rolling restart triggered for DaemonSet {namespace}/{name}.",
         }
     except ApiException as e:
         logger.error(f"Failed to restart DaemonSet {namespace}/{name}: {e}")
+        log_action(
+            "daemonset_restart",
+            name,
+            namespace,
+            success=False,
+            error_message=str(e),
+        )
         return {"success": False, "message": str(e)}
 
 
@@ -230,6 +244,7 @@ def update_daemonset_image(
         
         apps.patch_namespaced_daemon_set(name=name, namespace=namespace, body=ds)
         logger.info(f"[ACTION] Updated DaemonSet {namespace}/{name} container '{container}': {previous_image} → {image}")
+        audit_daemonset_image_update(name, namespace, container, image, success=True)
         
         return {
             "success":         True,
@@ -239,6 +254,7 @@ def update_daemonset_image(
         }
     except ApiException as e:
         logger.error(f"Failed to update DaemonSet {namespace}/{name}: {e}")
+        audit_daemonset_image_update(name, namespace, container, image, success=False, error=str(e))
         return {"success": False, "message": str(e)}
 
 

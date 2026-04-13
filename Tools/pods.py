@@ -26,6 +26,7 @@ from kubernetes.stream import stream
 from .client import get_core_v1
 from .utils import fmt_time, fmt_duration, retry_on_transient, validate_namespace, sanitize_input
 from .events import sort_events
+from .audit import audit_pod_delete
 
 logger = logging.getLogger(__name__)
 
@@ -339,9 +340,11 @@ def delete_pod(name: str, namespace: str = "default") -> dict:
     try:
         core.delete_namespaced_pod(name=name, namespace=namespace, grace_period_seconds=30)
         logger.info(f"[ACTION] Deleted pod {namespace}/{name} to force restart")
+        audit_pod_delete(name, namespace, success=True)
         return {"success": True, "message": f"Pod {namespace}/{name} deleted. It will be recreated by its controller."}
     except ApiException as e:
         logger.error(f"Failed to delete pod {namespace}/{name}: {e}")
+        audit_pod_delete(name, namespace, success=False, error=str(e))
         return {"success": False, "message": str(e)}
 
 

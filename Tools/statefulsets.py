@@ -26,6 +26,7 @@ from kubernetes.client.exceptions import ApiException
 
 from .client import get_apps_v1
 from .utils import fmt_duration, fmt_time, retry_on_transient, validate_namespace, validate_name, validate_replicas, sanitize_input
+from .audit import audit_statefulset_scale, log_action
 
 logger = logging.getLogger(__name__)
 
@@ -207,12 +208,25 @@ def restart_statefulset(name: str, namespace: str = "default") -> dict:
     try:
         apps.patch_namespaced_stateful_set(name=name, namespace=namespace, body=patch_body)
         logger.info(f"[ACTION] Rolling restart triggered for StatefulSet {namespace}/{name}")
+        log_action(
+            "statefulset_restart",
+            name,
+            namespace,
+            success=True,
+        )
         return {
             "success": True,
             "message": f"Rolling restart triggered for StatefulSet {namespace}/{name}.",
         }
     except ApiException as e:
-        logger.error(f"Failed to restart StatefulSet {namespace}/{name}: {e}")
+        logger.error(f"Failed to restart {namespace}/{name}: {e}")
+        log_action(
+            "statefulset_restart",
+            name,
+            namespace,
+            success=False,
+            error_message=str(e),
+        )
         return {"success": False, "message": str(e)}
 
 

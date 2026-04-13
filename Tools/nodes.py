@@ -23,6 +23,7 @@ from kubernetes.client.exceptions import ApiException
 from .client import get_core_v1
 from .utils import fmt_duration, fmt_time, retry_on_transient, validate_name, sanitize_input
 from .events import sort_events
+from .audit import audit_node_action
 
 logger = logging.getLogger(__name__)
 
@@ -145,12 +146,14 @@ def cordon_node(name: str) -> dict:
     try:
         core.patch_node(name=name, body=patch)
         logger.info(f"[ACTION] Cordoned node {name}")
+        audit_node_action("cordon", name, success=True)
         return {
             "success": True,
             "message": f"Node {name} cordoned. No new pods will be scheduled on it.",
         }
     except ApiException as e:
         logger.error(f"Failed to cordon node {name}: {e}")
+        audit_node_action("cordon", name, success=False, error=str(e))
         return {"success": False, "message": str(e)}
 
 
@@ -169,12 +172,14 @@ def uncordon_node(name: str) -> dict:
     try:
         core.patch_node(name=name, body=patch)
         logger.info(f"[ACTION] Uncordoned node {name}")
+        audit_node_action("uncordon", name, success=True)
         return {
             "success": True,
             "message": f"Node {name} uncordoned. Scheduling is re-enabled.",
         }
     except ApiException as e:
         logger.error(f"Failed to uncordon node {name}: {e}")
+        audit_node_action("uncordon", name, success=False, error=str(e))
         return {"success": False, "message": str(e)}
 
 
@@ -199,6 +204,7 @@ def drain_node(name: str, ignore_daemonsets: bool = True, grace_period_seconds: 
     # Step 1: Cordon
     result = cordon_node(name)
     if not result["success"]:
+        audit_node_action("drain", name, success=False, error="Failed to cordon node")
         return result
 
     core = get_core_v1()
@@ -249,7 +255,11 @@ def drain_node(name: str, ignore_daemonsets: bool = True, grace_period_seconds: 
                 skipped.append(f"{pod_ns}/{pod_name} (error: {e.reason})")
 
     except ApiException as e:
+        audit_node_action("drain", name, success=False, error=str(e))
         return {"success": False, "message": f"Failed to list pods on node {name}: {e}"}
+
+    # Log successful drain operation
+    audit_node_action("drain", name, success=True)
 
     return {
         "success": True,

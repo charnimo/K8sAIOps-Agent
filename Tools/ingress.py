@@ -15,6 +15,7 @@ from kubernetes.client.exceptions import ApiException
 
 from .client import get_networking_v1
 from .utils import fmt_time, retry_on_transient, sanitize_input, validate_name, validate_namespace
+from .audit import log_action
 
 logger = logging.getLogger(__name__)
 
@@ -188,9 +189,11 @@ def create_ingress(
         net_api = get_networking_v1()
         net_api.create_namespaced_ingress(namespace, ingress_body)
         logger.info(f"[ACTION] Created Ingress {namespace}/{name}")
+        log_action("ingress_create", name, namespace, success=True)
         return {"success": True, "message": f"Ingress {namespace}/{name} created successfully."}
     except ApiException as e:
         logger.error(f"Failed to create Ingress {namespace}/{name}: {e}")
+        log_action("ingress_create", name, namespace, success=False, error_message=str(e))
         return {"success": False, "message": str(e)}
 
 
@@ -212,9 +215,11 @@ def delete_ingress(name: str, namespace: str = "default") -> dict:
         net_api = get_networking_v1()
         net_api.delete_namespaced_ingress(name, namespace)
         logger.info(f"[ACTION] Deleted Ingress {namespace}/{name}")
+        log_action("ingress_delete", name, namespace, success=True)
         return {"success": True, "message": f"Ingress {namespace}/{name} deleted."}
     except ApiException as e:
         logger.error(f"Failed to delete Ingress {namespace}/{name}: {e}")
+        log_action("ingress_delete", name, namespace, success=False, error_message=str(e))
         return {"success": False, "message": str(e)}
 
 
@@ -249,9 +254,11 @@ def patch_ingress(
         net_api = get_networking_v1()
         net_api.patch_namespaced_ingress(name, namespace, patch_body)
         logger.info(f"[ACTION] Patched Ingress {namespace}/{name}")
+        log_action("ingress_patch", name, namespace, success=True)
         return {"success": True, "message": f"Ingress {namespace}/{name} patched."}
     except ApiException as e:
         logger.error(f"Failed to patch Ingress {namespace}/{name}: {e}")
+        log_action("ingress_patch", name, namespace, success=False, error_message=str(e))
         return {"success": False, "message": str(e)}
 
 

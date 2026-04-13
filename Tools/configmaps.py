@@ -19,6 +19,7 @@ from kubernetes import client
 from kubernetes.client.exceptions import ApiException
 from .client import get_core_v1
 from .utils import retry_on_transient, validate_namespace, validate_name, sanitize_input
+from .audit import audit_configmap_action
 
 logger = logging.getLogger(__name__)
 
@@ -96,6 +97,7 @@ def patch_configmap(name: str, namespace: str = "default", data: Optional[dict] 
     try:
         core.patch_namespaced_config_map(name=name, namespace=namespace, body=cm)
         logger.info(f"[ACTION] Patched ConfigMap {namespace}/{name}: keys={list(data.keys())}")
+        audit_configmap_action("patch", name, namespace, success=True, keys=list(data.keys()))
         return {
             "success":      True,
             "message":      f"ConfigMap {namespace}/{name} updated.",
@@ -103,6 +105,7 @@ def patch_configmap(name: str, namespace: str = "default", data: Optional[dict] 
         }
     except ApiException as e:
         logger.error(f"Failed to patch ConfigMap {namespace}/{name}: {e}")
+        audit_configmap_action("patch", name, namespace, success=False, error=str(e))
         return {"success": False, "message": str(e)}
 
 
@@ -159,12 +162,14 @@ def create_configmap(
     try:
         core.create_namespaced_config_map(namespace=namespace, body=cm)
         logger.info(f"[ACTION] Created ConfigMap {namespace}/{name}")
+        audit_configmap_action("create", name, namespace, success=True, keys=list(data.keys()))
         return {
             "success": True,
             "message": f"ConfigMap {namespace}/{name} created successfully.",
         }
     except ApiException as e:
         logger.error(f"Failed to create ConfigMap {namespace}/{name}: {e}")
+        audit_configmap_action("create", name, namespace, success=False, error=str(e))
         return {"success": False, "message": str(e)}
 
 
@@ -201,11 +206,13 @@ def delete_configmap(name: str, namespace: str = "default") -> dict:
     try:
         core.delete_namespaced_config_map(name=name, namespace=namespace)
         logger.info(f"[ACTION] Deleted ConfigMap {namespace}/{name}")
+        audit_configmap_action("delete", name, namespace, success=True)
         return {
             "success": True,
             "message": f"ConfigMap {namespace}/{name} deleted.",
         }
     except ApiException as e:
         logger.error(f"Failed to delete ConfigMap {namespace}/{name}: {e}")
+        audit_configmap_action("delete", name, namespace, success=False, error=str(e))
         return {"success": False, "message": str(e)}
 
