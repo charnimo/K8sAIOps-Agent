@@ -60,6 +60,44 @@ export class ApiClient {
 
     }
 
+    async getDeployments(namespace = 'default') {
+        const res = await fetch(`/resources/deployments?namespace=${namespace}`, { headers: this.headers });
+        if (!res.ok) throw new Error('Failed to fetch deployments');
+        return await res.json();
+    }
+
+    async scaleDeployment(deploymentName, replicas, namespace = 'default') {
+        const res = await fetch(`/resources/deployments/${deploymentName}/scale?namespace=${namespace}`, {
+            method: 'PATCH',
+            headers: { ...this.headers, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ replicas })
+        });
+        if (!res.ok) {
+            let errorMsg = "Failed to scale deployment";
+            try {
+                const errData = await res.json();
+                errorMsg = errData.detail || errorMsg;
+            } catch(e) {}
+            throw new Error(errorMsg);
+        }
+        return await res.json();
+    }
+
+    async restartDeployment(deploymentName, namespace = 'default') {
+        const res = await fetch(`/resources/deployments/${deploymentName}/restart?namespace=${namespace}`, {
+            method: 'POST',
+            headers: this.headers 
+        });
+        if (!res.ok) {
+            let errorMsg = "Failed to restart deployment";
+            try {
+                const errData = await res.json();
+                errorMsg = errData.detail || errorMsg;
+            } catch(e) {}
+            throw new Error(errorMsg);
+        }
+        return await res.json();
+    }
 
     async getDashboardSummary(namespace = 'default') {
         const res = await fetch(`/dashboard/summary?namespace=${namespace}`, { headers: this.headers });

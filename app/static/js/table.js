@@ -117,3 +117,92 @@ export class PodTableManager {
         });
     }
 }
+
+
+export class DeploymentTableManager {
+    constructor(tbodyId, onScaleClick, onRestartClick) {
+        this.tbody = document.getElementById(tbodyId);
+        this.onScaleClick = onScaleClick;
+        this.onRestartClick = onRestartClick;
+    }
+
+    render(deployments, searchTerm = '') {
+        if (!this.tbody) return;
+        this.tbody.innerHTML = '';
+        
+        let filtered = deployments;
+        if (searchTerm) {
+            filtered = deployments.filter(d => d.name.toLowerCase().includes(searchTerm.toLowerCase()));
+        }
+
+        if (!filtered || filtered.length === 0) {
+            this.tbody.innerHTML = `
+                <tr>
+                    <td colspan="6" class="px-6 py-8 text-center text-gray-500">
+                        No deployments found matching criteria.
+                    </td>
+                </tr>`;
+            return;
+        }
+
+        filtered.forEach(dep => {
+            const tr = document.createElement('tr');
+            tr.className = 'hover:bg-gray-800/50 transition-colors';
+            
+            const isReady = dep.ready_replicas === dep.replicas;
+            const readyColor = isReady ? 'text-emerald-400' : 'text-amber-400';
+
+            tr.innerHTML = `
+                <td class="px-6 py-4 font-mono font-medium text-gray-200">
+                    <div class="flex items-center space-x-2">
+                        <div class="w-1.5 h-1.5 rounded-full ${isReady ? 'bg-emerald-500' : 'bg-amber-500'}"></div>
+                        <span>${dep.name}</span>
+                    </div>
+                </td>
+                <td class="px-6 py-4 font-mono ${readyColor}">
+                    ${dep.ready_replicas}/${dep.replicas}
+                </td>
+                <td class="px-6 py-4 font-mono text-gray-300">
+                    ${dep.updated_replicas || '0'}
+                </td>
+                <td class="px-6 py-4 font-mono text-gray-300">
+                    ${dep.available_replicas || '0'}
+                </td>
+                <td class="px-6 py-4 text-gray-400">
+                    ${dep.age || 'Unknown'}
+                </td>
+                <td class="px-6 py-4 text-right">
+                    <button class="action-btn-scale text-blue-400 hover:text-blue-300 bg-blue-900/30 hover:bg-blue-900/50 px-3 py-1.5 rounded border border-blue-800/50 transition-colors text-xs font-medium mr-2" data-dep="${dep.name}" data-rep="${dep.replicas}">
+                        Scale
+                    </button>
+                    <button class="action-btn-restart text-amber-400 hover:text-amber-300 bg-amber-900/30 hover:bg-amber-900/50 px-3 py-1.5 rounded border border-amber-800/50 transition-colors text-xs font-medium mr-2" data-dep="${dep.name}">
+                        Restart
+                    </button>
+                </td>
+            `;
+
+            this.tbody.appendChild(tr);
+        });
+
+        this.setupActionListeners();
+    }
+
+    setupActionListeners() {
+        const scaleBtns = this.tbody.querySelectorAll(".action-btn-scale");
+        scaleBtns.forEach(btn => {
+            btn.addEventListener("click", (e) => {
+                const depName = e.currentTarget.getAttribute("data-dep");
+                const currentRep = e.currentTarget.getAttribute("data-rep");
+                if (this.onScaleClick) this.onScaleClick(depName, currentRep);
+            });
+        });
+
+        const restartBtns = this.tbody.querySelectorAll(".action-btn-restart");
+        restartBtns.forEach(btn => {
+            btn.addEventListener("click", (e) => {
+                const depName = e.currentTarget.getAttribute("data-dep");
+                if (this.onRestartClick) this.onRestartClick(depName);
+            });
+        });
+    }
+}

@@ -21,8 +21,7 @@ export class NavigationManager {
                 const viewMap = {
                     'view-overview': 'overview.html',
                     'view-pods': 'pods.html',
-                    'view-logs': 'logs.html',
-                    'view-events': 'events.html'
+                    'view-deployments': 'deployments.html',
                 };
                 
                 const viewName = viewMap[targetId];

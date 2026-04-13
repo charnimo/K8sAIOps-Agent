@@ -4,23 +4,15 @@ export class LogsController {
         this.pollInterval = null;
     }
 
-    mount() {
-        console.log("Log streamer view loaded");
-        const logContainer = document.querySelector("#viewContainer .bg-gray-950");
-        const titleEl = document.getElementById("logsPodTitle");
-        if (!logContainer) return;
-
-        if (window.selectedPodForLogs) {
-            if(titleEl) titleEl.textContent = " - " + window.selectedPodForLogs;
-            logContainer.innerHTML = "<div class=\"text-indigo-400\">Fetching logs for " + window.selectedPodForLogs + "...</div>";
-            this.streamLogs(window.selectedPodForLogs, logContainer);
-            this.pollInterval = setInterval(() => {
-                this.streamLogs(window.selectedPodForLogs, logContainer);
-            }, 5000);
-        } else {
-            if(titleEl) titleEl.textContent = "";
-            logContainer.innerHTML = "<div class=\"text-gray-500\">Select a pod from the active workloads table to view logs.</div>";
-        }
+    mountInPanel(podName, container) {
+        this.unmount(); // clear any previous state
+        
+        container.innerHTML = `<div class="text-indigo-400">Fetching logs for ${podName}...</div>`;
+        
+        this.streamLogs(podName, container);
+        this.pollInterval = setInterval(() => {
+            this.streamLogs(podName, container);
+        }, 5000);
     }
 
     unmount() {
@@ -31,6 +23,11 @@ export class LogsController {
     }
 
     async streamLogs(podName, container) {
+        if (!container || !document.contains(container)) {
+            this.unmount();
+            return;
+        }
+        
         try {
             const data = await this.api.getPodLogs(podName, 500);
             const logs = data.logs || data;
@@ -41,14 +38,13 @@ export class LogsController {
                     return `<div class="whitespace-pre-wrap break-all text-sm leading-relaxed">${line}</div>`;
                 }).join('');
                 
-                // Only update if near bottom or force update
-                const isScrolledToBottom = container.scrollHeight - container.clientHeight <= container.scrollTop + 50;
+                // Only scroll down if already near bottom or it's the first load
+                const isScrolledToBottom = container.scrollHeight - container.clientHeight <= container.scrollTop + 50 || container.children.length === 0;
                 
-                container.innerHTML = `<div class="w-full h-full overflow-y-auto p-2">${formattedLogs || '<span class="text-gray-500">No logs found.</span>'}</div>`;
+                container.innerHTML = formattedLogs || '<span class="text-gray-500">No logs found.</span>';
                 
                 if (isScrolledToBottom) {
-                    const scrollArea = container.firstElementChild;
-                    if(scrollArea) scrollArea.scrollTop = scrollArea.scrollHeight;
+                    container.scrollTop = container.scrollHeight;
                 }
             } else {
                 container.innerHTML = '<div class="text-rose-400">Failed to parse logs format.</div>';

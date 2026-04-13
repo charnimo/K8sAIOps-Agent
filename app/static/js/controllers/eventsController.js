@@ -3,20 +3,11 @@ export class EventsController {
         this.api = api;
     }
 
-    mount() {
-        console.log("Events view loaded");
-        const container = document.getElementById("eventsContainer");
-        const titleEl = document.getElementById("eventsPodTitle");
-        if (!container) return;
-
-        if (window.selectedPodForEvents) {
-            if(titleEl) titleEl.textContent = " - " + window.selectedPodForEvents;
-            container.innerHTML = "<div class=\"text-fuchsia-400 text-center mt-20 animate-pulse\">Fetching events and running diagnostics for " + window.selectedPodForEvents + "...</div>";
-            this.fetchEvents(window.selectedPodForEvents, container);
-        } else {
-            if(titleEl) titleEl.textContent = "";
-            container.innerHTML = "<div class=\"text-gray-500 text-center mt-20\">Select a pod from the active workloads table to view its events.</div>";
-        }
+    mountInPanel(podName, container) {
+        this.unmount(); // just clears if needed
+        
+        container.innerHTML = `<div class="text-fuchsia-400 mt-10 animate-pulse">Running diagnostics for ${podName}...</div>`;
+        this.fetchEvents(podName, container);
     }
 
     unmount() {
@@ -24,12 +15,16 @@ export class EventsController {
     }
 
     async fetchEvents(podName, container) {
+        if (!container || !document.contains(container)) return;
+        
         try {
             const [eventsData, issuesData] = await Promise.all([
                 this.api.getPodEvents(podName).catch(e => ({ items: [] })),
                 this.api.getPodIssues(podName).catch(e => ([]))
             ]);
             
+            if (!container || !document.contains(container)) return;
+
             const events = eventsData.items || eventsData || [];
             let issues = issuesData || [];
             if (issuesData.issues && Array.isArray(issuesData.issues)) {
@@ -82,7 +77,9 @@ export class EventsController {
 
         } catch (err) {
             console.error("Events fetch failed:", err);
-            container.innerHTML = `<div class="text-rose-400">Error fetching events/diagnostics: ${err.message}</div>`;
+            if (container && document.contains(container)) {
+                container.innerHTML = `<div class="text-rose-400">Error fetching events/diagnostics: ${err.message}</div>`;
+            }
         }
     }
 }

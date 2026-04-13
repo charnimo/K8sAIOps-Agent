@@ -1,23 +1,46 @@
 import { PodTableManager } from '../table.js';
+import { LogsController } from './logsController.js';
+import { EventsController } from './eventsController.js';
 
 export class PodsController {
-    constructor(api) {
+    constructor(api, sidePanel) {
         this.api = api;
+        this.sidePanel = sidePanel;
         this.pollInterval = null;
         this.podTable = null;
         this.lastPodsData = null;
         this.currentSearchTerm = '';
+        
+        // Sub-controllers for the side panel
+        this.logsCtrl = new LogsController(this.api);
+        this.eventsCtrl = new EventsController(this.api);
     }
 
     mount() {
         this.podTable = new PodTableManager('podsTableBody', (podName) => {
-            window.selectedPodForLogs = podName;
-            const logsLink = document.querySelector('[data-target="view-logs"]');
-            if (logsLink) logsLink.click();
+            // Logs Click
+            const title = `Logs: ${podName}`;
+            const contentHtml = `<div id="logsContainer" class="bg-gray-950 rounded-xl border border-gray-800 shadow-inner p-4 h-full flex flex-col font-mono text-gray-500 overflow-hidden"><div class="flex-1 overflow-y-auto" id="logsScrollArea">Fetching logs...</div></div>`;
+            
+            this.sidePanel.open(title, contentHtml, (containerDOM) => {
+                const logsScrollArea = containerDOM.querySelector('#logsScrollArea');
+                this.logsCtrl.mountInPanel(podName, logsScrollArea);
+            });
+            
+            this.sidePanel.onClose(() => this.logsCtrl.unmount());
+
         }, (podName) => {
-            window.selectedPodForEvents = podName;
-            const eventsLink = document.querySelector('[data-target="view-events"]');
-            if (eventsLink) eventsLink.click();
+            // Events Click
+            const title = `Events & Diagnostics: ${podName}`;
+            const contentHtml = `<div id="eventsContainer" class="space-y-4">Fetching events...</div>`;
+            
+            this.sidePanel.open(title, contentHtml, (containerDOM) => {
+                const eventsContainer = containerDOM.querySelector('#eventsContainer');
+                this.eventsCtrl.mountInPanel(podName, eventsContainer);
+            });
+            
+            this.sidePanel.onClose(() => this.eventsCtrl.unmount());
+
         }, async (podName) => {
             if (confirm(`Are you sure you want to delete pod ${podName}?`)) {
                 try {
@@ -32,7 +55,6 @@ export class PodsController {
 
         const searchInput = document.getElementById('podSearchInput');
         if (searchInput) {
-            // Clone node to remove any old event listeners
             const newSearchInput = searchInput.cloneNode(true);
             searchInput.parentNode.replaceChild(newSearchInput, searchInput);
             newSearchInput.addEventListener('input', (e) => {
@@ -52,6 +74,7 @@ export class PodsController {
             clearInterval(this.pollInterval);
             this.pollInterval = null;
         }
+        this.sidePanel.close(); // also unmounts sub-controllers
     }
 
     async loadPodsTable() {
@@ -59,7 +82,9 @@ export class PodsController {
         try {
             const result = await this.api.getPods();
             this.lastPodsData = result.items || result;
-            this.podTable.render(this.lastPodsData, this.currentSearchTerm || '');
+            if (this.podTable.tbody && document.contains(this.podTable.tbody)) {
+                this.podTable.render(this.lastPodsData, this.currentSearchTerm || '');
+            }
         } catch (err) {
             console.error("Failed to load pods table:", err);
             if (this.podTable.renderError) this.podTable.renderError(err);

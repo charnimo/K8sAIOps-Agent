@@ -3,8 +3,10 @@ import { AuthManager } from './auth.js';
 import { ApiClient } from './api.js?v=1776040336';
 import { OverviewController } from './controllers/overviewController.js';
 import { PodsController } from './controllers/podsController.js';
+import { DeploymentsController } from './controllers/deploymentsController.js';
 import { EventsController } from './controllers/eventsController.js';
 import { LogsController } from './controllers/logsController.js';
+import { SidePanel } from './panel.js';
 
 class Dashboard {
     constructor() {
@@ -12,10 +14,12 @@ class Dashboard {
         if (!this.auth.getToken()) return;
 
         this.api = new ApiClient(this.auth.getToken());
+        this.sidePanel = new SidePanel();
 
         this.controllers = {
             'view-overview': new OverviewController(this.api),
-            'view-pods': new PodsController(this.api),
+            'view-pods': new PodsController(this.api, this.sidePanel),
+            'view-deployments': new DeploymentsController(this.api, this.sidePanel),
             'view-events': new EventsController(this.api),
             'view-logs': new LogsController(this.api)
         };
@@ -29,7 +33,7 @@ class Dashboard {
             if (ctrl.unmount) ctrl.unmount();
         });
 
-        // Initialize/Mount the requested view controller
+        // Initialize/Mount the requested view controller main area
         const activeController = this.controllers[viewId];
         if (activeController && activeController.mount) {
             activeController.mount();

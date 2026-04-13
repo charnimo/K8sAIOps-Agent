@@ -1,0 +1,44 @@
+<div class="flex items-center justify-between mb-4">
+   <h2 class="text-lg font-bold text-white tracking-tight flex items-center">
+      <svg class="w-5 h-5 mr-2 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 002-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"></path>
+      </svg>
+      Deployments
+   </h2>
+   <div class="flex items-center gap-4">
+      <div class="relative">
+         <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+            <svg class="h-4 w-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+         </div>
+         <input type="text" id="deploymentSearchInput" class="bg-gray-800 border border-gray-700 text-gray-300 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full pl-10 pt-1.5 pb-1.5" placeholder="Search deployments...">
+      </div>
+      <div class="text-sm text-gray-400 bg-gray-800/50 px-3 py-1.5 rounded-lg border border-gray-700">Auto-syncing</div>
+   </div>
+</div>
+<div class="bg-gray-850 rounded-xl border border-gray-800 shadow-xl overflow-hidden mb-10">
+   <div class="overflow-x-auto">
+      <table class="w-full text-left border-collapse whitespace-nowrap">
+         <thead>
+            <tr class="bg-gray-900 border-b border-gray-700 text-xs uppercase tracking-wider text-gray-400 font-semibold">
+               <th class="px-6 py-4">Name</th>
+               <th class="px-6 py-4">Ready</th>
+               <th class="px-6 py-4">Up-to-date</th>
+               <th class="px-6 py-4">Available</th>
+               <th class="px-6 py-4">Age</th>
+               <th class="px-6 py-4 text-right">Actions</th>
+            </tr>
+         </thead>
+         <tbody class="divide-y divide-gray-800 text-sm text-gray-300" id="deploymentsTableBody">
+            <tr>
+               <td class="px-6 py-8 text-center text-gray-500" colspan="6">
+                  <svg class="animate-spin w-6 h-6 text-gray-500 mx-auto mb-2" fill="none" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                     <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                     <path class="opacity-75" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" fill="currentColor"></path>
+                  </svg>
+                  Loading deployments...
+               </td>
+            </tr>
+         </tbody>
+      </table>
+   </div>
+</div>
