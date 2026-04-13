@@ -130,7 +130,7 @@ export class ObservabilityController {
 
     async loadWarningSummary() {
         try {
-            const data = await this.api.getWarningSummary(25);
+            const data = await this.api.getEvents(25, 'warning');
             this.warningSummary = Array.isArray(data) ? data : [];
             this.renderWarningSummary();
         } catch (err) {
@@ -148,13 +148,49 @@ export class ObservabilityController {
         }
 
         tbody.innerHTML = this.warningSummary.map((ev) => `
-            <tr class="hover:bg-gray-700/60 transition-colors">
+            <tr class="hover:bg-gray-700/60 transition-colors cursor-pointer warning-event-row" data-kind="${this.escapeHtml(ev.resource_kind || '')}" data-name="${this.escapeHtml(ev.resource_name || '')}">
                 <td class="px-6 py-4 text-gray-400 text-xs">${this.escapeHtml(ev.last_time || '-')}</td>
                 <td class="px-6 py-4 text-amber-300 text-xs font-semibold uppercase">${this.escapeHtml(ev.reason || '-')}</td>
                 <td class="px-6 py-4 text-gray-300 text-xs font-mono">${this.escapeHtml(`${ev.namespace || '-'}/${ev.resource_kind || '-'}/${ev.resource_name || '-'}`)}</td>
                 <td class="px-6 py-4 text-gray-300 text-sm">${this.escapeHtml(ev.message || '-')}</td>
             </tr>
         `).join('');
+
+        tbody.querySelectorAll('.warning-event-row').forEach((row) => {
+            row.addEventListener('click', () => {
+                const kind = row.getAttribute('data-kind');
+                const name = row.getAttribute('data-name');
+                if (!kind || !name) return;
+                this.openResourceEvents(kind, name);
+            });
+        });
+    }
+
+    async openResourceEvents(kind, name) {
+        const title = `Resource Events: ${kind}/${name}`;
+        this.sidePanel.open(title, '<div class="text-cyan-400 mt-10 animate-pulse">Loading resource events...</div>', async (container) => {
+            try {
+                const events = await this.api.getResourceEvents(kind, name);
+                const list = Array.isArray(events) ? events : [];
+                if (!list.length) {
+                    container.innerHTML = '<div class="text-sm text-gray-500">No events found for this resource.</div>';
+                    return;
+                }
+
+                list.sort((a, b) => new Date(b.last_time || b.event_time || 0) - new Date(a.last_time || a.event_time || 0));
+                container.innerHTML = `<div class="space-y-2">${list.map((ev) => `
+                    <div class="border border-gray-800 rounded p-3 bg-gray-900/40">
+                        <div class="flex items-center justify-between gap-2">
+                            <span class="text-xs uppercase font-semibold ${ev.type === 'Warning' ? 'text-amber-300' : 'text-cyan-300'}">${this.escapeHtml(ev.reason || ev.type || 'Event')}</span>
+                            <span class="text-xs text-gray-500">${this.escapeHtml(ev.last_time || ev.event_time || '-')}</span>
+                        </div>
+                        <div class="text-sm text-gray-300 mt-1">${this.escapeHtml(ev.message || '-')}</div>
+                    </div>
+                `).join('')}</div>`;
+            } catch (err) {
+                container.innerHTML = `<div class="text-rose-400">Failed to load resource events: ${this.escapeHtml(err.message || 'Unknown error')}</div>`;
+            }
+        });
     }
 
     async loadNodeMetrics() {
@@ -213,7 +249,7 @@ export class ObservabilityController {
                 ? containers.map((c) => `${c.name}: ${c.cpu}/${c.memory}`).join(' | ')
                 : '-';
             return `
-                <tr class="hover:bg-gray-700/60 transition-colors">
+                <tr class="hover:bg-gray-700/60 transition-colors cursor-pointer pod-metric-row" data-pod="${this.escapeHtml(pod.name || '')}" data-namespace="${this.escapeHtml(pod.namespace || '')}">
                     <td class="px-6 py-4 font-mono text-gray-200">${this.escapeHtml(pod.name || '-')}</td>
                     <td class="px-6 py-4 text-gray-400">${this.escapeHtml(pod.namespace || '-')}</td>
                     <td class="px-6 py-4 text-gray-300 text-xs">${this.escapeHtml(containerText)}</td>
@@ -221,6 +257,45 @@ export class ObservabilityController {
                 </tr>
             `;
         }).join('');
+
+        tbody.querySelectorAll('.pod-metric-row').forEach((row) => {
+            row.addEventListener('click', () => {
+                const podName = row.getAttribute('data-pod');
+                const namespace = row.getAttribute('data-namespace') || null;
+                if (!podName) return;
+                this.openPodMetricDetail(podName, namespace);
+            });
+        });
+    }
+
+    async openPodMetricDetail(podName, namespace = null) {
+        const title = `Pod Metrics: ${podName}`;
+        this.sidePanel.open(title, '<div class="text-cyan-400 mt-10 animate-pulse">Loading pod metrics...</div>', async (container) => {
+            try {
+                const metric = await this.api.getPodMetric(podName, namespace);
+                const containers = Array.isArray(metric?.containers) ? metric.containers : [];
+                const ns = metric?.namespace || namespace || '-';
+                container.innerHTML = `
+                    <div class="space-y-4">
+                        <section class="grid grid-cols-2 gap-3 text-sm">
+                            <div class="bg-gray-950 border border-gray-800 rounded p-3"><div class="text-xs text-gray-500">Pod</div><div class="text-gray-200 font-mono">${this.escapeHtml(metric?.name || podName)}</div></div>
+                            <div class="bg-gray-950 border border-gray-800 rounded p-3"><div class="text-xs text-gray-500">Namespace</div><div class="text-gray-200 font-mono">${this.escapeHtml(ns)}</div></div>
+                        </section>
+                        <section class="bg-gray-950 border border-gray-800 rounded p-3">
+                            <div class="text-sm font-semibold text-white mb-2">Container Metrics</div>
+                            ${containers.length ? `<div class="space-y-2">${containers.map((c) => `
+                                <div class="border border-gray-800 rounded p-2 bg-gray-900/50">
+                                    <div class="text-xs text-gray-500">${this.escapeHtml(c.name || '-')}</div>
+                                    <div class="text-sm text-gray-300">CPU: ${this.escapeHtml(c.cpu || '-')} | Memory: ${this.escapeHtml(c.memory || '-')}</div>
+                                </div>
+                            `).join('')}</div>` : '<div class="text-sm text-gray-500">No container metrics available.</div>'}
+                        </section>
+                    </div>
+                `;
+            } catch (err) {
+                container.innerHTML = `<div class="text-rose-400">Failed to load pod metrics: ${this.escapeHtml(err.message || 'Unknown error')}</div>`;
+            }
+        });
     }
 
     async loadResourcePressure() {

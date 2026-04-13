@@ -107,13 +107,29 @@ export class DeploymentsController {
                 const title = `Rollout History: ${depName}`;
                 this.sidePanel.open(title, '<div class="text-purple-400 mt-10 animate-pulse">Loading history...</div>', async (containerDOM) => {
                     try {
-                        const historyReq = await this.api.getDeploymentRevisions(depName);
+                        const [historyReq, rolloutStatus, rolloutHistory] = await Promise.all([
+                            this.api.getDeploymentRevisions(depName),
+                            this.api.getDeploymentRolloutStatus(depName).catch(() => null),
+                            this.api.getDeploymentRolloutHistory(depName).catch(() => null),
+                        ]);
                         const revisions = historyReq.revisions || [];
                         const currentRev = historyReq.current_revision || 0;
+                        const statusText = rolloutStatus?.status || rolloutStatus?.message || 'Unavailable';
+                        const historyItems = Array.isArray(rolloutHistory?.history) ? rolloutHistory.history : [];
                         
                         let html = `
                             <div class="space-y-4">
                                 <p class="text-gray-400 text-sm mb-4">Rollout history and revisions for <strong class="text-gray-200">${depName}</strong>.</p>
+                                <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                    <div class="rounded border border-indigo-800/40 bg-indigo-900/20 p-3">
+                                        <div class="text-xs uppercase tracking-wide text-indigo-300">Rollout Status</div>
+                                        <div class="text-sm text-gray-200 mt-1">${statusText}</div>
+                                    </div>
+                                    <div class="rounded border border-gray-800 bg-gray-900/50 p-3">
+                                        <div class="text-xs uppercase tracking-wide text-gray-500">History Entries</div>
+                                        <div class="text-sm text-gray-200 mt-1">${historyItems.length}</div>
+                                    </div>
+                                </div>
                                 <div class="bg-gray-950 rounded-lg border border-gray-800 overflow-hidden">
                         `;
 

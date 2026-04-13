@@ -1,6 +1,6 @@
-import { NavigationManager } from "./nav.js?v=1776051000";
+import { NavigationManager } from "./nav.js?v=1776089800";
 import { AuthManager } from './auth.js';
-import { ApiClient } from './api.js?v=1776051000';
+import { ApiClient } from './api.js?v=1776089800';
 import { OverviewController } from './controllers/overviewController.js';
 import { PodsController } from './controllers/podsController.js';
 import { DeploymentsController } from './controllers/deploymentsController.js';

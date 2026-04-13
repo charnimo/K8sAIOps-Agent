@@ -185,6 +185,20 @@ export class ApiClient {
         return await res.json();
     }
 
+    async getDeploymentRolloutStatus(deploymentName, namespace = null) {
+        const ns = this._resolveNamespace(namespace);
+        const res = await fetch(`/resources/deployments/${deploymentName}/rollout-status?namespace=${ns}`, { headers: this.headers });
+        if (!res.ok) throw new Error('Failed to fetch rollout status');
+        return await res.json();
+    }
+
+    async getDeploymentRolloutHistory(deploymentName, namespace = null) {
+        const ns = this._resolveNamespace(namespace);
+        const res = await fetch(`/resources/deployments/${deploymentName}/rollout-history?namespace=${ns}`, { headers: this.headers });
+        if (!res.ok) throw new Error('Failed to fetch rollout history');
+        return await res.json();
+    }
+
     async rollbackDeployment(deploymentName, revision = 0, namespace = null) {
         const ns = this._resolveNamespace(namespace);
         const res = await fetch(`/resources/deployments/${deploymentName}/rollback?namespace=${ns}`, {
@@ -926,6 +940,13 @@ export class ApiClient {
         return await res.json();
     }
 
+    async getPodMetric(name, namespace = null) {
+        const ns = this._resolveNamespace(namespace);
+        const res = await fetch(`/observability/metrics/pods/${name}?namespace=${ns}`, { headers: this.headers });
+        if (!res.ok) throw new Error('Failed to fetch pod metrics');
+        return await res.json();
+    }
+
     async getResourcePressure(namespace = null, thresholdPct = null) {
         const ns = this._resolveNamespace(namespace);
         const params = new URLSearchParams({ namespace: ns });
@@ -942,6 +963,21 @@ export class ApiClient {
         params.set('namespace', this._resolveNamespace(namespace));
         const res = await fetch(`/events/summary?${params.toString()}`, { headers: this.headers });
         if (!res.ok) throw new Error('Failed to fetch warning summary');
+        return await res.json();
+    }
+
+    async getEvents(limit = 30, severity = 'warning', namespace = null) {
+        const params = new URLSearchParams({ limit: String(limit), severity });
+        params.set('namespace', this._resolveNamespace(namespace));
+        const res = await fetch(`/events?${params.toString()}`, { headers: this.headers });
+        if (!res.ok) throw new Error('Failed to fetch events');
+        return await res.json();
+    }
+
+    async getResourceEvents(kind, name, namespace = null) {
+        const ns = this._resolveNamespace(namespace);
+        const res = await fetch(`/events/resources/${encodeURIComponent(kind)}/${encodeURIComponent(name)}?namespace=${ns}`, { headers: this.headers });
+        if (!res.ok) throw new Error('Failed to fetch resource events');
         return await res.json();
     }
 

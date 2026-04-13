@@ -462,21 +462,23 @@ def rollout_status(name: str, namespace: str = "default") -> dict:
         return {"error": str(e)}
 
     spec = dep.spec
-    status = dep.status or {}
+    status = dep.status
 
-    desired = spec.replicas or 1
-    current = status.current_replicas or 0
-    ready = status.ready_replicas or 0
-    updated = status.updated_replicas or 0
-    available = status.available_replicas or 0
+    desired = (spec.replicas or 1) if spec else 1
+    # Some client versions do not expose current_replicas on V1DeploymentStatus.
+    current = getattr(status, "replicas", 0) or 0
+    ready = getattr(status, "ready_replicas", 0) or 0
+    updated = getattr(status, "updated_replicas", 0) or 0
+    available = getattr(status, "available_replicas", 0) or 0
+    conditions = getattr(status, "conditions", None) or []
 
     # Determine rollout status
     if ready == desired and available == desired:
         status_str = "complete"
         message = f"Rollout complete. {ready} of {desired} pods ready."
-    elif status.conditions:
+    elif conditions:
         # Check for failure conditions
-        for cond in status.conditions:
+        for cond in conditions:
             if cond.type == "Progressing" and cond.reason == "ProgressDeadlineExceeded":
                 status_str = "failed"
                 message = f"Rollout failed: {cond.message}"
