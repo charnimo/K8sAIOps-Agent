@@ -27,7 +27,7 @@ export class ChartManager {
                 maintainAspectRatio: false,
                 plugins: {
                     legend: { display: false },
-                    tooltip: {
+                                        tooltip: {
                         mode: 'index',
                         intersect: false,
                         backgroundColor: 'rgba(15, 23, 42, 0.9)',
@@ -36,7 +36,21 @@ export class ChartManager {
                         borderColor: '#334155',
                         borderWidth: 1,
                         padding: 10,
-                        displayColors: false
+                        displayColors: false,
+                        callbacks: {
+                            label: function(context) {
+                                let value = context.raw;
+                                const metricType = context.chart.options.scales.y.metricFormat || 'cpu';
+                                if (metricType === 'memory' || metricType.startsWith('network')) {
+                                    if (value >= 1073741824) return (value / 1073741824).toFixed(2) + ' GB';
+                                    if (value >= 1048576) return (value / 1048576).toFixed(2) + ' MB';
+                                    if (value >= 1024) return (value / 1024).toFixed(2) + ' KB';
+                                    const suffix = metricType.startsWith('network') ? ' B/s' : ' B';
+                                    return (value % 1 === 0 ? value : value.toFixed(2)) + suffix;
+                                }
+                                return value.toFixed(5) + ' c';
+                            }
+                        }
                     }
                 },
                 scales: {

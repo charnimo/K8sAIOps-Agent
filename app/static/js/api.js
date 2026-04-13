@@ -14,4 +14,56 @@ export class ApiClient {
         if (!res.ok) throw new Error('Failed to fetch pod metrics');
         return await res.json();
     }
+
+    async getPodLogs(podName, tailLines = 100, namespace = "default") {
+        const res = await fetch(`/resources/pods/${podName}/logs?namespace=${namespace}&tail_lines=${tailLines}`, { headers: this.headers });
+        if (!res.ok) throw new Error("Failed to fetch pod logs");
+        return await res.json();
+    }
+
+    async getPodEvents(podName, namespace = "default") {
+
+        const res = await fetch(`/resources/pods/${podName}/events?namespace=${namespace}`, { headers: this.headers });
+
+        if (!res.ok) throw new Error("Failed to fetch pod events");
+
+        return await res.json();
+
+    }
+
+
+
+
+    async deletePod(podName, namespace = "default") {
+        const res = await fetch(`/resources/pods/${podName}?namespace=${namespace}`, { 
+            method: 'DELETE',
+            headers: this.headers 
+        });
+        if (!res.ok) {
+            let errorMsg = "Failed to delete pod";
+            try {
+                const errData = await res.json();
+                errorMsg = errData.detail || errorMsg;
+            } catch(e) {}
+            throw new Error(errorMsg);
+        }
+        return await res.json();
+    }
+
+    async getPodIssues(podName, namespace = "default") {
+
+        const res = await fetch(`/resources/pods/${podName}/issues?namespace=${namespace}`, { headers: this.headers });
+
+        if (!res.ok) throw new Error("Failed to fetch pod issues");
+
+        return await res.json();
+
+    }
+
+
+    async getDashboardSummary(namespace = 'default') {
+        const res = await fetch(`/dashboard/summary?namespace=${namespace}`, { headers: this.headers });
+        if (!res.ok) throw new Error('Failed to fetch dashboard summary');
+        return await res.json();
+    }
 }
