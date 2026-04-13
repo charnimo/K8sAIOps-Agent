@@ -7,7 +7,7 @@ window.showToast = function(message, type = "success") {
     toast.id = "custom-toast";
     
     // Base classes
-    let classes = "fixed top-5 left-1/2 transform -translate-x-1/2 px-6 py-3 rounded-lg shadow-2xl transition-all duration-300 z-50 flex items-center space-x-3 text-white font-medium ";
+    let classes = "fixed top-5 left-1/2 transform -translate-x-1/2 px-6 py-3 rounded-lg shadow-2xl transition-all duration-300 z-[9999] flex items-center space-x-3 text-white font-medium ";
     
     // Type specific styling
     if (type === "success") {

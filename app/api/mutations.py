@@ -34,7 +34,10 @@ def run_direct_action(
         target = {"name": name}
         if namespace is not None:
             target["namespace"] = namespace
-        return execute_action(action_type=action_type, target=target, params=params or {})
+        res = execute_action(action_type=action_type, target=target, params=params or {})
+        if res.get("success") is False:
+            raise HTTPException(status_code=400, detail=res.get("message", "Action failed"))
+        return res
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except HTTPException:

@@ -8,3 +8,4 @@ __pycache__/
 .env
 app.db
 **/images/profiles/
+audit.jsonl

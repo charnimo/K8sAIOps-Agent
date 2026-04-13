@@ -87,23 +87,23 @@ def get_deployment_events(name: str, namespace: str = "default") -> list[dict]:
     """Fetch events related to a specific deployment (and its ReplicaSets)."""
     core = get_core_v1()
     try:
-        event_list = core.list_namespaced_event(
-            namespace=namespace,
-            field_selector=f"involvedObject.name={name},involvedObject.kind=Deployment",
-        )
+        event_list = core.list_namespaced_event(namespace=namespace)
     except ApiException as e:
         logger.error(f"Failed to fetch events for deployment {namespace}/{name}: {e}")
         raise
 
     events = []
+    prefix = f"{name}-"
     for ev in event_list.items:
-        events.append({
-            "type":       ev.type,
-            "reason":     ev.reason,
-            "message":    ev.message,
-            "count":      ev.count,
-            "last_time":  fmt_time(ev.last_timestamp),
-        })
+        obj_name = ev.involved_object.name
+        if obj_name and (obj_name == name or obj_name.startswith(prefix)):
+            events.append({
+                "type":       ev.type,
+                "reason":     ev.reason,
+                "message":    ev.message,
+                "count":      ev.count,
+                "last_time":  fmt_time(ev.last_timestamp),
+            })
     return sort_events(events)
 
 
@@ -357,7 +357,12 @@ def patch_resource_limits(
         }
     except ApiException as e:
         logger.error(f"Failed to patch resources for {namespace}/{name}: {e}")
-        return {"success": False, "message": str(e)}
+        import json
+        try:
+            err_msg = json.loads(e.body).get("message", str(e))
+        except:
+            err_msg = str(e)
+        return {"success": False, "message": err_msg}
 
 
 def patch_env_var(

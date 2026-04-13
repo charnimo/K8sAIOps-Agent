@@ -31,7 +31,7 @@ ENVIRONMENT VARIABLES (set in deployment or .env):
     K8S_DIAGNOSE_LIGHTWEIGHT    (default: false) — Skip expensive sub-queries in diagnose_deployment
   
   Audit logging:
-    K8S_AUDIT_LOG_FILE          (default: /var/log/k8s-agent-audit.jsonl) — Where to write audit logs
+    K8S_AUDIT_LOG_FILE          (default: audit.jsonl) — Where to write audit logs
 
 EXAMPLE .env file (for development):
     K8S_RESOURCE_THRESHOLD=75
@@ -48,7 +48,7 @@ EXAMPLE in Kubernetes Deployment (k8s/deployment.yaml):
       - name: K8S_LOG_TAIL_LINES
         value: "100"
       - name: K8S_AUDIT_LOG_FILE
-        value: "/var/log/k8s-agent-audit.jsonl"
+        value: "audit.jsonl"
       volumeMounts:
       - name: audit-logs
         mountPath: /var/log
@@ -92,4 +92,4 @@ INCLUDE_POD_METRICS_IN_DEPLOYMENT = os.getenv("K8S_INCLUDE_METRICS_IN_DEPLOY", "
 DIAGNOSE_DEPLOYMENT_LIGHTWEIGHT = os.getenv("K8S_DIAGNOSE_LIGHTWEIGHT", "false").lower() == "true"
 
 # Audit logging
-AUDIT_LOG_FILE = os.getenv("K8S_AUDIT_LOG_FILE", "/var/log/k8s-agent-audit.jsonl")
+AUDIT_LOG_FILE = os.getenv("K8S_AUDIT_LOG_FILE", "audit.jsonl")

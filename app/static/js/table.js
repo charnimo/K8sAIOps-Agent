@@ -120,10 +120,14 @@ export class PodTableManager {
 
 
 export class DeploymentTableManager {
-    constructor(tbodyId, onScaleClick, onRestartClick) {
+    constructor(tbodyId, onScaleClick, onRestartClick, onEventsClick, onHistoryClick, onResourcesClick, onEnvClick) {
         this.tbody = document.getElementById(tbodyId);
         this.onScaleClick = onScaleClick;
         this.onRestartClick = onRestartClick;
+        this.onEventsClick = onEventsClick;
+        this.onHistoryClick = onHistoryClick;
+        this.onResourcesClick = onResourcesClick;
+        this.onEnvClick = onEnvClick;
     }
 
     render(deployments, searchTerm = '') {
@@ -172,11 +176,23 @@ export class DeploymentTableManager {
                     ${dep.age || 'Unknown'}
                 </td>
                 <td class="px-6 py-4 text-right">
+                    <button class="action-btn-events text-fuchsia-400 hover:text-fuchsia-300 bg-fuchsia-900/30 hover:bg-fuchsia-900/50 px-3 py-1.5 rounded border border-fuchsia-800/50 transition-colors text-xs font-medium mr-2" data-dep="${dep.name}">
+                        Events
+                    </button>
+                    <button class="action-btn-history text-purple-400 hover:text-purple-300 bg-purple-900/30 hover:bg-purple-900/50 px-3 py-1.5 rounded border border-purple-800/50 transition-colors text-xs font-medium mr-2" data-dep="${dep.name}">
+                        History
+                    </button>
                     <button class="action-btn-scale text-blue-400 hover:text-blue-300 bg-blue-900/30 hover:bg-blue-900/50 px-3 py-1.5 rounded border border-blue-800/50 transition-colors text-xs font-medium mr-2" data-dep="${dep.name}" data-rep="${dep.replicas}">
                         Scale
                     </button>
                     <button class="action-btn-restart text-amber-400 hover:text-amber-300 bg-amber-900/30 hover:bg-amber-900/50 px-3 py-1.5 rounded border border-amber-800/50 transition-colors text-xs font-medium mr-2" data-dep="${dep.name}">
                         Restart
+                    </button>
+                    <button class="action-btn-env text-teal-400 hover:text-teal-300 bg-teal-900/30 hover:bg-teal-900/50 px-3 py-1.5 rounded border border-teal-800/50 transition-colors text-xs font-medium mr-2" data-dep="${dep.name}">
+                        Env
+                    </button>
+                    <button class="action-btn-resources text-indigo-400 hover:text-indigo-300 bg-indigo-900/30 hover:bg-indigo-900/50 px-3 py-1.5 rounded border border-indigo-800/50 transition-colors text-xs font-medium" data-dep="${dep.name}">
+                        Limits
                     </button>
                 </td>
             `;
@@ -202,6 +218,34 @@ export class DeploymentTableManager {
             btn.addEventListener("click", (e) => {
                 const depName = e.currentTarget.getAttribute("data-dep");
                 if (this.onRestartClick) this.onRestartClick(depName);
+            });
+        });
+
+        this.tbody.querySelectorAll(".action-btn-events").forEach(btn => {
+            btn.addEventListener("click", (e) => {
+                const depName = e.currentTarget.getAttribute("data-dep");
+                if (this.onEventsClick) this.onEventsClick(depName);
+            });
+        });
+
+        this.tbody.querySelectorAll(".action-btn-history").forEach(btn => {
+            btn.addEventListener("click", (e) => {
+                const depName = e.currentTarget.getAttribute("data-dep");
+                if (this.onHistoryClick) this.onHistoryClick(depName);
+            });
+        });
+
+        this.tbody.querySelectorAll(".action-btn-resources").forEach(btn => {
+            btn.addEventListener("click", (e) => {
+                const depName = e.currentTarget.getAttribute("data-dep");
+                if (this.onResourcesClick) this.onResourcesClick(depName);
+            });
+        });
+
+        this.tbody.querySelectorAll(".action-btn-env").forEach(btn => {
+            btn.addEventListener("click", (e) => {
+                const depName = e.currentTarget.getAttribute("data-dep");
+                if (this.onEnvClick) this.onEnvClick(depName);
             });
         });
     }
