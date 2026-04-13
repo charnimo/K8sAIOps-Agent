@@ -105,6 +105,31 @@
                      </li>
                   </ul>
                </li>
+               <li class="px-6 py-3 mt-4 text-xs font-semibold text-gray-500 uppercase tracking-widest">Operations</li>
+               <li>
+                  <a class="nav-link w-full flex items-center px-6 py-2.5 text-sm font-medium text-gray-400 border-r-4 border-transparent hover:text-gray-100 hover:bg-gray-800 transition-colors" data-target="view-configuration" href="#">
+                     <svg class="w-5 h-5 mr-3 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path>
+                     </svg>
+                     Configuration
+                  </a>
+               </li>
+               <li>
+                  <a class="nav-link w-full flex items-center px-6 py-2.5 text-sm font-medium text-gray-400 border-r-4 border-transparent hover:text-gray-100 hover:bg-gray-800 transition-colors" data-target="view-observability" href="#">
+                     <svg class="w-5 h-5 mr-3 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 3v18h18M7 13l3-3 3 2 4-5"></path>
+                     </svg>
+                     Observability
+                  </a>
+               </li>
+               <li>
+                  <a class="nav-link w-full flex items-center px-6 py-2.5 text-sm font-medium text-gray-400 border-r-4 border-transparent hover:text-gray-100 hover:bg-gray-800 transition-colors" data-target="view-governance" href="#">
+                     <svg class="w-5 h-5 mr-3 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5-2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                     </svg>
+                     Governance
+                  </a>
+               </li>
             </ul>
          </nav>
          <!-- Sidebar Bottom Footer -->
@@ -115,6 +140,10 @@
                   <option value="default">default</option>
                </select>
             </div>
+            <label class="flex items-center justify-between text-xs px-2 py-1.5 bg-gray-900 rounded-lg border border-gray-800 cursor-pointer select-none">
+               <span class="text-gray-400 uppercase tracking-wide">All Namespaces</span>
+               <input id="activeAllNamespaces" type="checkbox" class="accent-blue-500"/>
+            </label>
             <div class="flex items-center justify-between group">
                <a class="flex items-center space-x-2 flex-1 hover:bg-gray-800 p-2 rounded-lg transition-colors cursor-pointer min-w-0" href="/static/profile.html">
                   <div class="w-7 h-7 rounded-full bg-gray-700 flex-shrink-0 flex items-center justify-center border border-gray-600 group-hover:border-blue-500 transition-colors overflow-hidden">
@@ -152,7 +181,7 @@
       <div class="fixed top-[-20%] left-[-10%] w-[50%] h-[50%] bg-blue-900 rounded-full blur-[150px] opacity-10 pointer-events-none z-0"></div>
       <div class="fixed bottom-[-20%] right-[-10%] w-[50%] h-[50%] bg-indigo-900 rounded-full blur-[150px] opacity-10 pointer-events-none z-0"></div>
       <script src="/static/js/toast.js?v=1776037686"></script>
-      <script src="/static/js/dashboard.js?v=1776040336" type="module"></script>
+      <script src="/static/js/dashboard.js?v=1776051000" type="module"></script>
       <style>
          .fade-in {
          animation: fadeIn 0.3s ease-in-out;

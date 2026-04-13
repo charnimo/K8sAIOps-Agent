@@ -2,6 +2,7 @@ export class ApiClient {
     constructor(token) {
         this.headers = { 'Authorization': `Bearer ${token}` };
         this.currentNamespace = localStorage.getItem('active_namespace') || 'default';
+        this.allNamespaces = localStorage.getItem('active_all_namespaces') === 'true';
     }
 
     _resolveNamespace(namespace) {
@@ -11,11 +12,41 @@ export class ApiClient {
     setNamespace(namespace) {
         this.currentNamespace = namespace || 'default';
         localStorage.setItem('active_namespace', this.currentNamespace);
-        window.dispatchEvent(new CustomEvent('namespace-changed', { detail: { namespace: this.currentNamespace } }));
+        window.dispatchEvent(new CustomEvent('namespace-changed', {
+            detail: {
+                namespace: this.currentNamespace,
+                allNamespaces: this.allNamespaces,
+            },
+        }));
     }
 
     getNamespace() {
         return this.currentNamespace || 'default';
+    }
+
+    setAllNamespaces(enabled) {
+        this.allNamespaces = !!enabled;
+        localStorage.setItem('active_all_namespaces', this.allNamespaces ? 'true' : 'false');
+        window.dispatchEvent(new CustomEvent('namespace-changed', {
+            detail: {
+                namespace: this.currentNamespace,
+                allNamespaces: this.allNamespaces,
+            },
+        }));
+    }
+
+    isAllNamespaces() {
+        return !!this.allNamespaces;
+    }
+
+    _buildNamespaceQuery(namespace = null, supportsAllNamespaces = false) {
+        const params = new URLSearchParams();
+        if (supportsAllNamespaces && this.allNamespaces) {
+            params.set('all_namespaces', 'true');
+        } else {
+            params.set('namespace', this._resolveNamespace(namespace));
+        }
+        return params.toString();
     }
 
     async getCurrentUser() {
@@ -97,6 +128,21 @@ export class ApiClient {
         const ns = this._resolveNamespace(namespace);
         const res = await fetch(`/resources/pods/${podName}?namespace=${ns}&include_details=true`, { headers: this.headers });
         if (!res.ok) throw new Error('Failed to fetch pod details');
+        return await res.json();
+    }
+
+    async execPodCommand(podName, command, namespace = null) {
+        const ns = this._resolveNamespace(namespace);
+        const res = await fetch(`/resources/pods/${podName}/exec?namespace=${ns}`, {
+            method: 'POST',
+            headers: { ...this.headers, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ command }),
+        });
+        if (!res.ok) {
+            let errorMsg = 'Failed to execute pod command';
+            try { errorMsg = (await res.json()).detail || errorMsg; } catch (e) {}
+            throw new Error(errorMsg);
+        }
         return await res.json();
     }
 
@@ -452,8 +498,8 @@ export class ApiClient {
     }
 
     async getStatefulSets(namespace = null) {
-        const ns = this._resolveNamespace(namespace);
-        const res = await fetch(`/workloads/statefulsets?namespace=${ns}`, { headers: this.headers });
+        const query = this._buildNamespaceQuery(namespace, true);
+        const res = await fetch(`/workloads/statefulsets?${query}`, { headers: this.headers });
         if (!res.ok) throw new Error('Failed to fetch StatefulSets');
         return await res.json();
     }
@@ -502,8 +548,8 @@ export class ApiClient {
     }
 
     async getDaemonSets(namespace = null) {
-        const ns = this._resolveNamespace(namespace);
-        const res = await fetch(`/workloads/daemonsets?namespace=${ns}`, { headers: this.headers });
+        const query = this._buildNamespaceQuery(namespace, true);
+        const res = await fetch(`/workloads/daemonsets?${query}`, { headers: this.headers });
         if (!res.ok) throw new Error('Failed to fetch DaemonSets');
         return await res.json();
     }
@@ -551,8 +597,8 @@ export class ApiClient {
     }
 
     async getJobs(namespace = null) {
-        const ns = this._resolveNamespace(namespace);
-        const res = await fetch(`/workloads/jobs?namespace=${ns}`, { headers: this.headers });
+        const query = this._buildNamespaceQuery(namespace, true);
+        const res = await fetch(`/workloads/jobs?${query}`, { headers: this.headers });
         if (!res.ok) throw new Error('Failed to fetch Jobs');
         return await res.json();
     }
@@ -614,8 +660,8 @@ export class ApiClient {
     }
 
     async getCronJobs(namespace = null) {
-        const ns = this._resolveNamespace(namespace);
-        const res = await fetch(`/workloads/cronjobs?namespace=${ns}`, { headers: this.headers });
+        const query = this._buildNamespaceQuery(namespace, true);
+        const res = await fetch(`/workloads/cronjobs?${query}`, { headers: this.headers });
         if (!res.ok) throw new Error('Failed to fetch CronJobs');
         return await res.json();
     }
@@ -652,6 +698,394 @@ export class ApiClient {
             try { errorMsg = (await res.json()).detail || errorMsg; } catch (e) {}
             throw new Error(errorMsg);
         }
+        return await res.json();
+    }
+
+    async getConfigMaps(namespace = null) {
+        const ns = this._resolveNamespace(namespace);
+        const res = await fetch(`/config/configmaps?namespace=${ns}`, { headers: this.headers });
+        if (!res.ok) throw new Error('Failed to fetch ConfigMaps');
+        return await res.json();
+    }
+
+    async getConfigMap(name, namespace = null) {
+        const ns = this._resolveNamespace(namespace);
+        const res = await fetch(`/config/configmaps/${name}?namespace=${ns}`, { headers: this.headers });
+        if (!res.ok) throw new Error('Failed to fetch ConfigMap details');
+        return await res.json();
+    }
+
+    async createConfigMap(payload) {
+        const res = await fetch('/config/configmaps', {
+            method: 'POST',
+            headers: { ...this.headers, 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+        });
+        if (!res.ok) {
+            let errorMsg = 'Failed to create ConfigMap';
+            try { errorMsg = (await res.json()).detail || errorMsg; } catch (e) {}
+            throw new Error(errorMsg);
+        }
+        return await res.json();
+    }
+
+    async patchConfigMap(name, payload, namespace = null) {
+        const ns = this._resolveNamespace(namespace);
+        const res = await fetch(`/config/configmaps/${name}?namespace=${ns}`, {
+            method: 'PATCH',
+            headers: { ...this.headers, 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+        });
+        if (!res.ok) {
+            let errorMsg = 'Failed to patch ConfigMap';
+            try { errorMsg = (await res.json()).detail || errorMsg; } catch (e) {}
+            throw new Error(errorMsg);
+        }
+        return await res.json();
+    }
+
+    async deleteConfigMap(name, namespace = null) {
+        const ns = this._resolveNamespace(namespace);
+        const res = await fetch(`/config/configmaps/${name}?namespace=${ns}`, {
+            method: 'DELETE',
+            headers: this.headers,
+        });
+        if (!res.ok) {
+            let errorMsg = 'Failed to delete ConfigMap';
+            try { errorMsg = (await res.json()).detail || errorMsg; } catch (e) {}
+            throw new Error(errorMsg);
+        }
+        return await res.json();
+    }
+
+    async getSecrets(namespace = null) {
+        const ns = this._resolveNamespace(namespace);
+        const res = await fetch(`/config/secrets?namespace=${ns}`, { headers: this.headers });
+        if (!res.ok) throw new Error('Failed to fetch secrets');
+        return await res.json();
+    }
+
+    async getSecretMetadata(name, namespace = null) {
+        const ns = this._resolveNamespace(namespace);
+        const res = await fetch(`/config/secrets/${name}/metadata?namespace=${ns}`, { headers: this.headers });
+        if (!res.ok) throw new Error('Failed to fetch secret metadata');
+        return await res.json();
+    }
+
+    async getSecretValues(name, namespace = null) {
+        const ns = this._resolveNamespace(namespace);
+        const res = await fetch(`/config/secrets/${name}/values?namespace=${ns}`, { headers: this.headers });
+        if (!res.ok) {
+            let errorMsg = 'Failed to fetch secret values';
+            try { errorMsg = (await res.json()).detail || errorMsg; } catch (e) {}
+            throw new Error(errorMsg);
+        }
+        return await res.json();
+    }
+
+    async createSecret(payload) {
+        const res = await fetch('/config/secrets', {
+            method: 'POST',
+            headers: { ...this.headers, 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+        });
+        if (!res.ok) {
+            let errorMsg = 'Failed to create secret';
+            try { errorMsg = (await res.json()).detail || errorMsg; } catch (e) {}
+            throw new Error(errorMsg);
+        }
+        return await res.json();
+    }
+
+    async updateSecret(name, payload, namespace = null) {
+        const ns = this._resolveNamespace(namespace);
+        const res = await fetch(`/config/secrets/${name}?namespace=${ns}`, {
+            method: 'PATCH',
+            headers: { ...this.headers, 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+        });
+        if (!res.ok) {
+            let errorMsg = 'Failed to update secret';
+            try { errorMsg = (await res.json()).detail || errorMsg; } catch (e) {}
+            throw new Error(errorMsg);
+        }
+        return await res.json();
+    }
+
+    async deleteSecret(name, namespace = null) {
+        const ns = this._resolveNamespace(namespace);
+        const res = await fetch(`/config/secrets/${name}?namespace=${ns}`, {
+            method: 'DELETE',
+            headers: this.headers,
+        });
+        if (!res.ok) {
+            let errorMsg = 'Failed to delete secret';
+            try { errorMsg = (await res.json()).detail || errorMsg; } catch (e) {}
+            throw new Error(errorMsg);
+        }
+        return await res.json();
+    }
+
+    async getIngresses(namespace = null) {
+        const query = this._buildNamespaceQuery(namespace, true);
+        const res = await fetch(`/config/ingresses?${query}`, { headers: this.headers });
+        if (!res.ok) throw new Error('Failed to fetch ingresses');
+        return await res.json();
+    }
+
+    async getIngress(name, namespace = null) {
+        const ns = this._resolveNamespace(namespace);
+        const res = await fetch(`/config/ingresses/${name}?namespace=${ns}`, { headers: this.headers });
+        if (!res.ok) throw new Error('Failed to fetch ingress details');
+        return await res.json();
+    }
+
+    async getIngressIssues(name, namespace = null) {
+        const ns = this._resolveNamespace(namespace);
+        const res = await fetch(`/config/ingresses/${name}/issues?namespace=${ns}`, { headers: this.headers });
+        if (!res.ok) throw new Error('Failed to fetch ingress issues');
+        return await res.json();
+    }
+
+    async createIngress(payload) {
+        const res = await fetch('/config/ingresses', {
+            method: 'POST',
+            headers: { ...this.headers, 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+        });
+        if (!res.ok) {
+            let errorMsg = 'Failed to create ingress';
+            try { errorMsg = (await res.json()).detail || errorMsg; } catch (e) {}
+            throw new Error(errorMsg);
+        }
+        return await res.json();
+    }
+
+    async patchIngress(name, payload, namespace = null) {
+        const ns = this._resolveNamespace(namespace);
+        const res = await fetch(`/config/ingresses/${name}?namespace=${ns}`, {
+            method: 'PATCH',
+            headers: { ...this.headers, 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+        });
+        if (!res.ok) {
+            let errorMsg = 'Failed to patch ingress';
+            try { errorMsg = (await res.json()).detail || errorMsg; } catch (e) {}
+            throw new Error(errorMsg);
+        }
+        return await res.json();
+    }
+
+    async deleteIngress(name, namespace = null) {
+        const ns = this._resolveNamespace(namespace);
+        const res = await fetch(`/config/ingresses/${name}?namespace=${ns}`, {
+            method: 'DELETE',
+            headers: this.headers,
+        });
+        if (!res.ok) {
+            let errorMsg = 'Failed to delete ingress';
+            try { errorMsg = (await res.json()).detail || errorMsg; } catch (e) {}
+            throw new Error(errorMsg);
+        }
+        return await res.json();
+    }
+
+    async getNetworkPolicies(namespace = null) {
+        const query = this._buildNamespaceQuery(namespace, true);
+        const res = await fetch(`/config/network-policies?${query}`, { headers: this.headers });
+        if (!res.ok) throw new Error('Failed to fetch network policies');
+        return await res.json();
+    }
+
+    async getNetworkPolicy(name, namespace = null) {
+        const ns = this._resolveNamespace(namespace);
+        const res = await fetch(`/config/network-policies/${name}?namespace=${ns}`, { headers: this.headers });
+        if (!res.ok) throw new Error('Failed to fetch network policy details');
+        return await res.json();
+    }
+
+    async getNetworkPolicyIssues(namespace = null) {
+        const ns = this._resolveNamespace(namespace);
+        const res = await fetch(`/config/network-policies/issues?namespace=${ns}`, { headers: this.headers });
+        if (!res.ok) throw new Error('Failed to fetch network policy issues');
+        return await res.json();
+    }
+
+    async getPodMetricsList(namespace = null) {
+        const ns = this._resolveNamespace(namespace);
+        const res = await fetch(`/observability/metrics/pods?namespace=${ns}`, { headers: this.headers });
+        if (!res.ok) throw new Error('Failed to fetch pod metrics list');
+        return await res.json();
+    }
+
+    async getNodeMetricsList() {
+        const res = await fetch('/observability/metrics/nodes', { headers: this.headers });
+        if (!res.ok) throw new Error('Failed to fetch node metrics list');
+        return await res.json();
+    }
+
+    async getNodeMetric(name) {
+        const res = await fetch(`/observability/metrics/nodes/${name}`, { headers: this.headers });
+        if (!res.ok) throw new Error('Failed to fetch node metrics');
+        return await res.json();
+    }
+
+    async getResourcePressure(namespace = null, thresholdPct = null) {
+        const ns = this._resolveNamespace(namespace);
+        const params = new URLSearchParams({ namespace: ns });
+        if (thresholdPct !== null && thresholdPct !== undefined) {
+            params.set('threshold_pct', String(thresholdPct));
+        }
+        const res = await fetch(`/observability/resource-pressure?${params.toString()}`, { headers: this.headers });
+        if (!res.ok) throw new Error('Failed to fetch resource pressure');
+        return await res.json();
+    }
+
+    async getWarningSummary(limit = 30, namespace = null) {
+        const params = new URLSearchParams({ limit: String(limit) });
+        if (!this.allNamespaces) {
+            params.set('namespace', this._resolveNamespace(namespace));
+        }
+        const res = await fetch(`/events/summary?${params.toString()}`, { headers: this.headers });
+        if (!res.ok) throw new Error('Failed to fetch warning summary');
+        return await res.json();
+    }
+
+    async diagnosePod(name, namespace = null) {
+        const ns = this._resolveNamespace(namespace);
+        const params = new URLSearchParams({ name, namespace: ns });
+        const res = await fetch(`/diagnostics/pods?${params.toString()}`, { headers: this.headers });
+        if (!res.ok) throw new Error('Failed to diagnose pod');
+        return await res.json();
+    }
+
+    async diagnoseDeployment(name, namespace = null, includePodDetails = false, includeResourcePressure = false) {
+        const ns = this._resolveNamespace(namespace);
+        const params = new URLSearchParams({
+            name,
+            namespace: ns,
+            include_pod_details: includePodDetails ? 'true' : 'false',
+            include_resource_pressure: includeResourcePressure ? 'true' : 'false',
+        });
+        const res = await fetch(`/diagnostics/deployments?${params.toString()}`, { headers: this.headers });
+        if (!res.ok) throw new Error('Failed to diagnose deployment');
+        return await res.json();
+    }
+
+    async diagnoseService(name, namespace = null) {
+        const ns = this._resolveNamespace(namespace);
+        const params = new URLSearchParams({ name, namespace: ns });
+        const res = await fetch(`/diagnostics/services?${params.toString()}`, { headers: this.headers });
+        if (!res.ok) throw new Error('Failed to diagnose service');
+        return await res.json();
+    }
+
+    async getClusterDiagnostics(namespace = null) {
+        const params = new URLSearchParams();
+        if (!this.allNamespaces) {
+            params.set('namespace', this._resolveNamespace(namespace));
+        }
+        const res = await fetch(`/diagnostics/cluster${params.toString() ? `?${params.toString()}` : ''}`, { headers: this.headers });
+        if (!res.ok) throw new Error('Failed to fetch cluster diagnostics');
+        return await res.json();
+    }
+
+    async getHPAs(namespace = null) {
+        const query = this._buildNamespaceQuery(namespace, true);
+        const res = await fetch(`/governance/hpas?${query}`, { headers: this.headers });
+        if (!res.ok) throw new Error('Failed to fetch HPAs');
+        return await res.json();
+    }
+
+    async getHPA(name, namespace = null) {
+        const ns = this._resolveNamespace(namespace);
+        const res = await fetch(`/governance/hpas/${name}?namespace=${ns}`, { headers: this.headers });
+        if (!res.ok) throw new Error('Failed to fetch HPA details');
+        return await res.json();
+    }
+
+    async getHPAIssues(name, namespace = null) {
+        const ns = this._resolveNamespace(namespace);
+        const res = await fetch(`/governance/hpas/${name}/issues?namespace=${ns}`, { headers: this.headers });
+        if (!res.ok) throw new Error('Failed to fetch HPA issues');
+        return await res.json();
+    }
+
+    async createHPA(payload) {
+        const res = await fetch('/governance/hpas', {
+            method: 'POST',
+            headers: { ...this.headers, 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+        });
+        if (!res.ok) {
+            let errorMsg = 'Failed to create HPA';
+            try { errorMsg = (await res.json()).detail || errorMsg; } catch (e) {}
+            throw new Error(errorMsg);
+        }
+        return await res.json();
+    }
+
+    async patchHPA(name, payload, namespace = null) {
+        const ns = this._resolveNamespace(namespace);
+        const res = await fetch(`/governance/hpas/${name}?namespace=${ns}`, {
+            method: 'PATCH',
+            headers: { ...this.headers, 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+        });
+        if (!res.ok) {
+            let errorMsg = 'Failed to patch HPA';
+            try { errorMsg = (await res.json()).detail || errorMsg; } catch (e) {}
+            throw new Error(errorMsg);
+        }
+        return await res.json();
+    }
+
+    async deleteHPA(name, namespace = null) {
+        const ns = this._resolveNamespace(namespace);
+        const res = await fetch(`/governance/hpas/${name}?namespace=${ns}`, {
+            method: 'DELETE',
+            headers: this.headers,
+        });
+        if (!res.ok) {
+            let errorMsg = 'Failed to delete HPA';
+            try { errorMsg = (await res.json()).detail || errorMsg; } catch (e) {}
+            throw new Error(errorMsg);
+        }
+        return await res.json();
+    }
+
+    async getResourceQuotas(namespace = null) {
+        const ns = this._resolveNamespace(namespace);
+        const res = await fetch(`/governance/resource-quotas?namespace=${ns}`, { headers: this.headers });
+        if (!res.ok) throw new Error('Failed to fetch resource quotas');
+        return await res.json();
+    }
+
+    async getResourceQuota(name, namespace = null) {
+        const ns = this._resolveNamespace(namespace);
+        const res = await fetch(`/governance/resource-quotas/${name}?namespace=${ns}`, { headers: this.headers });
+        if (!res.ok) throw new Error('Failed to fetch resource quota details');
+        return await res.json();
+    }
+
+    async getLimitRanges(namespace = null) {
+        const ns = this._resolveNamespace(namespace);
+        const res = await fetch(`/governance/limit-ranges?namespace=${ns}`, { headers: this.headers });
+        if (!res.ok) throw new Error('Failed to fetch limit ranges');
+        return await res.json();
+    }
+
+    async getLimitRange(name, namespace = null) {
+        const ns = this._resolveNamespace(namespace);
+        const res = await fetch(`/governance/limit-ranges/${name}?namespace=${ns}`, { headers: this.headers });
+        if (!res.ok) throw new Error('Failed to fetch limit range details');
+        return await res.json();
+    }
+
+    async getQuotaPressure(namespace = null) {
+        const ns = this._resolveNamespace(namespace);
+        const res = await fetch(`/governance/quota-pressure?namespace=${ns}`, { headers: this.headers });
+        if (!res.ok) throw new Error('Failed to fetch quota pressure');
         return await res.json();
     }
 }

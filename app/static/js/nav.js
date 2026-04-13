@@ -32,6 +32,9 @@ export class NavigationManager {
                     'view-workloads-daemonsets': 'workloads-daemonsets.html',
                     'view-workloads-jobs': 'workloads-jobs.html',
                     'view-workloads-cronjobs': 'workloads-cronjobs.html',
+                    'view-configuration': 'configuration.html',
+                    'view-observability': 'observability.html',
+                    'view-governance': 'governance.html',
                 };
                 
                 const viewName = viewMap[targetId];

@@ -1,0 +1,77 @@
+<div class="flex items-center justify-between mb-4 gap-3 flex-wrap">
+   <h2 class="text-lg font-bold text-white tracking-tight flex items-center">
+      <svg class="w-5 h-5 mr-2 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5-2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+      </svg>
+      Governance
+   </h2>
+   <div class="flex items-center gap-3">
+      <span id="governanceScopeBadge" class="text-xs text-blue-300 bg-blue-900/20 border border-blue-700/40 px-2 py-1 rounded-md">Scope: namespace</span>
+      <button id="governanceRefreshBtn" class="bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium px-3 py-1.5 rounded-lg border border-emerald-500/40 transition-colors">Refresh</button>
+   </div>
+</div>
+
+<div class="space-y-6 mb-10">
+   <section class="bg-gray-850 rounded-xl border border-gray-800 shadow-xl overflow-hidden">
+      <div class="px-6 py-4 border-b border-gray-800 flex items-center justify-between">
+         <h3 class="text-white font-semibold">Horizontal Pod Autoscalers</h3>
+         <button id="createHpaBtn" class="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-medium px-3 py-1.5 rounded-lg border border-emerald-500/40 transition-colors">Create HPA</button>
+      </div>
+      <div class="overflow-x-auto">
+         <table class="w-full text-left border-collapse whitespace-nowrap">
+            <thead>
+               <tr class="bg-gray-900 border-b border-gray-700 text-xs uppercase tracking-wider text-gray-400 font-semibold">
+                  <th class="px-6 py-4">Name</th>
+                  <th class="px-6 py-4">Namespace</th>
+                  <th class="px-6 py-4">Target</th>
+                  <th class="px-6 py-4">Current/Desired</th>
+                  <th class="px-6 py-4">Min/Max</th>
+                  <th class="px-6 py-4">Age</th>
+                  <th class="px-6 py-4 text-right">Actions</th>
+               </tr>
+            </thead>
+            <tbody class="divide-y divide-gray-800 text-sm text-gray-300" id="hpasTableBody"></tbody>
+         </table>
+      </div>
+   </section>
+
+   <section class="bg-gray-850 rounded-xl border border-gray-800 shadow-xl overflow-hidden">
+      <div class="px-6 py-4 border-b border-gray-800"><h3 class="text-white font-semibold">Quota Pressure</h3></div>
+      <div class="p-4" id="quotaPressureContainer"></div>
+   </section>
+
+   <section class="bg-gray-850 rounded-xl border border-gray-800 shadow-xl overflow-hidden">
+      <div class="px-6 py-4 border-b border-gray-800"><h3 class="text-white font-semibold">Resource Quotas</h3></div>
+      <div class="overflow-x-auto">
+         <table class="w-full text-left border-collapse whitespace-nowrap">
+            <thead>
+               <tr class="bg-gray-900 border-b border-gray-700 text-xs uppercase tracking-wider text-gray-400 font-semibold">
+                  <th class="px-6 py-4">Name</th>
+                  <th class="px-6 py-4">Namespace</th>
+                  <th class="px-6 py-4">Hard Limits</th>
+                  <th class="px-6 py-4">Used Metrics</th>
+                  <th class="px-6 py-4 text-right">Actions</th>
+               </tr>
+            </thead>
+            <tbody class="divide-y divide-gray-800 text-sm text-gray-300" id="resourceQuotasTableBody"></tbody>
+         </table>
+      </div>
+   </section>
+
+   <section class="bg-gray-850 rounded-xl border border-gray-800 shadow-xl overflow-hidden">
+      <div class="px-6 py-4 border-b border-gray-800"><h3 class="text-white font-semibold">Limit Ranges</h3></div>
+      <div class="overflow-x-auto">
+         <table class="w-full text-left border-collapse whitespace-nowrap">
+            <thead>
+               <tr class="bg-gray-900 border-b border-gray-700 text-xs uppercase tracking-wider text-gray-400 font-semibold">
+                  <th class="px-6 py-4">Name</th>
+                  <th class="px-6 py-4">Namespace</th>
+                  <th class="px-6 py-4">Limit Entries</th>
+                  <th class="px-6 py-4 text-right">Actions</th>
+               </tr>
+            </thead>
+            <tbody class="divide-y divide-gray-800 text-sm text-gray-300" id="limitRangesTableBody"></tbody>
+         </table>
+      </div>
+   </section>
+</div>

@@ -1,0 +1,100 @@
+<div class="flex items-center justify-between mb-4 gap-3 flex-wrap">
+   <h2 class="text-lg font-bold text-white tracking-tight flex items-center">
+      <svg class="w-5 h-5 mr-2 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path>
+      </svg>
+      Configuration
+   </h2>
+   <div class="flex items-center gap-3">
+      <span id="configScopeBadge" class="text-xs text-blue-300 bg-blue-900/20 border border-blue-700/40 px-2 py-1 rounded-md">Scope: namespace</span>
+      <button id="configRefreshBtn" class="bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium px-3 py-1.5 rounded-lg border border-indigo-500/40 transition-colors">Refresh</button>
+   </div>
+</div>
+
+<div class="space-y-6 mb-10">
+   <section class="bg-gray-850 rounded-xl border border-gray-800 shadow-xl overflow-hidden">
+      <div class="px-6 py-4 border-b border-gray-800 flex items-center justify-between">
+         <h3 class="text-white font-semibold">ConfigMaps</h3>
+         <button id="createConfigMapBtn" class="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-medium px-3 py-1.5 rounded-lg border border-indigo-500/40 transition-colors">Create</button>
+      </div>
+      <div class="overflow-x-auto">
+         <table class="w-full text-left border-collapse whitespace-nowrap">
+            <thead>
+               <tr class="bg-gray-900 border-b border-gray-700 text-xs uppercase tracking-wider text-gray-400 font-semibold">
+                  <th class="px-6 py-4">Name</th>
+                  <th class="px-6 py-4">Namespace</th>
+                  <th class="px-6 py-4">Keys</th>
+                  <th class="px-6 py-4 text-right">Actions</th>
+               </tr>
+            </thead>
+            <tbody class="divide-y divide-gray-800 text-sm text-gray-300" id="configMapsTableBody"></tbody>
+         </table>
+      </div>
+   </section>
+
+   <section class="bg-gray-850 rounded-xl border border-gray-800 shadow-xl overflow-hidden">
+      <div class="px-6 py-4 border-b border-gray-800 flex items-center justify-between">
+         <h3 class="text-white font-semibold">Secrets</h3>
+         <button id="createSecretBtn" class="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-medium px-3 py-1.5 rounded-lg border border-indigo-500/40 transition-colors">Create</button>
+      </div>
+      <div class="overflow-x-auto">
+         <table class="w-full text-left border-collapse whitespace-nowrap">
+            <thead>
+               <tr class="bg-gray-900 border-b border-gray-700 text-xs uppercase tracking-wider text-gray-400 font-semibold">
+                  <th class="px-6 py-4">Name</th>
+                  <th class="px-6 py-4">Namespace</th>
+                  <th class="px-6 py-4">Type</th>
+                  <th class="px-6 py-4">Key Count</th>
+                  <th class="px-6 py-4 text-right">Actions</th>
+               </tr>
+            </thead>
+            <tbody class="divide-y divide-gray-800 text-sm text-gray-300" id="secretsTableBody"></tbody>
+         </table>
+      </div>
+   </section>
+
+   <section class="bg-gray-850 rounded-xl border border-gray-800 shadow-xl overflow-hidden">
+      <div class="px-6 py-4 border-b border-gray-800 flex items-center justify-between">
+         <h3 class="text-white font-semibold">Ingresses</h3>
+         <button id="createIngressBtn" class="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-medium px-3 py-1.5 rounded-lg border border-indigo-500/40 transition-colors">Create</button>
+      </div>
+      <div class="overflow-x-auto">
+         <table class="w-full text-left border-collapse whitespace-nowrap">
+            <thead>
+               <tr class="bg-gray-900 border-b border-gray-700 text-xs uppercase tracking-wider text-gray-400 font-semibold">
+                  <th class="px-6 py-4">Name</th>
+                  <th class="px-6 py-4">Namespace</th>
+                  <th class="px-6 py-4">Hosts</th>
+                  <th class="px-6 py-4">Address</th>
+                  <th class="px-6 py-4">TLS Hosts</th>
+                  <th class="px-6 py-4">Age</th>
+                  <th class="px-6 py-4 text-right">Actions</th>
+               </tr>
+            </thead>
+            <tbody class="divide-y divide-gray-800 text-sm text-gray-300" id="ingressesTableBody"></tbody>
+         </table>
+      </div>
+   </section>
+
+   <section class="bg-gray-850 rounded-xl border border-gray-800 shadow-xl overflow-hidden">
+      <div class="px-6 py-4 border-b border-gray-800">
+         <h3 class="text-white font-semibold">Network Policies</h3>
+      </div>
+      <div class="overflow-x-auto">
+         <table class="w-full text-left border-collapse whitespace-nowrap">
+            <thead>
+               <tr class="bg-gray-900 border-b border-gray-700 text-xs uppercase tracking-wider text-gray-400 font-semibold">
+                  <th class="px-6 py-4">Name</th>
+                  <th class="px-6 py-4">Namespace</th>
+                  <th class="px-6 py-4">Policy Types</th>
+                  <th class="px-6 py-4">Pod Selector</th>
+                  <th class="px-6 py-4">Ingress Rules</th>
+                  <th class="px-6 py-4">Egress Rules</th>
+                  <th class="px-6 py-4 text-right">Actions</th>
+               </tr>
+            </thead>
+            <tbody class="divide-y divide-gray-800 text-sm text-gray-300" id="networkPoliciesTableBody"></tbody>
+         </table>
+      </div>
+   </section>
+</div>
