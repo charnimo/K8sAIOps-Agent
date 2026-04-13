@@ -66,6 +66,12 @@ export class ApiClient {
 
     }
 
+    async getPodDetails(podName, namespace = "default") {
+        const res = await fetch(`/resources/pods/${podName}?namespace=${namespace}&include_details=true`, { headers: this.headers });
+        if (!res.ok) throw new Error('Failed to fetch pod details');
+        return await res.json();
+    }
+
     async getDeployments(namespace = 'default') {
         const res = await fetch(`/resources/deployments?namespace=${namespace}`, { headers: this.headers });
         if (!res.ok) throw new Error('Failed to fetch deployments');

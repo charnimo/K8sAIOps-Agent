@@ -165,6 +165,125 @@ export class PodsController {
                 }
                 this.activeChart = null;
             });
+        }, (podName) => {
+            // Details Click
+            const title = `Pod Details: ${podName}`;
+            this.sidePanel.open(title, '<div class="text-sky-400 mt-10 animate-pulse">Loading pod details...</div>', async (containerDOM) => {
+                try {
+                    const data = await this.api.getPodDetails(podName);
+                    const summary = data.summary || {};
+                    const spec = data.spec || {};
+                    const conditions = Array.isArray(data.conditions) ? data.conditions : [];
+                    const events = Array.isArray(data.events) ? data.events : [];
+                    const nodeInfo = data.node_info || {};
+
+                    const containers = Array.isArray(spec.containers) ? spec.containers : [];
+                    const containerRows = containers.length
+                        ? containers.map((c) => {
+                            const req = c.resources?.requests || {};
+                            const lim = c.resources?.limits || {};
+                            return `
+                                <tr class="border-t border-gray-800">
+                                    <td class="px-3 py-2 font-mono text-xs text-gray-200">${c.name || '-'}</td>
+                                    <td class="px-3 py-2 text-xs text-gray-400">${c.image || '-'}</td>
+                                    <td class="px-3 py-2 text-xs text-gray-300">${req.cpu || '-'} / ${req.memory || '-'}</td>
+                                    <td class="px-3 py-2 text-xs text-gray-300">${lim.cpu || '-'} / ${lim.memory || '-'}</td>
+                                </tr>
+                            `;
+                        }).join('')
+                        : '<tr><td colspan="4" class="px-3 py-3 text-sm text-gray-500">No container details available.</td></tr>';
+
+                    const condRows = conditions.length
+                        ? conditions.map((c) => `
+                            <tr class="border-t border-gray-800">
+                                <td class="px-3 py-2 text-xs text-gray-300">${c.type || '-'}</td>
+                                <td class="px-3 py-2 text-xs ${c.status === 'True' ? 'text-emerald-400' : 'text-amber-400'}">${c.status || '-'}</td>
+                                <td class="px-3 py-2 text-xs text-gray-400">${c.reason || '-'}</td>
+                            </tr>
+                        `).join('')
+                        : '<tr><td colspan="3" class="px-3 py-3 text-sm text-gray-500">No conditions available.</td></tr>';
+
+                    const evtRows = events.slice(0, 8).map((e) => {
+                        const sev = e.type === 'Warning' ? 'text-amber-400' : 'text-sky-400';
+                        return `
+                            <div class="border border-gray-800 rounded p-3 bg-gray-900/50">
+                                <div class="flex justify-between items-start gap-2">
+                                    <span class="text-xs font-semibold uppercase ${sev}">${e.reason || 'Event'}</span>
+                                    <span class="text-xs text-gray-500">${e.last_time || e.event_time || '-'}</span>
+                                </div>
+                                <p class="text-sm text-gray-300 mt-1">${e.message || '-'}</p>
+                            </div>
+                        `;
+                    }).join('');
+
+                    const logsPreview = (data.logs || '').toString().slice(0, 2500);
+                    const prevLogsPreview = (data.prev_logs || '').toString().slice(0, 1200);
+
+                    containerDOM.innerHTML = `
+                        <div class="space-y-6">
+                            <section class="grid grid-cols-2 md:grid-cols-3 gap-3 text-sm">
+                                <div class="bg-gray-950 border border-gray-800 rounded p-3"><div class="text-gray-500 text-xs">Phase</div><div class="text-gray-200 font-semibold">${summary.phase || '-'}</div></div>
+                                <div class="bg-gray-950 border border-gray-800 rounded p-3"><div class="text-gray-500 text-xs">Ready</div><div class="${summary.ready ? 'text-emerald-400' : 'text-amber-400'} font-semibold">${summary.ready ? 'Yes' : 'No'}</div></div>
+                                <div class="bg-gray-950 border border-gray-800 rounded p-3"><div class="text-gray-500 text-xs">Node</div><div class="text-gray-200 font-mono text-xs break-all">${summary.node || '-'}</div></div>
+                                <div class="bg-gray-950 border border-gray-800 rounded p-3"><div class="text-gray-500 text-xs">Namespace</div><div class="text-gray-200 font-mono">${summary.namespace || '-'}</div></div>
+                                <div class="bg-gray-950 border border-gray-800 rounded p-3"><div class="text-gray-500 text-xs">Age</div><div class="text-gray-200">${summary.age || '-'}</div></div>
+                                <div class="bg-gray-950 border border-gray-800 rounded p-3"><div class="text-gray-500 text-xs">Service Account</div><div class="text-gray-200 font-mono text-xs break-all">${spec.service_account || '-'}</div></div>
+                            </section>
+
+                            <section class="bg-gray-950 border border-gray-800 rounded-lg overflow-hidden">
+                                <div class="px-3 py-2 border-b border-gray-800 text-sm font-semibold text-white">Containers</div>
+                                <table class="w-full text-left">
+                                    <thead>
+                                        <tr class="text-xs uppercase text-gray-500 bg-gray-900/50">
+                                            <th class="px-3 py-2">Name</th>
+                                            <th class="px-3 py-2">Image</th>
+                                            <th class="px-3 py-2">Requests (CPU/Mem)</th>
+                                            <th class="px-3 py-2">Limits (CPU/Mem)</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>${containerRows}</tbody>
+                                </table>
+                            </section>
+
+                            <section class="bg-gray-950 border border-gray-800 rounded-lg overflow-hidden">
+                                <div class="px-3 py-2 border-b border-gray-800 text-sm font-semibold text-white">Conditions</div>
+                                <table class="w-full text-left">
+                                    <thead>
+                                        <tr class="text-xs uppercase text-gray-500 bg-gray-900/50">
+                                            <th class="px-3 py-2">Type</th>
+                                            <th class="px-3 py-2">Status</th>
+                                            <th class="px-3 py-2">Reason</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>${condRows}</tbody>
+                                </table>
+                            </section>
+
+                            <section class="bg-gray-950 border border-gray-800 rounded-lg p-3">
+                                <div class="text-sm font-semibold text-white mb-3">Recent Events</div>
+                                <div class="space-y-2">${evtRows || '<div class="text-sm text-gray-500">No recent events.</div>'}</div>
+                            </section>
+
+                            <section class="bg-gray-950 border border-gray-800 rounded-lg p-3">
+                                <div class="text-sm font-semibold text-white mb-2">Logs Preview</div>
+                                <pre class="bg-gray-900 border border-gray-800 rounded p-3 text-xs text-gray-300 overflow-x-auto max-h-64">${logsPreview || 'No logs available.'}</pre>
+                            </section>
+
+                            <section class="bg-gray-950 border border-gray-800 rounded-lg p-3">
+                                <div class="text-sm font-semibold text-white mb-2">Previous Logs Preview</div>
+                                <pre class="bg-gray-900 border border-gray-800 rounded p-3 text-xs text-gray-300 overflow-x-auto max-h-52">${prevLogsPreview || 'No previous logs available.'}</pre>
+                            </section>
+
+                            <section class="bg-gray-950 border border-gray-800 rounded-lg p-3">
+                                <div class="text-sm font-semibold text-white mb-2">Node Info</div>
+                                <pre class="bg-gray-900 border border-gray-800 rounded p-3 text-xs text-gray-300 overflow-x-auto max-h-52">${Object.keys(nodeInfo).length ? JSON.stringify(nodeInfo, null, 2) : 'No node info available.'}</pre>
+                            </section>
+                        </div>
+                    `;
+                } catch (err) {
+                    containerDOM.innerHTML = `<div class="text-rose-400">Failed to load pod details: ${err.message}</div>`;
+                }
+            });
         });
 
         const searchInput = document.getElementById('podSearchInput');
