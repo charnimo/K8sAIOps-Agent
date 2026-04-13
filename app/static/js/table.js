@@ -1,9 +1,10 @@
 export class PodTableManager {
-    constructor(tbodyId, onLogsClick, onEventsClick, onDeleteClick) {
+    constructor(tbodyId, onLogsClick, onEventsClick, onDeleteClick, onMonitorClick) {
         this.tbody = document.getElementById(tbodyId);
         this.onLogsClick = onLogsClick;
         this.onEventsClick = onEventsClick;
         this.onDeleteClick = onDeleteClick;
+        this.onMonitorClick = onMonitorClick;
     }
 
 
@@ -63,6 +64,7 @@ export class PodTableManager {
                     ${pod.node || '-'}
                 </td>
                 <td class="px-6 py-4 text-right">
+                    <button class="action-btn-monitor text-teal-400 hover:text-teal-300 bg-teal-900/30 hover:bg-teal-900/50 border border-teal-800/50 px-3 py-1.5 rounded transition-colors text-xs font-medium mr-2" data-pod="${pod.name}">Monitor</button>
                     <button class="action-btn-logs text-indigo-400 hover:text-indigo-300 bg-indigo-900/30 hover:bg-indigo-900/50 px-3 py-1.5 rounded border border-indigo-800/50 transition-colors text-xs font-medium mr-2" data-pod="${pod.name}">
                         Logs
                     </button>
@@ -99,6 +101,14 @@ export class PodTableManager {
         });
 
 
+
+        const monitorBtns = this.tbody.querySelectorAll(".action-btn-monitor");
+        monitorBtns.forEach(btn => {
+            btn.addEventListener("click", (e) => {
+                const podName = e.currentTarget.getAttribute("data-pod");
+                if (this.onMonitorClick) this.onMonitorClick(podName);
+            });
+        });
 
         const eventBtns = this.tbody.querySelectorAll(".action-btn-events");
         eventBtns.forEach(btn => {

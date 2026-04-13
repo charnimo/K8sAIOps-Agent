@@ -9,7 +9,13 @@ export class ApiClient {
         return await res.json();
     }
 
-    async getPodMetrics(namespace, podName, metric = 'cpu', durationMins = 5, step = '15s') {
+    async getPodMetrics(namespace, podName, metric = 'cpu', durationMins = 5, step = null) {
+        if (!step) {
+            const d = parseInt(durationMins);
+            if (d <= 60) step = '15s';
+            else if (d <= 1440) step = '2m';
+            else step = '15m';
+        }
         const res = await fetch(`/resources/pods/${namespace}/${podName}/metrics/history?metric=${metric}&duration_mins=${durationMins}&step=${step}`, { headers: this.headers });
         if (!res.ok) throw new Error('Failed to fetch pod metrics');
         return await res.json();

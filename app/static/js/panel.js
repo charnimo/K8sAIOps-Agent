@@ -41,6 +41,10 @@ export class SidePanel {
     }
 
     open(title, contentHtml, onMountCallback) {
+        if (this.isOpen && this.onCloseCb) {
+            this.onCloseCb();
+            this.onCloseCb = null;
+        }
         this.titleEl.textContent = title;
         this.contentContainer.innerHTML = contentHtml;
         
