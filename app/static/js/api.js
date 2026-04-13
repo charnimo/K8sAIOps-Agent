@@ -24,6 +24,12 @@ export class ApiClient {
         return await res.json();
     }
 
+    async getHealth() {
+        const res = await fetch('/health', { headers: this.headers });
+        if (!res.ok) throw new Error('Failed to fetch health status');
+        return await res.json();
+    }
+
     async getPods(namespace = null) {
         const ns = this._resolveNamespace(namespace);
         const res = await fetch(`/resources/pods?namespace=${ns}`, { headers: this.headers });
@@ -782,6 +788,13 @@ export class ApiClient {
         return await res.json();
     }
 
+    async getSecretExists(name, namespace = null) {
+        const ns = this._resolveNamespace(namespace);
+        const res = await fetch(`/config/secrets/${name}/exists?namespace=${ns}`, { headers: this.headers });
+        if (!res.ok) throw new Error('Failed to check secret existence');
+        return await res.json();
+    }
+
     async getSecretValues(name, namespace = null) {
         const ns = this._resolveNamespace(namespace);
         const res = await fetch(`/config/secrets/${name}/values?namespace=${ns}`, { headers: this.headers });
@@ -1114,6 +1127,28 @@ export class ApiClient {
         const ns = this._resolveNamespace(namespace);
         const res = await fetch(`/governance/quota-pressure?namespace=${ns}`, { headers: this.headers });
         if (!res.ok) throw new Error('Failed to fetch quota pressure');
+        return await res.json();
+    }
+
+    async getAuditLogs(limit = 100, actionType = null, success = null) {
+        const params = new URLSearchParams({ limit: String(limit) });
+        if (actionType) params.set('action_type', actionType);
+        if (success !== null && success !== undefined) params.set('success', String(success));
+        const res = await fetch(`/audit-logs?${params.toString()}`, { headers: this.headers });
+        if (!res.ok) throw new Error('Failed to fetch audit logs');
+        return await res.json();
+    }
+
+    async cleanupAuditLogs(days = 30) {
+        const res = await fetch(`/audit-logs/cleanup?days=${days}`, {
+            method: 'POST',
+            headers: this.headers,
+        });
+        if (!res.ok) {
+            let errorMsg = 'Failed to cleanup audit logs';
+            try { errorMsg = (await res.json()).detail || errorMsg; } catch (e) {}
+            throw new Error(errorMsg);
+        }
         return await res.json();
     }
 }

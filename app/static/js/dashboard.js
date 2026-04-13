@@ -1,6 +1,6 @@
-import { NavigationManager } from "./nav.js?v=1776089800";
+import { NavigationManager } from "./nav.js?v=1776092400";
 import { AuthManager } from './auth.js';
-import { ApiClient } from './api.js?v=1776089800';
+import { ApiClient } from './api.js?v=1776092400';
 import { OverviewController } from './controllers/overviewController.js';
 import { PodsController } from './controllers/podsController.js';
 import { DeploymentsController } from './controllers/deploymentsController.js';
@@ -10,6 +10,7 @@ import { WorkloadsController } from './controllers/workloadsController.js';
 import { ConfigurationController } from './controllers/configurationController.js';
 import { ObservabilityController } from './controllers/observabilityController.js';
 import { GovernanceController } from './controllers/governanceController.js';
+import { AuditController } from './controllers/auditController.js';
 import { TerminalController } from './controllers/terminalController.js';
 import { EventsController } from './controllers/eventsController.js';
 import { LogsController } from './controllers/logsController.js';
@@ -37,6 +38,7 @@ class Dashboard {
             'view-configuration': new ConfigurationController(this.api, this.sidePanel),
             'view-observability': new ObservabilityController(this.api, this.sidePanel),
             'view-governance': new GovernanceController(this.api, this.sidePanel),
+            'view-audit': new AuditController(this.api, this.sidePanel),
             'view-terminal': new TerminalController(this.api),
             'view-events': new EventsController(this.api),
             'view-logs': new LogsController(this.api)
@@ -49,6 +51,45 @@ class Dashboard {
         window.addEventListener('namespace-changed', () => {
             this.handleViewLoad(this.activeViewId || 'view-overview');
         });
+
+        this.startHealthMonitor();
+    }
+
+    startHealthMonitor() {
+        const dot = document.getElementById('clusterHealthDot');
+        const label = document.getElementById('clusterHealthText');
+        if (!dot || !label) return;
+
+        const applyStatus = (status, isReadOnly = false) => {
+            dot.classList.remove('bg-emerald-500', 'bg-amber-500', 'bg-rose-500');
+            dot.classList.remove('shadow-[0_0_8px_rgba(16,185,129,0.8)]', 'shadow-[0_0_8px_rgba(245,158,11,0.8)]', 'shadow-[0_0_8px_rgba(244,63,94,0.8)]');
+
+            if (status === 'healthy' || status === 'ok') {
+                if (isReadOnly) {
+                    dot.classList.add('bg-amber-500', 'shadow-[0_0_8px_rgba(245,158,11,0.8)]');
+                    label.textContent = 'Cluster Read-Only';
+                } else {
+                    dot.classList.add('bg-emerald-500', 'shadow-[0_0_8px_rgba(16,185,129,0.8)]');
+                    label.textContent = 'Cluster Connected';
+                }
+                return;
+            }
+
+            dot.classList.add('bg-rose-500', 'shadow-[0_0_8px_rgba(244,63,94,0.8)]');
+            label.textContent = 'Cluster Degraded';
+        };
+
+        const refreshHealth = async () => {
+            try {
+                const health = await this.api.getHealth();
+                applyStatus(health.status, Boolean(health.read_only_mode));
+            } catch (err) {
+                applyStatus('unhealthy');
+            }
+        };
+
+        refreshHealth();
+        setInterval(refreshHealth, 15000);
     }
 
     async setupNamespaceSwitcher() {

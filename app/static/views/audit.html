@@ -1,0 +1,49 @@
+<div class="flex items-center justify-between mb-4 gap-3 flex-wrap">
+   <h2 class="text-lg font-bold text-white tracking-tight flex items-center">
+      <svg class="w-5 h-5 mr-2 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h7l5 5v11a2 2 0 01-2 2z"></path>
+      </svg>
+      Audit Logs
+   </h2>
+   <div class="flex items-center gap-2">
+      <button id="auditRefreshBtn" class="bg-amber-600 hover:bg-amber-700 text-white text-sm font-medium px-3 py-1.5 rounded-lg border border-amber-500/40 transition-colors">Refresh</button>
+      <button id="auditCleanupBtn" class="bg-rose-600 hover:bg-rose-700 text-white text-sm font-medium px-3 py-1.5 rounded-lg border border-rose-500/40 transition-colors">Cleanup Old Logs</button>
+   </div>
+</div>
+
+<section class="bg-gray-850 rounded-xl border border-gray-800 shadow-xl overflow-hidden">
+   <div class="px-6 py-4 border-b border-gray-800 flex items-center gap-3 flex-wrap">
+      <div>
+         <label class="text-xs text-gray-500 uppercase tracking-wider">Text Filter</label>
+         <input id="auditActionFilter" class="bg-gray-800 border border-gray-700 text-white rounded-lg p-2 text-sm ml-2 min-w-[260px]" placeholder="Search action, target, namespace, message..." />
+      </div>
+      <div>
+         <label class="text-xs text-gray-500 uppercase tracking-wider">Success</label>
+         <select id="auditSuccessFilter" class="bg-gray-800 border border-gray-700 text-white rounded-lg p-2 text-sm ml-2">
+            <option value="">All</option>
+            <option value="true">Success</option>
+            <option value="false">Failed</option>
+         </select>
+      </div>
+      <div>
+         <label class="text-xs text-gray-500 uppercase tracking-wider">Limit</label>
+         <input id="auditLimitFilter" type="number" min="10" max="500" value="100" class="bg-gray-800 border border-gray-700 text-white rounded-lg p-2 text-sm ml-2 w-24" />
+      </div>
+   </div>
+
+   <div class="overflow-x-auto">
+      <table class="w-full text-left border-collapse whitespace-nowrap">
+         <thead>
+            <tr class="bg-gray-900 border-b border-gray-700 text-xs uppercase tracking-wider text-gray-400 font-semibold">
+               <th class="px-6 py-4">Time</th>
+               <th class="px-6 py-4">Action</th>
+               <th class="px-6 py-4">Target</th>
+               <th class="px-6 py-4">Namespace</th>
+               <th class="px-6 py-4">Status</th>
+               <th class="px-6 py-4">Details</th>
+            </tr>
+         </thead>
+         <tbody class="divide-y divide-gray-800 text-sm text-gray-300" id="auditTableBody"></tbody>
+      </table>
+   </div>
+</section>

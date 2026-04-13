@@ -342,8 +342,12 @@ export class ConfigurationController {
     async openSecretDetails(name, namespace) {
         this.sidePanel.open(`Secret: ${name}`, '<div class="text-indigo-400 mt-10 animate-pulse">Loading secret...</div>', async (container) => {
             try {
-                const meta = await this.api.getSecretMetadata(name, namespace);
+                const [meta, existsResult] = await Promise.all([
+                    this.api.getSecretMetadata(name, namespace),
+                    this.api.getSecretExists(name, namespace).catch(() => ({ exists: null })),
+                ]);
                 const keys = Array.isArray(meta.keys) ? meta.keys : [];
+                const existenceLabel = existsResult.exists === true ? 'Yes' : (existsResult.exists === false ? 'No' : 'Unknown');
                 container.innerHTML = `
                     <div class="space-y-4">
                         <section class="bg-gray-950 border border-gray-800 rounded-lg p-4">
@@ -352,6 +356,7 @@ export class ConfigurationController {
                                 <div><div class="text-xs text-gray-500">Namespace</div><div class="font-mono text-gray-200">${this.escapeHtml(meta.namespace || namespace)}</div></div>
                                 <div><div class="text-xs text-gray-500">Type</div><div class="text-gray-200">${this.escapeHtml(meta.type || '-')}</div></div>
                                 <div><div class="text-xs text-gray-500">Keys</div><div class="text-gray-200">${keys.length}</div></div>
+                                <div><div class="text-xs text-gray-500">Exists (live check)</div><div class="text-gray-200">${this.escapeHtml(existenceLabel)}</div></div>
                             </div>
                         </section>
                         <section class="bg-gray-950 border border-gray-800 rounded-lg p-4">
@@ -419,6 +424,12 @@ export class ConfigurationController {
                         return;
                     }
 
+                    const existsInfo = await this.api.getSecretExists(payload.name, payload.namespace);
+                    if (existsInfo && existsInfo.exists === true) {
+                        window.showToast(`Secret ${payload.name} already exists in ${payload.namespace}`, 'error');
+                        return;
+                    }
+
                     btn.disabled = true;
                     btn.textContent = 'Creating...';
                     await this.api.createSecret(payload);
@@ -462,6 +473,13 @@ export class ConfigurationController {
                             window.showToast('At least one key is required', 'error');
                             return;
                         }
+
+                        const existsInfo = await this.api.getSecretExists(name, ns);
+                        if (!existsInfo || existsInfo.exists !== true) {
+                            window.showToast(`Secret ${name} not found in ${ns}`, 'error');
+                            return;
+                        }
+
                         btn.disabled = true;
                         btn.textContent = 'Updating...';
                         await this.api.updateSecret(name, payload, ns);

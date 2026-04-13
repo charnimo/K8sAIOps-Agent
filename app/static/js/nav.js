@@ -35,6 +35,7 @@ export class NavigationManager {
                     'view-configuration': 'configuration.html',
                     'view-observability': 'observability.html',
                     'view-governance': 'governance.html',
+                    'view-audit': 'audit.html',
                     'view-terminal': 'terminal.html',
                 };
                 
