@@ -2,7 +2,6 @@ export class ApiClient {
     constructor(token) {
         this.headers = { 'Authorization': `Bearer ${token}` };
         this.currentNamespace = localStorage.getItem('active_namespace') || 'default';
-        this.allNamespaces = localStorage.getItem('active_all_namespaces') === 'true';
     }
 
     _resolveNamespace(namespace) {
@@ -12,41 +11,11 @@ export class ApiClient {
     setNamespace(namespace) {
         this.currentNamespace = namespace || 'default';
         localStorage.setItem('active_namespace', this.currentNamespace);
-        window.dispatchEvent(new CustomEvent('namespace-changed', {
-            detail: {
-                namespace: this.currentNamespace,
-                allNamespaces: this.allNamespaces,
-            },
-        }));
+        window.dispatchEvent(new CustomEvent('namespace-changed', { detail: { namespace: this.currentNamespace } }));
     }
 
     getNamespace() {
         return this.currentNamespace || 'default';
-    }
-
-    setAllNamespaces(enabled) {
-        this.allNamespaces = !!enabled;
-        localStorage.setItem('active_all_namespaces', this.allNamespaces ? 'true' : 'false');
-        window.dispatchEvent(new CustomEvent('namespace-changed', {
-            detail: {
-                namespace: this.currentNamespace,
-                allNamespaces: this.allNamespaces,
-            },
-        }));
-    }
-
-    isAllNamespaces() {
-        return !!this.allNamespaces;
-    }
-
-    _buildNamespaceQuery(namespace = null, supportsAllNamespaces = false) {
-        const params = new URLSearchParams();
-        if (supportsAllNamespaces && this.allNamespaces) {
-            params.set('all_namespaces', 'true');
-        } else {
-            params.set('namespace', this._resolveNamespace(namespace));
-        }
-        return params.toString();
     }
 
     async getCurrentUser() {
@@ -498,8 +467,8 @@ export class ApiClient {
     }
 
     async getStatefulSets(namespace = null) {
-        const query = this._buildNamespaceQuery(namespace, true);
-        const res = await fetch(`/workloads/statefulsets?${query}`, { headers: this.headers });
+        const ns = this._resolveNamespace(namespace);
+        const res = await fetch(`/workloads/statefulsets?namespace=${ns}`, { headers: this.headers });
         if (!res.ok) throw new Error('Failed to fetch StatefulSets');
         return await res.json();
     }
@@ -548,8 +517,8 @@ export class ApiClient {
     }
 
     async getDaemonSets(namespace = null) {
-        const query = this._buildNamespaceQuery(namespace, true);
-        const res = await fetch(`/workloads/daemonsets?${query}`, { headers: this.headers });
+        const ns = this._resolveNamespace(namespace);
+        const res = await fetch(`/workloads/daemonsets?namespace=${ns}`, { headers: this.headers });
         if (!res.ok) throw new Error('Failed to fetch DaemonSets');
         return await res.json();
     }
@@ -597,8 +566,8 @@ export class ApiClient {
     }
 
     async getJobs(namespace = null) {
-        const query = this._buildNamespaceQuery(namespace, true);
-        const res = await fetch(`/workloads/jobs?${query}`, { headers: this.headers });
+        const ns = this._resolveNamespace(namespace);
+        const res = await fetch(`/workloads/jobs?namespace=${ns}`, { headers: this.headers });
         if (!res.ok) throw new Error('Failed to fetch Jobs');
         return await res.json();
     }
@@ -660,8 +629,8 @@ export class ApiClient {
     }
 
     async getCronJobs(namespace = null) {
-        const query = this._buildNamespaceQuery(namespace, true);
-        const res = await fetch(`/workloads/cronjobs?${query}`, { headers: this.headers });
+        const ns = this._resolveNamespace(namespace);
+        const res = await fetch(`/workloads/cronjobs?namespace=${ns}`, { headers: this.headers });
         if (!res.ok) throw new Error('Failed to fetch CronJobs');
         return await res.json();
     }
@@ -827,8 +796,8 @@ export class ApiClient {
     }
 
     async getIngresses(namespace = null) {
-        const query = this._buildNamespaceQuery(namespace, true);
-        const res = await fetch(`/config/ingresses?${query}`, { headers: this.headers });
+        const ns = this._resolveNamespace(namespace);
+        const res = await fetch(`/config/ingresses?namespace=${ns}`, { headers: this.headers });
         if (!res.ok) throw new Error('Failed to fetch ingresses');
         return await res.json();
     }
@@ -891,8 +860,8 @@ export class ApiClient {
     }
 
     async getNetworkPolicies(namespace = null) {
-        const query = this._buildNamespaceQuery(namespace, true);
-        const res = await fetch(`/config/network-policies?${query}`, { headers: this.headers });
+        const ns = this._resolveNamespace(namespace);
+        const res = await fetch(`/config/network-policies?namespace=${ns}`, { headers: this.headers });
         if (!res.ok) throw new Error('Failed to fetch network policies');
         return await res.json();
     }
@@ -943,9 +912,7 @@ export class ApiClient {
 
     async getWarningSummary(limit = 30, namespace = null) {
         const params = new URLSearchParams({ limit: String(limit) });
-        if (!this.allNamespaces) {
-            params.set('namespace', this._resolveNamespace(namespace));
-        }
+        params.set('namespace', this._resolveNamespace(namespace));
         const res = await fetch(`/events/summary?${params.toString()}`, { headers: this.headers });
         if (!res.ok) throw new Error('Failed to fetch warning summary');
         return await res.json();
@@ -982,17 +949,15 @@ export class ApiClient {
 
     async getClusterDiagnostics(namespace = null) {
         const params = new URLSearchParams();
-        if (!this.allNamespaces) {
-            params.set('namespace', this._resolveNamespace(namespace));
-        }
+        params.set('namespace', this._resolveNamespace(namespace));
         const res = await fetch(`/diagnostics/cluster${params.toString() ? `?${params.toString()}` : ''}`, { headers: this.headers });
         if (!res.ok) throw new Error('Failed to fetch cluster diagnostics');
         return await res.json();
     }
 
     async getHPAs(namespace = null) {
-        const query = this._buildNamespaceQuery(namespace, true);
-        const res = await fetch(`/governance/hpas?${query}`, { headers: this.headers });
+        const ns = this._resolveNamespace(namespace);
+        const res = await fetch(`/governance/hpas?namespace=${ns}`, { headers: this.headers });
         if (!res.ok) throw new Error('Failed to fetch HPAs');
         return await res.json();
     }

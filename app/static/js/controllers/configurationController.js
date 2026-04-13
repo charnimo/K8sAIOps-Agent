@@ -33,7 +33,13 @@ export class ConfigurationController {
         const scopeBadge = document.getElementById('configScopeBadge');
 
         if (scopeBadge) {
-            scopeBadge.textContent = this.api.isAllNamespaces() ? 'Scope: all namespaces' : `Scope: ${this.api.getNamespace()}`;
+            Promise.resolve(this.api.getNamespace())
+                .then((ns) => {
+                    scopeBadge.textContent = `Scope: ${ns || 'default'}`;
+                })
+                .catch(() => {
+                    scopeBadge.textContent = 'Scope: default';
+                });
         }
 
         if (refreshBtn) refreshBtn.addEventListener('click', () => this.loadAll());
@@ -88,6 +94,34 @@ export class ConfigurationController {
             .join('\n');
     }
 
+    async getNamespaceNames() {
+        try {
+            const result = await this.api.getNamespaces();
+            const names = Array.isArray(result) ? result.map((n) => n.name).filter(Boolean) : [];
+            return names.length ? names : ['default'];
+        } catch (err) {
+            return ['default'];
+        }
+    }
+
+    renderNamespaceOptions(names, selected) {
+        return names.map((name) => `<option value="${this.escapeHtml(name)}" ${name === selected ? 'selected' : ''}>${this.escapeHtml(name)}</option>`).join('');
+    }
+
+    async getServiceNames(namespace) {
+        try {
+            const result = await this.api.getServices(namespace);
+            return Array.isArray(result) ? result.map((s) => s.name).filter(Boolean) : [];
+        } catch (err) {
+            return [];
+        }
+    }
+
+    renderNameOptions(names, emptyLabel) {
+        if (!names.length) return `<option value="">${this.escapeHtml(emptyLabel)}</option>`;
+        return names.map((name) => `<option value="${this.escapeHtml(name)}">${this.escapeHtml(name)}</option>`).join('');
+    }
+
     async loadConfigMaps() {
         try {
             const list = await this.api.getConfigMaps();
@@ -116,7 +150,7 @@ export class ConfigurationController {
                     <div class="inline-flex gap-2">
                         <button class="cm-details-btn w-8 h-8 rounded border border-sky-800/50 bg-sky-900/30 text-sky-400 hover:text-sky-300 hover:bg-sky-900/50 inline-flex items-center justify-center" data-name="${this.escapeHtml(cm.name)}" data-namespace="${this.escapeHtml(cm.namespace || this.api.getNamespace())}" title="Details"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h7l5 5v11a2 2 0 01-2 2z"/></svg></button>
                         <button class="cm-edit-btn w-8 h-8 rounded border border-indigo-800/50 bg-indigo-900/30 text-indigo-400 hover:text-indigo-300 hover:bg-indigo-900/50 inline-flex items-center justify-center" data-name="${this.escapeHtml(cm.name)}" data-namespace="${this.escapeHtml(cm.namespace || this.api.getNamespace())}" title="Patch"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L12 15l-4 1 1-4 8.586-8.586z"/></svg></button>
-                        <button class="cm-delete-btn w-8 h-8 rounded border border-rose-800/50 bg-rose-900/30 text-rose-400 hover:text-rose-300 hover:bg-rose-900/50 inline-flex items-center justify-center" data-name="${this.escapeHtml(cm.name)}" data-namespace="${this.escapeHtml(cm.namespace || this.api.getNamespace())}" title="Delete"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 7h12M9 7V5a1 1 0 011-1h4a1 1 0 011 1v2m-7 0l1 12h4l1-12"/></svg></button>
+                        <button class="cm-delete-btn w-8 h-8 rounded border border-rose-800/50 bg-rose-900/30 text-rose-400 hover:text-rose-300 hover:bg-rose-900/50 inline-flex items-center justify-center" data-name="${this.escapeHtml(cm.name)}" data-namespace="${this.escapeHtml(cm.namespace || this.api.getNamespace())}" title="Delete"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 7h16M10 11v6m4-6v6M9 7V4h6v3m-9 0l1 13h8l1-13"/></svg></button>
                     </div>
                 </td>
             </tr>
@@ -156,11 +190,13 @@ export class ConfigurationController {
         });
     }
 
-    openCreateConfigMapPanel() {
+    async openCreateConfigMapPanel() {
+        const namespaces = await this.getNamespaceNames();
+        const namespaceOptions = this.renderNamespaceOptions(namespaces, this.api.getNamespace());
         const html = `
             <div class="space-y-4">
                 <div><label class="block text-sm text-gray-300 mb-1">Name</label><input id="cmName" class="bg-gray-800 border border-gray-700 text-white rounded-lg w-full p-2.5 text-sm" placeholder="app-config"></div>
-                <div><label class="block text-sm text-gray-300 mb-1">Namespace</label><input id="cmNamespace" value="${this.escapeHtml(this.api.getNamespace())}" class="bg-gray-800 border border-gray-700 text-white rounded-lg w-full p-2.5 text-sm"></div>
+                <div><label class="block text-sm text-gray-300 mb-1">Namespace</label><select id="cmNamespace" class="bg-gray-800 border border-gray-700 text-white rounded-lg w-full p-2.5 text-sm">${namespaceOptions}</select></div>
                 <div><label class="block text-sm text-gray-300 mb-1">Data (key=value per line)</label><textarea id="cmData" rows="7" class="bg-gray-800 border border-gray-700 text-white rounded-lg w-full p-2.5 text-xs font-mono" placeholder="LOG_LEVEL=info"></textarea></div>
                 <div><label class="block text-sm text-gray-300 mb-1">Labels (key=value per line)</label><textarea id="cmLabels" rows="4" class="bg-gray-800 border border-gray-700 text-white rounded-lg w-full p-2.5 text-xs font-mono" placeholder="app=backend"></textarea></div>
                 <button id="cmCreateBtn" class="w-full text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg px-5 py-2.5 text-sm font-medium transition-colors">Create ConfigMap</button>
@@ -203,11 +239,13 @@ export class ConfigurationController {
 
     async openPatchConfigMapPanel(name, namespace) {
         try {
+            const namespaces = await this.getNamespaceNames();
+            const namespaceOptions = this.renderNamespaceOptions(namespaces, namespace || this.api.getNamespace());
             const current = await this.api.getConfigMap(name, namespace);
             const html = `
                 <div class="space-y-4">
                     <p class="text-gray-400 text-sm">Patch data keys for <span class="font-mono text-gray-200">${this.escapeHtml(name)}</span>.</p>
-                    <div><label class="block text-sm text-gray-300 mb-1">Namespace</label><input id="cmPatchNs" value="${this.escapeHtml(namespace)}" class="bg-gray-800 border border-gray-700 text-white rounded-lg w-full p-2.5 text-sm"></div>
+                    <div><label class="block text-sm text-gray-300 mb-1">Namespace</label><select id="cmPatchNs" class="bg-gray-800 border border-gray-700 text-white rounded-lg w-full p-2.5 text-sm">${namespaceOptions}</select></div>
                     <div><label class="block text-sm text-gray-300 mb-1">Data (key=value per line)</label><textarea id="cmPatchData" rows="8" class="bg-gray-800 border border-gray-700 text-white rounded-lg w-full p-2.5 text-xs font-mono">${this.escapeHtml(this.mapToMultiline(current.data || {}))}</textarea></div>
                     <button id="cmPatchBtn" class="w-full text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg px-5 py-2.5 text-sm font-medium transition-colors">Patch ConfigMap</button>
                 </div>
@@ -288,9 +326,9 @@ export class ConfigurationController {
                 <td class="px-6 py-4 text-gray-300">${this.escapeHtml(String(s.key_count || 0))}</td>
                 <td class="px-6 py-4 text-right">
                     <div class="inline-flex gap-2">
-                        <button class="secret-details-btn w-8 h-8 rounded border border-sky-800/50 bg-sky-900/30 text-sky-400 hover:text-sky-300 hover:bg-sky-900/50 inline-flex items-center justify-center" data-name="${this.escapeHtml(s.name)}" data-namespace="${this.escapeHtml(s.namespace || this.api.getNamespace())}" title="Details"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg></button>
+                        <button class="secret-details-btn w-8 h-8 rounded border border-sky-800/50 bg-sky-900/30 text-sky-400 hover:text-sky-300 hover:bg-sky-900/50 inline-flex items-center justify-center" data-name="${this.escapeHtml(s.name)}" data-namespace="${this.escapeHtml(s.namespace || this.api.getNamespace())}" title="Details"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h7l5 5v11a2 2 0 01-2 2z"/></svg></button>
                         <button class="secret-edit-btn w-8 h-8 rounded border border-indigo-800/50 bg-indigo-900/30 text-indigo-400 hover:text-indigo-300 hover:bg-indigo-900/50 inline-flex items-center justify-center" data-name="${this.escapeHtml(s.name)}" data-namespace="${this.escapeHtml(s.namespace || this.api.getNamespace())}" title="Update"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L12 15l-4 1 1-4 8.586-8.586z"/></svg></button>
-                        <button class="secret-delete-btn w-8 h-8 rounded border border-rose-800/50 bg-rose-900/30 text-rose-400 hover:text-rose-300 hover:bg-rose-900/50 inline-flex items-center justify-center" data-name="${this.escapeHtml(s.name)}" data-namespace="${this.escapeHtml(s.namespace || this.api.getNamespace())}" title="Delete"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 7h12M9 7V5a1 1 0 011-1h4a1 1 0 011 1v2m-7 0l1 12h4l1-12"/></svg></button>
+                        <button class="secret-delete-btn w-8 h-8 rounded border border-rose-800/50 bg-rose-900/30 text-rose-400 hover:text-rose-300 hover:bg-rose-900/50 inline-flex items-center justify-center" data-name="${this.escapeHtml(s.name)}" data-namespace="${this.escapeHtml(s.namespace || this.api.getNamespace())}" title="Delete"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 7h16M10 11v6m4-6v6M9 7V4h6v3m-9 0l1 13h8l1-13"/></svg></button>
                     </div>
                 </td>
             </tr>
@@ -349,11 +387,13 @@ export class ConfigurationController {
         });
     }
 
-    openCreateSecretPanel() {
+    async openCreateSecretPanel() {
+        const namespaces = await this.getNamespaceNames();
+        const namespaceOptions = this.renderNamespaceOptions(namespaces, this.api.getNamespace());
         const html = `
             <div class="space-y-4">
                 <div><label class="block text-sm text-gray-300 mb-1">Name</label><input id="secretName" class="bg-gray-800 border border-gray-700 text-white rounded-lg w-full p-2.5 text-sm" placeholder="app-secret"></div>
-                <div><label class="block text-sm text-gray-300 mb-1">Namespace</label><input id="secretNamespace" value="${this.escapeHtml(this.api.getNamespace())}" class="bg-gray-800 border border-gray-700 text-white rounded-lg w-full p-2.5 text-sm"></div>
+                <div><label class="block text-sm text-gray-300 mb-1">Namespace</label><select id="secretNamespace" class="bg-gray-800 border border-gray-700 text-white rounded-lg w-full p-2.5 text-sm">${namespaceOptions}</select></div>
                 <div><label class="block text-sm text-gray-300 mb-1">Type</label><input id="secretType" value="Opaque" class="bg-gray-800 border border-gray-700 text-white rounded-lg w-full p-2.5 text-sm"></div>
                 <div><label class="block text-sm text-gray-300 mb-1">Data (key=value per line)</label><textarea id="secretData" rows="7" class="bg-gray-800 border border-gray-700 text-white rounded-lg w-full p-2.5 text-xs font-mono" placeholder="DB_PASSWORD=s3cret"></textarea></div>
                 <button id="secretCreateBtn" class="w-full text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg px-5 py-2.5 text-sm font-medium transition-colors">Create Secret</button>
@@ -397,47 +437,48 @@ export class ConfigurationController {
     async openUpdateSecretPanel(name, namespace) {
         let current = null;
         try {
+            const namespaces = await this.getNamespaceNames();
+            const namespaceOptions = this.renderNamespaceOptions(namespaces, namespace || this.api.getNamespace());
             current = await this.api.getSecretMetadata(name, namespace);
-        } catch (err) {
-            window.showToast(`Failed to load secret: ${err.message}`, 'error');
-            return;
-        }
-
-        const html = `
+            const html = `
             <div class="space-y-4">
                 <p class="text-gray-400 text-sm">Update values for <span class="font-mono text-gray-200">${this.escapeHtml(name)}</span>.</p>
-                <div><label class="block text-sm text-gray-300 mb-1">Namespace</label><input id="secretPatchNs" value="${this.escapeHtml(namespace)}" class="bg-gray-800 border border-gray-700 text-white rounded-lg w-full p-2.5 text-sm"></div>
+                <div><label class="block text-sm text-gray-300 mb-1">Namespace</label><select id="secretPatchNs" class="bg-gray-800 border border-gray-700 text-white rounded-lg w-full p-2.5 text-sm">${namespaceOptions}</select></div>
                 <div><label class="block text-sm text-gray-300 mb-1">Data (key=value per line)</label><textarea id="secretPatchData" rows="7" class="bg-gray-800 border border-gray-700 text-white rounded-lg w-full p-2.5 text-xs font-mono" placeholder="${(current.keys || []).join('=...\n')}=..."></textarea></div>
                 <button id="secretPatchBtn" class="w-full text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg px-5 py-2.5 text-sm font-medium transition-colors">Update Secret</button>
             </div>
         `;
 
-        this.sidePanel.open(`Update Secret: ${name}`, html, (container) => {
-            const btn = container.querySelector('#secretPatchBtn');
-            btn.addEventListener('click', async () => {
-                try {
-                    const ns = container.querySelector('#secretPatchNs').value.trim() || namespace;
-                    const payload = {
-                        namespace: ns,
-                        data: this.parseMapInput(container.querySelector('#secretPatchData').value),
-                    };
-                    if (!Object.keys(payload.data).length) {
-                        window.showToast('At least one key is required', 'error');
-                        return;
+            this.sidePanel.open(`Update Secret: ${name}`, html, (container) => {
+                const btn = container.querySelector('#secretPatchBtn');
+                btn.addEventListener('click', async () => {
+                    try {
+                        const ns = container.querySelector('#secretPatchNs').value || namespace;
+                        const payload = {
+                            namespace: ns,
+                            data: this.parseMapInput(container.querySelector('#secretPatchData').value),
+                        };
+                        if (!Object.keys(payload.data).length) {
+                            window.showToast('At least one key is required', 'error');
+                            return;
+                        }
+                        btn.disabled = true;
+                        btn.textContent = 'Updating...';
+                        await this.api.updateSecret(name, payload, ns);
+                        window.showToast(`Secret ${name} updated`, 'success');
+                        this.sidePanel.close();
+                        this.loadSecrets();
+                    } catch (err) {
+                        window.showToast(`Update failed: ${err.message}`, 'error');
+                        btn.disabled = false;
+                        btn.textContent = 'Update Secret';
                     }
-                    btn.disabled = true;
-                    btn.textContent = 'Updating...';
-                    await this.api.updateSecret(name, payload, ns);
-                    window.showToast(`Secret ${name} updated`, 'success');
-                    this.sidePanel.close();
-                    this.loadSecrets();
-                } catch (err) {
-                    window.showToast(`Update failed: ${err.message}`, 'error');
-                    btn.disabled = false;
-                    btn.textContent = 'Update Secret';
-                }
+                });
             });
-        });
+        } catch (err) {
+            window.showToast(`Failed to load secret: ${err.message}`, 'error');
+            return;
+        }
     }
 
     async deleteSecret(name, namespace) {
@@ -489,7 +530,7 @@ export class ConfigurationController {
                     <div class="inline-flex gap-2">
                         <button class="ing-details-btn w-8 h-8 rounded border border-sky-800/50 bg-sky-900/30 text-sky-400 hover:text-sky-300 hover:bg-sky-900/50 inline-flex items-center justify-center" data-name="${this.escapeHtml(ing.name)}" data-namespace="${this.escapeHtml(ing.namespace || this.api.getNamespace())}" title="Details"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h7l5 5v11a2 2 0 01-2 2z"/></svg></button>
                         <button class="ing-patch-btn w-8 h-8 rounded border border-indigo-800/50 bg-indigo-900/30 text-indigo-400 hover:text-indigo-300 hover:bg-indigo-900/50 inline-flex items-center justify-center" data-name="${this.escapeHtml(ing.name)}" data-namespace="${this.escapeHtml(ing.namespace || this.api.getNamespace())}" title="Patch"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L12 15l-4 1 1-4 8.586-8.586z"/></svg></button>
-                        <button class="ing-delete-btn w-8 h-8 rounded border border-rose-800/50 bg-rose-900/30 text-rose-400 hover:text-rose-300 hover:bg-rose-900/50 inline-flex items-center justify-center" data-name="${this.escapeHtml(ing.name)}" data-namespace="${this.escapeHtml(ing.namespace || this.api.getNamespace())}" title="Delete"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 7h12M9 7V5a1 1 0 011-1h4a1 1 0 011 1v2m-7 0l1 12h4l1-12"/></svg></button>
+                        <button class="ing-delete-btn w-8 h-8 rounded border border-rose-800/50 bg-rose-900/30 text-rose-400 hover:text-rose-300 hover:bg-rose-900/50 inline-flex items-center justify-center" data-name="${this.escapeHtml(ing.name)}" data-namespace="${this.escapeHtml(ing.namespace || this.api.getNamespace())}" title="Delete"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 7h16M10 11v6m4-6v6M9 7V4h6v3m-9 0l1 13h8l1-13"/></svg></button>
                     </div>
                 </td>
             </tr>
@@ -542,15 +583,20 @@ export class ConfigurationController {
         });
     }
 
-    openCreateIngressPanel() {
+    async openCreateIngressPanel() {
+        const namespaces = await this.getNamespaceNames();
+        const selectedNamespace = this.api.getNamespace();
+        const namespaceOptions = this.renderNamespaceOptions(namespaces, selectedNamespace);
+        const services = await this.getServiceNames(selectedNamespace);
+        const serviceOptions = this.renderNameOptions(services, 'No services in namespace');
         const html = `
             <div class="space-y-4">
                 <div><label class="block text-sm text-gray-300 mb-1">Name</label><input id="ingName" class="bg-gray-800 border border-gray-700 text-white rounded-lg w-full p-2.5 text-sm" placeholder="app-ingress"></div>
-                <div><label class="block text-sm text-gray-300 mb-1">Namespace</label><input id="ingNamespace" value="${this.escapeHtml(this.api.getNamespace())}" class="bg-gray-800 border border-gray-700 text-white rounded-lg w-full p-2.5 text-sm"></div>
+                <div><label class="block text-sm text-gray-300 mb-1">Namespace</label><select id="ingNamespace" class="bg-gray-800 border border-gray-700 text-white rounded-lg w-full p-2.5 text-sm">${namespaceOptions}</select></div>
                 <div><label class="block text-sm text-gray-300 mb-1">Host</label><input id="ingHost" class="bg-gray-800 border border-gray-700 text-white rounded-lg w-full p-2.5 text-sm" placeholder="example.local"></div>
                 <div class="grid grid-cols-3 gap-2">
                     <div><label class="block text-sm text-gray-300 mb-1">Path</label><input id="ingPath" value="/" class="bg-gray-800 border border-gray-700 text-white rounded-lg w-full p-2.5 text-sm"></div>
-                    <div><label class="block text-sm text-gray-300 mb-1">Backend Service</label><input id="ingService" class="bg-gray-800 border border-gray-700 text-white rounded-lg w-full p-2.5 text-sm" placeholder="svc-name"></div>
+                    <div><label class="block text-sm text-gray-300 mb-1">Backend Service</label><select id="ingService" class="bg-gray-800 border border-gray-700 text-white rounded-lg w-full p-2.5 text-sm">${serviceOptions}</select></div>
                     <div><label class="block text-sm text-gray-300 mb-1">Port</label><input id="ingPort" type="number" min="1" value="80" class="bg-gray-800 border border-gray-700 text-white rounded-lg w-full p-2.5 text-sm"></div>
                 </div>
                 <div><label class="block text-sm text-gray-300 mb-1">TLS Hosts (comma separated)</label><input id="ingTlsHosts" class="bg-gray-800 border border-gray-700 text-white rounded-lg w-full p-2.5 text-sm" placeholder="example.local"></div>
@@ -562,12 +608,20 @@ export class ConfigurationController {
         `;
 
         this.sidePanel.open('Create Ingress', html, (container) => {
+            const namespaceSelect = container.querySelector('#ingNamespace');
+            const serviceSelect = container.querySelector('#ingService');
+            namespaceSelect.addEventListener('change', async () => {
+                const ns = namespaceSelect.value || 'default';
+                const serviceNames = await this.getServiceNames(ns);
+                serviceSelect.innerHTML = this.renderNameOptions(serviceNames, 'No services in namespace');
+            });
+
             const btn = container.querySelector('#ingCreateBtn');
             btn.addEventListener('click', async () => {
                 try {
                     const host = container.querySelector('#ingHost').value.trim();
                     const path = container.querySelector('#ingPath').value.trim() || '/';
-                    const service = container.querySelector('#ingService').value.trim();
+                    const service = container.querySelector('#ingService').value;
                     const port = Number(container.querySelector('#ingPort').value || 80);
                     const tlsHosts = (container.querySelector('#ingTlsHosts').value || '').split(',').map((h) => h.trim()).filter(Boolean);
                     const tlsSecret = container.querySelector('#ingTlsSecret').value.trim();
@@ -603,11 +657,13 @@ export class ConfigurationController {
 
     async openPatchIngressPanel(name, namespace) {
         try {
+            const namespaces = await this.getNamespaceNames();
+            const namespaceOptions = this.renderNamespaceOptions(namespaces, namespace || this.api.getNamespace());
             const current = await this.api.getIngress(name, namespace);
             const html = `
                 <div class="space-y-4">
                     <p class="text-gray-400 text-sm">Patch labels/annotations for <span class="font-mono text-gray-200">${this.escapeHtml(name)}</span>.</p>
-                    <div><label class="block text-sm text-gray-300 mb-1">Namespace</label><input id="ingPatchNs" value="${this.escapeHtml(namespace)}" class="bg-gray-800 border border-gray-700 text-white rounded-lg w-full p-2.5 text-sm"></div>
+                    <div><label class="block text-sm text-gray-300 mb-1">Namespace</label><select id="ingPatchNs" class="bg-gray-800 border border-gray-700 text-white rounded-lg w-full p-2.5 text-sm">${namespaceOptions}</select></div>
                     <div><label class="block text-sm text-gray-300 mb-1">Labels (key=value per line)</label><textarea id="ingPatchLabels" rows="4" class="bg-gray-800 border border-gray-700 text-white rounded-lg w-full p-2.5 text-xs font-mono">${this.escapeHtml(this.mapToMultiline(current.labels || {}))}</textarea></div>
                     <div><label class="block text-sm text-gray-300 mb-1">Annotations (key=value per line)</label><textarea id="ingPatchAnnotations" rows="4" class="bg-gray-800 border border-gray-700 text-white rounded-lg w-full p-2.5 text-xs font-mono"></textarea></div>
                     <button id="ingPatchBtn" class="w-full text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg px-5 py-2.5 text-sm font-medium transition-colors">Patch Ingress</button>

@@ -253,11 +253,20 @@ export class ServicesController {
         const title = `Edit Service: ${serviceName}`;
         this.sidePanel.open(title, '<div class="text-indigo-400 mt-10 animate-pulse">Loading service...</div>', async (containerDOM) => {
             try {
-                const svc = await this.api.getService(serviceName);
+                const [svc, nsResult] = await Promise.all([
+                    this.api.getService(serviceName),
+                    this.api.getNamespaces().catch(() => []),
+                ]);
+                const namespaces = Array.isArray(nsResult) && nsResult.length
+                    ? nsResult.map((ns) => ns.name)
+                    : ['default'];
+                const namespaceOptions = namespaces
+                    .map((ns) => `<option value="${ns}" ${ns === (svc.namespace || 'default') ? 'selected' : ''}>${ns}</option>`)
+                    .join('');
                 const content = `
                     <div class="space-y-4">
                         <p class="text-gray-400 text-sm">Patch selector, labels, or ports. Leave block empty to skip.</p>
-                        <div><label class="block text-sm text-gray-300 mb-1">Namespace</label><input id="svc_ns" value="${svc.namespace || 'default'}" class="bg-gray-800 border border-gray-700 text-white rounded-lg w-full p-2.5 text-sm"></div>
+                        <div><label class="block text-sm text-gray-300 mb-1">Namespace</label><select id="svc_ns" class="bg-gray-800 border border-gray-700 text-white rounded-lg w-full p-2.5 text-sm">${namespaceOptions}</select></div>
                         <div><label class="block text-sm text-gray-300 mb-1">Selector (key=value per line)</label><textarea id="svc_selector" rows="3" class="bg-gray-800 border border-gray-700 text-white rounded-lg w-full p-2.5 text-xs font-mono">${this.mapToMultiline(svc.selector || {})}</textarea></div>
                         <div><label class="block text-sm text-gray-300 mb-1">Labels (key=value per line)</label><textarea id="svc_labels" rows="3" class="bg-gray-800 border border-gray-700 text-white rounded-lg w-full p-2.5 text-xs font-mono">${this.mapToMultiline(svc.labels || {})}</textarea></div>
                         <div><label class="block text-sm text-gray-300 mb-1">Ports (JSON array)</label><textarea id="svc_ports" rows="6" class="bg-gray-800 border border-gray-700 text-white rounded-lg w-full p-2.5 text-xs font-mono">${this.formatPorts(svc.ports || [])}</textarea></div>
@@ -269,7 +278,7 @@ export class ServicesController {
                 const btn = containerDOM.querySelector('#svc_patch_btn');
                 btn.addEventListener('click', async () => {
                     try {
-                        const namespace = containerDOM.querySelector('#svc_ns').value.trim() || 'default';
+                        const namespace = containerDOM.querySelector('#svc_ns').value || 'default';
                         const selectorRaw = containerDOM.querySelector('#svc_selector').value;
                         const labelsRaw = containerDOM.querySelector('#svc_labels').value;
                         const portsRaw = containerDOM.querySelector('#svc_ports').value;

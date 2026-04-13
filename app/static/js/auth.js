@@ -65,7 +65,6 @@ export class AuthManager {
     logout() {
         localStorage.removeItem("jwt_token");
         localStorage.removeItem("active_namespace");
-        localStorage.removeItem("active_all_namespaces");
         window.location.href = "/static/login.html";
     }
 

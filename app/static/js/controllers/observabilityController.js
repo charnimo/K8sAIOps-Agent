@@ -8,6 +8,11 @@ export class ObservabilityController {
         this.nodeMetrics = [];
         this.podMetrics = [];
         this.resourcePressure = null;
+        this.diagnosticTargets = {
+            pods: [],
+            deployments: [],
+            services: [],
+        };
     }
 
     mount() {
@@ -43,7 +48,38 @@ export class ObservabilityController {
             this.loadNodeMetrics(),
             this.loadPodMetrics(),
             this.loadResourcePressure(),
+            this.loadDiagnosticTargets(),
         ]);
+    }
+
+    setSelectOptions(selectId, values, emptyLabel) {
+        const select = document.getElementById(selectId);
+        if (!select) return;
+        const list = Array.from(new Set((values || []).filter(Boolean))).sort((a, b) => a.localeCompare(b));
+        const options = list.length
+            ? list.map((name) => `<option value="${this.escapeHtml(name)}">${this.escapeHtml(name)}</option>`).join('')
+            : `<option value="">${this.escapeHtml(emptyLabel)}</option>`;
+        select.innerHTML = options;
+    }
+
+    async loadDiagnosticTargets() {
+        try {
+            const [pods, deployments, services] = await Promise.all([
+                this.api.getPods().catch(() => []),
+                this.api.getDeployments().catch(() => []),
+                this.api.getServices().catch(() => []),
+            ]);
+
+            this.diagnosticTargets.pods = Array.isArray(pods) ? pods.map((p) => p.name).filter(Boolean) : [];
+            this.diagnosticTargets.deployments = Array.isArray(deployments) ? deployments.map((d) => d.name).filter(Boolean) : [];
+            this.diagnosticTargets.services = Array.isArray(services) ? services.map((s) => s.name).filter(Boolean) : [];
+
+            this.setSelectOptions('diagPodName', this.diagnosticTargets.pods, 'No pods in namespace');
+            this.setSelectOptions('diagDeploymentName', this.diagnosticTargets.deployments, 'No deployments in namespace');
+            this.setSelectOptions('diagServiceName', this.diagnosticTargets.services, 'No services in namespace');
+        } catch (err) {
+            console.error('Failed to load diagnostic targets:', err);
+        }
     }
 
     escapeHtml(value) {
@@ -225,7 +261,7 @@ export class ObservabilityController {
 
     async runPodDiagnostics() {
         const input = document.getElementById('diagPodName');
-        const name = input?.value.trim();
+        const name = input?.value;
         if (!name) {
             window.showToast('Pod name is required', 'error');
             return;
@@ -241,7 +277,7 @@ export class ObservabilityController {
 
     async runDeploymentDiagnostics() {
         const input = document.getElementById('diagDeploymentName');
-        const name = input?.value.trim();
+        const name = input?.value;
         if (!name) {
             window.showToast('Deployment name is required', 'error');
             return;
@@ -257,7 +293,7 @@ export class ObservabilityController {
 
     async runServiceDiagnostics() {
         const input = document.getElementById('diagServiceName');
-        const name = input?.value.trim();
+        const name = input?.value;
         if (!name) {
             window.showToast('Service name is required', 'error');
             return;

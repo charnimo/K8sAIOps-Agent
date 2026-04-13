@@ -51,11 +51,9 @@ class Dashboard {
 
     async setupNamespaceSwitcher() {
         const select = document.getElementById('activeNamespaceSelect');
-        const allNsToggle = document.getElementById('activeAllNamespaces');
         if (!select) return;
 
         const current = this.api.getNamespace();
-        const allNamespaces = this.api.isAllNamespaces();
         try {
             const namespaces = await this.api.getNamespaces();
             const list = Array.isArray(namespaces) && namespaces.length ? namespaces : [{ name: 'default' }];
@@ -71,22 +69,9 @@ class Dashboard {
 
         const selectClone = select.cloneNode(true);
         select.parentNode.replaceChild(selectClone, select);
-        selectClone.disabled = allNamespaces;
-        selectClone.classList.toggle('opacity-60', allNamespaces);
         selectClone.addEventListener('change', () => {
             this.api.setNamespace(selectClone.value || 'default');
         });
-
-        if (allNsToggle) {
-            const toggleClone = allNsToggle.cloneNode(true);
-            allNsToggle.parentNode.replaceChild(toggleClone, allNsToggle);
-            toggleClone.checked = allNamespaces;
-            toggleClone.addEventListener('change', () => {
-                this.api.setAllNamespaces(!!toggleClone.checked);
-                selectClone.disabled = !!toggleClone.checked;
-                selectClone.classList.toggle('opacity-60', !!toggleClone.checked);
-            });
-        }
     }
 
     handleViewLoad(viewId) {

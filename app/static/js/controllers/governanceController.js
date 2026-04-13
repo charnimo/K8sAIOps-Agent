@@ -31,7 +31,13 @@ export class GovernanceController {
         const scopeBadge = document.getElementById('governanceScopeBadge');
 
         if (scopeBadge) {
-            scopeBadge.textContent = this.api.isAllNamespaces() ? 'Scope: all namespaces' : `Scope: ${this.api.getNamespace()}`;
+            Promise.resolve(this.api.getNamespace())
+                .then((ns) => {
+                    scopeBadge.textContent = `Scope: ${ns || 'default'}`;
+                })
+                .catch(() => {
+                    scopeBadge.textContent = 'Scope: default';
+                });
         }
 
         if (refreshBtn) refreshBtn.addEventListener('click', () => this.loadAll());
@@ -82,6 +88,37 @@ export class GovernanceController {
         return result;
     }
 
+    async getNamespaceNames() {
+        try {
+            const result = await this.api.getNamespaces();
+            const names = Array.isArray(result) ? result.map((n) => n.name).filter(Boolean) : [];
+            return names.length ? names : ['default'];
+        } catch (err) {
+            return ['default'];
+        }
+    }
+
+    renderNamespaceOptions(names, selected) {
+        return names.map((name) => `<option value="${this.escapeHtml(name)}" ${name === selected ? 'selected' : ''}>${this.escapeHtml(name)}</option>`).join('');
+    }
+
+    async getTargetNames(kind, namespace) {
+        if (kind === 'StatefulSet') {
+            const list = await this.api.getStatefulSets(namespace).catch(() => []);
+            return Array.isArray(list) ? list.map((s) => s.name).filter(Boolean) : [];
+        }
+        if (kind === 'ReplicaSet') {
+            return [];
+        }
+        const list = await this.api.getDeployments(namespace).catch(() => []);
+        return Array.isArray(list) ? list.map((d) => d.name).filter(Boolean) : [];
+    }
+
+    renderTargetOptions(names, emptyLabel) {
+        if (!names.length) return `<option value="">${this.escapeHtml(emptyLabel)}</option>`;
+        return names.map((name) => `<option value="${this.escapeHtml(name)}">${this.escapeHtml(name)}</option>`).join('');
+    }
+
     async loadHPAs() {
         try {
             const list = await this.api.getHPAs();
@@ -113,7 +150,7 @@ export class GovernanceController {
                     <div class="inline-flex gap-2">
                         <button class="hpa-details-btn w-8 h-8 rounded border border-sky-800/50 bg-sky-900/30 text-sky-400 hover:text-sky-300 hover:bg-sky-900/50 inline-flex items-center justify-center" data-name="${this.escapeHtml(hpa.name)}" data-namespace="${this.escapeHtml(hpa.namespace || this.api.getNamespace())}" title="Details"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h7l5 5v11a2 2 0 01-2 2z"/></svg></button>
                         <button class="hpa-edit-btn w-8 h-8 rounded border border-indigo-800/50 bg-indigo-900/30 text-indigo-400 hover:text-indigo-300 hover:bg-indigo-900/50 inline-flex items-center justify-center" data-name="${this.escapeHtml(hpa.name)}" data-namespace="${this.escapeHtml(hpa.namespace || this.api.getNamespace())}" data-min="${hpa.min_replicas ?? ''}" data-max="${hpa.max_replicas ?? ''}" title="Patch"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L12 15l-4 1 1-4 8.586-8.586z"/></svg></button>
-                        <button class="hpa-delete-btn w-8 h-8 rounded border border-rose-800/50 bg-rose-900/30 text-rose-400 hover:text-rose-300 hover:bg-rose-900/50 inline-flex items-center justify-center" data-name="${this.escapeHtml(hpa.name)}" data-namespace="${this.escapeHtml(hpa.namespace || this.api.getNamespace())}" title="Delete"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 7h12M9 7V5a1 1 0 011-1h4a1 1 0 011 1v2m-7 0l1 12h4l1-12"/></svg></button>
+                        <button class="hpa-delete-btn w-8 h-8 rounded border border-rose-800/50 bg-rose-900/30 text-rose-400 hover:text-rose-300 hover:bg-rose-900/50 inline-flex items-center justify-center" data-name="${this.escapeHtml(hpa.name)}" data-namespace="${this.escapeHtml(hpa.namespace || this.api.getNamespace())}" title="Delete"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 7h16M10 11v6m4-6v6M9 7V4h6v3m-9 0l1 13h8l1-13"/></svg></button>
                     </div>
                 </td>
             </tr>
@@ -178,14 +215,19 @@ export class GovernanceController {
         });
     }
 
-    openCreateHpaPanel() {
+    async openCreateHpaPanel() {
+        const namespaces = await this.getNamespaceNames();
+        const selectedNs = this.api.getNamespace();
+        const namespaceOptions = this.renderNamespaceOptions(namespaces, selectedNs);
+        const initialTargets = await this.getTargetNames('Deployment', selectedNs);
+        const targetOptions = this.renderTargetOptions(initialTargets, 'No deployments in namespace');
         const html = `
             <div class="space-y-4">
                 <div><label class="block text-sm text-gray-300 mb-1">Name</label><input id="hpaName" class="bg-gray-800 border border-gray-700 text-white rounded-lg w-full p-2.5 text-sm" placeholder="api-hpa"></div>
-                <div><label class="block text-sm text-gray-300 mb-1">Namespace</label><input id="hpaNamespace" value="${this.escapeHtml(this.api.getNamespace())}" class="bg-gray-800 border border-gray-700 text-white rounded-lg w-full p-2.5 text-sm"></div>
+                <div><label class="block text-sm text-gray-300 mb-1">Namespace</label><select id="hpaNamespace" class="bg-gray-800 border border-gray-700 text-white rounded-lg w-full p-2.5 text-sm">${namespaceOptions}</select></div>
                 <div class="grid grid-cols-2 gap-3">
                     <div><label class="block text-sm text-gray-300 mb-1">Target Kind</label><select id="hpaTargetKind" class="bg-gray-800 border border-gray-700 text-white rounded-lg w-full p-2.5 text-sm"><option>Deployment</option><option>StatefulSet</option><option>ReplicaSet</option></select></div>
-                    <div><label class="block text-sm text-gray-300 mb-1">Target Name</label><input id="hpaTargetName" class="bg-gray-800 border border-gray-700 text-white rounded-lg w-full p-2.5 text-sm" placeholder="api-deployment"></div>
+                    <div><label class="block text-sm text-gray-300 mb-1">Target Name</label><select id="hpaTargetName" class="bg-gray-800 border border-gray-700 text-white rounded-lg w-full p-2.5 text-sm">${targetOptions}</select></div>
                 </div>
                 <div class="grid grid-cols-2 gap-3">
                     <div><label class="block text-sm text-gray-300 mb-1">Min Replicas</label><input id="hpaMin" type="number" min="1" value="1" class="bg-gray-800 border border-gray-700 text-white rounded-lg w-full p-2.5 text-sm"></div>
@@ -201,14 +243,29 @@ export class GovernanceController {
         `;
 
         this.sidePanel.open('Create HPA', html, (container) => {
+            const namespaceSelect = container.querySelector('#hpaNamespace');
+            const targetKindSelect = container.querySelector('#hpaTargetKind');
+            const targetNameSelect = container.querySelector('#hpaTargetName');
+
+            const refreshTargets = async () => {
+                const ns = namespaceSelect.value || 'default';
+                const kind = targetKindSelect.value;
+                const targets = await this.getTargetNames(kind, ns);
+                const fallback = kind === 'StatefulSet' ? 'No statefulsets in namespace' : kind === 'ReplicaSet' ? 'ReplicaSet selection unavailable' : 'No deployments in namespace';
+                targetNameSelect.innerHTML = this.renderTargetOptions(targets, fallback);
+            };
+
+            namespaceSelect.addEventListener('change', refreshTargets);
+            targetKindSelect.addEventListener('change', refreshTargets);
+
             const btn = container.querySelector('#hpaCreateBtn');
             btn.addEventListener('click', async () => {
                 try {
                     const payload = {
                         name: container.querySelector('#hpaName').value.trim(),
-                        namespace: container.querySelector('#hpaNamespace').value.trim() || 'default',
+                        namespace: container.querySelector('#hpaNamespace').value || 'default',
                         target_kind: container.querySelector('#hpaTargetKind').value,
-                        target_name: container.querySelector('#hpaTargetName').value.trim(),
+                        target_name: container.querySelector('#hpaTargetName').value,
                         min_replicas: Number(container.querySelector('#hpaMin').value || 1),
                         max_replicas: Number(container.querySelector('#hpaMax').value || 10),
                         labels: this.parseMapInput(container.querySelector('#hpaLabels').value),
@@ -239,11 +296,13 @@ export class GovernanceController {
         });
     }
 
-    openPatchHpaPanel(name, namespace, currentMin, currentMax) {
+    async openPatchHpaPanel(name, namespace, currentMin, currentMax) {
+        const namespaces = await this.getNamespaceNames();
+        const namespaceOptions = this.renderNamespaceOptions(namespaces, namespace || this.api.getNamespace());
         const html = `
             <div class="space-y-4">
                 <p class="text-gray-400 text-sm">Patch scaling boundaries for <span class="font-mono text-gray-200">${this.escapeHtml(name)}</span>.</p>
-                <div><label class="block text-sm text-gray-300 mb-1">Namespace</label><input id="hpaPatchNs" value="${this.escapeHtml(namespace)}" class="bg-gray-800 border border-gray-700 text-white rounded-lg w-full p-2.5 text-sm"></div>
+                <div><label class="block text-sm text-gray-300 mb-1">Namespace</label><select id="hpaPatchNs" class="bg-gray-800 border border-gray-700 text-white rounded-lg w-full p-2.5 text-sm">${namespaceOptions}</select></div>
                 <div class="grid grid-cols-2 gap-3">
                     <div><label class="block text-sm text-gray-300 mb-1">Min Replicas</label><input id="hpaPatchMin" type="number" min="0" value="${this.escapeHtml(currentMin || '')}" class="bg-gray-800 border border-gray-700 text-white rounded-lg w-full p-2.5 text-sm"></div>
                     <div><label class="block text-sm text-gray-300 mb-1">Max Replicas</label><input id="hpaPatchMax" type="number" min="0" value="${this.escapeHtml(currentMax || '')}" class="bg-gray-800 border border-gray-700 text-white rounded-lg w-full p-2.5 text-sm"></div>
@@ -257,7 +316,7 @@ export class GovernanceController {
             const btn = container.querySelector('#hpaPatchBtn');
             btn.addEventListener('click', async () => {
                 try {
-                    const ns = container.querySelector('#hpaPatchNs').value.trim() || namespace;
+                    const ns = container.querySelector('#hpaPatchNs').value || namespace;
                     const payload = { namespace: ns };
                     const minValue = container.querySelector('#hpaPatchMin').value.trim();
                     const maxValue = container.querySelector('#hpaPatchMax').value.trim();

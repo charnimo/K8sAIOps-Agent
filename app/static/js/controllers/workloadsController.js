@@ -184,10 +184,10 @@ export class WorkloadsController {
                             ? 'border border-emerald-800/50 bg-emerald-900/30 text-emerald-400 hover:text-emerald-300 hover:bg-emerald-900/50'
                             : 'border border-amber-800/50 bg-amber-900/30 text-amber-400 hover:text-amber-300 hover:bg-amber-900/50'
                         }" data-name="${j.name}" data-suspended="${j.suspend ? 'true' : 'false'}" title="${j.suspend ? 'Resume' : 'Suspend'}">${j.suspend
-                            ? '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 5v14l11-7z"/></svg>'
-                            : '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 9v6m4-6v6"/></svg>'
+                            ? '<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M8 5v14l11-7z"/></svg>'
+                            : '<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M9 8v8m6-8v8"/></svg>'
                         }</button>
-                        <button class="job-delete-btn w-8 h-8 rounded border border-rose-800/50 bg-rose-900/30 text-rose-400 hover:text-rose-300 hover:bg-rose-900/50 inline-flex items-center justify-center" data-name="${j.name}" title="Delete"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 7h12M9 7V5a1 1 0 011-1h4a1 1 0 011 1v2m-7 0l1 12h4l1-12"/></svg></button>
+                        <button class="job-delete-btn w-8 h-8 rounded border border-rose-800/50 bg-rose-900/30 text-rose-400 hover:text-rose-300 hover:bg-rose-900/50 inline-flex items-center justify-center" data-name="${j.name}" title="Delete"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 7h16M10 11v6m4-6v6M9 7V4h6v3m-9 0l1 13h8l1-13"/></svg></button>
                     </div>
                 </td>
             </tr>
@@ -224,8 +224,8 @@ export class WorkloadsController {
                             ? 'border border-emerald-800/50 bg-emerald-900/30 text-emerald-400 hover:text-emerald-300 hover:bg-emerald-900/50'
                             : 'border border-amber-800/50 bg-amber-900/30 text-amber-400 hover:text-amber-300 hover:bg-amber-900/50'
                         }" data-name="${c.name}" data-suspended="${c.suspend ? 'true' : 'false'}" title="${c.suspend ? 'Resume' : 'Suspend'}">${c.suspend
-                            ? '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 5v14l11-7z"/></svg>'
-                            : '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 9v6m4-6v6"/></svg>'
+                            ? '<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M8 5v14l11-7z"/></svg>'
+                            : '<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M9 8v8m6-8v8"/></svg>'
                         }</button>
                     </div>
                 </td>
