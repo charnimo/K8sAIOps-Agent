@@ -288,6 +288,39 @@ def suspend_job(name: str, namespace: str = "default") -> dict:
         return {"success": False, "message": str(e)}
 
 
+def resume_job(name: str, namespace: str = "default") -> dict:
+    """
+    Resume a Job (allow creating new pods again).
+
+    ⚠️  ACTION — requires user approval.
+
+    Args:
+        name:      Job name
+        namespace: Namespace
+
+    Returns:
+        {"success": bool, "message": str}
+    """
+    # Input validation
+    name = sanitize_input(name, "job_name")
+    name = validate_name(name)
+    namespace = validate_namespace(namespace)
+
+    batch = get_batch_v1()
+    try:
+        job = batch.read_namespaced_job(name=name, namespace=namespace)
+        job.spec.suspend = False
+        batch.patch_namespaced_job(name=name, namespace=namespace, body=job)
+        logger.info(f"[ACTION] Resumed Job {namespace}/{name}")
+        return {
+            "success": True,
+            "message": f"Job {namespace}/{name} resumed.",
+        }
+    except ApiException as e:
+        logger.error(f"Failed to resume Job {namespace}/{name}: {e}")
+        return {"success": False, "message": str(e)}
+
+
 def suspend_cronjob(name: str, namespace: str = "default") -> dict:
     """
     Suspend a CronJob (stops scheduling new jobs).

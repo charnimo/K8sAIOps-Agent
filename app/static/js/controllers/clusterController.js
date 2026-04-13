@@ -1,3 +1,5 @@
+import { showConfirmModal } from '../confirm.js';
+
 export class ClusterController {
     constructor(api, sidePanel) {
         this.api = api;
@@ -484,7 +486,12 @@ export class ClusterController {
     }
 
     async cordonNode(name) {
-        if (!confirm(`Cordon node ${name}?`)) return;
+        if (!(await showConfirmModal({
+            title: 'Cordon Node',
+            message: `Cordon node ${name}?`,
+            confirmText: 'Cordon',
+            intent: 'warning',
+        }))) return;
         try {
             await this.api.cordonNode(name);
             window.showToast(`Node ${name} cordoned`, 'success');
@@ -495,7 +502,12 @@ export class ClusterController {
     }
 
     async uncordonNode(name) {
-        if (!confirm(`Uncordon node ${name}?`)) return;
+        if (!(await showConfirmModal({
+            title: 'Uncordon Node',
+            message: `Uncordon node ${name}?`,
+            confirmText: 'Uncordon',
+            intent: 'success',
+        }))) return;
         try {
             await this.api.uncordonNode(name);
             window.showToast(`Node ${name} uncordoned`, 'success');
@@ -670,7 +682,12 @@ export class ClusterController {
 
     async deletePVC(name) {
         const ns = this.currentPvcNamespace || 'default';
-        if (!confirm(`Delete PVC ${name} in namespace ${ns}?`)) return;
+        if (!(await showConfirmModal({
+            title: 'Delete PVC',
+            message: `Delete PVC ${name} in namespace ${ns}?`,
+            confirmText: 'Delete',
+            intent: 'danger',
+        }))) return;
         try {
             await this.api.deletePVC(name, ns);
             window.showToast(`PVC ${name} deleted`, 'success');

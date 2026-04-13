@@ -76,6 +76,35 @@
                      Cluster
                   </a>
                </li>
+               <li>
+                  <button class="nav-group-toggle w-full flex items-center justify-between px-6 py-2.5 text-sm font-medium text-gray-400 hover:text-gray-100 hover:bg-gray-800 transition-colors" data-group="workloads-plus" type="button">
+                     <span class="flex items-center">
+                        <svg class="w-5 h-5 mr-3 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path>
+                        </svg>
+                        Workloads+
+                     </span>
+                     <svg class="nav-group-chevron w-4 h-4 text-gray-500 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
+                     </svg>
+                  </button>
+               </li>
+               <li>
+                  <ul id="workloads-plus-submenu" class="hidden space-y-1 mb-1">
+                     <li>
+                        <a class="nav-link w-full flex items-center pl-14 pr-6 py-2 text-sm font-medium text-gray-400 border-r-4 border-transparent hover:text-gray-100 hover:bg-gray-800 transition-colors" data-target="view-workloads-statefulsets" href="#">StatefulSets</a>
+                     </li>
+                     <li>
+                        <a class="nav-link w-full flex items-center pl-14 pr-6 py-2 text-sm font-medium text-gray-400 border-r-4 border-transparent hover:text-gray-100 hover:bg-gray-800 transition-colors" data-target="view-workloads-daemonsets" href="#">DaemonSets</a>
+                     </li>
+                     <li>
+                        <a class="nav-link w-full flex items-center pl-14 pr-6 py-2 text-sm font-medium text-gray-400 border-r-4 border-transparent hover:text-gray-100 hover:bg-gray-800 transition-colors" data-target="view-workloads-jobs" href="#">Jobs</a>
+                     </li>
+                     <li>
+                        <a class="nav-link w-full flex items-center pl-14 pr-6 py-2 text-sm font-medium text-gray-400 border-r-4 border-transparent hover:text-gray-100 hover:bg-gray-800 transition-colors" data-target="view-workloads-cronjobs" href="#">CronJobs</a>
+                     </li>
+                  </ul>
+               </li>
             </ul>
          </nav>
          <!-- Sidebar Bottom Footer -->

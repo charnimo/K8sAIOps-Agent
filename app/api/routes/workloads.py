@@ -162,6 +162,12 @@ def suspend_job(name: str, namespace: str = Query(default="default")) -> dict:
     return run_direct_action("suspend_job", name=name, namespace=namespace)
 
 
+@router.post("/jobs/{name}/resume")
+def resume_job(name: str, namespace: str = Query(default="default")) -> dict:
+    """Resume a Job directly."""
+    return run_direct_action("resume_job", name=name, namespace=namespace)
+
+
 @router.get("/cronjobs")
 def list_cronjobs(
     namespace: str = Query(default="default"),

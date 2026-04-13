@@ -1,4 +1,5 @@
 import { DeploymentTableManager } from '../table.js';
+import { showConfirmModal } from '../confirm.js';
 
 export class DeploymentsController {
     constructor(api, sidePanel) {
@@ -53,7 +54,12 @@ export class DeploymentsController {
             },
             // Restart Click
             async (depName) => {
-                if (confirm(`Trigger rollout restart for deployment ${depName}?`)) {
+                if (await showConfirmModal({
+                    title: 'Restart Deployment',
+                    message: `Trigger rollout restart for deployment ${depName}?`,
+                    confirmText: 'Restart',
+                    intent: 'warning',
+                })) {
                     try {
                         await this.api.restartDeployment(depName);
                         window.showToast(`Restart triggered for ${depName}`, 'success');
@@ -158,7 +164,12 @@ export class DeploymentsController {
                                 const rev = parseInt(revStr, 10);
                                 if (isNaN(rev)) return;
                                 
-                                if (confirm(`Are you sure you want to rollback to revision ${rev}?`)) {
+                                if (await showConfirmModal({
+                                    title: 'Rollback Deployment',
+                                    message: `Are you sure you want to rollback to revision ${rev}?`,
+                                    confirmText: 'Rollback',
+                                    intent: 'warning',
+                                })) {
                                     e.target.disabled = true;
                                     e.target.textContent = "Processing...";
                                     

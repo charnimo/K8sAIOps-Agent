@@ -199,6 +199,12 @@ def _handle_suspend_job(record: dict, params: dict, name: str, namespace: str) -
     return result
 
 
+def _handle_resume_job(record: dict, params: dict, name: str, namespace: str) -> dict:
+    result = jobs.resume_job(name=name, namespace=namespace)
+    audit.log_action("job_resume", name, namespace, result.get("success", False), error_message=_audit_error(result))
+    return result
+
+
 def _handle_suspend_cronjob(record: dict, params: dict, name: str, namespace: str) -> dict:
     result = jobs.suspend_cronjob(name=name, namespace=namespace)
     audit.log_action(
@@ -524,6 +530,7 @@ ACTION_HANDLERS: dict[str, ActionHandler] = {
     "update_daemonset_image": _handle_update_daemonset_image,
     "delete_job": _handle_delete_job,
     "suspend_job": _handle_suspend_job,
+    "resume_job": _handle_resume_job,
     "suspend_cronjob": _handle_suspend_cronjob,
     "resume_cronjob": _handle_resume_cronjob,
     "create_service": _handle_create_service,

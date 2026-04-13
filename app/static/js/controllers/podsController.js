@@ -2,6 +2,7 @@ import { PodTableManager } from '../table.js';
 import { LogsController } from './logsController.js';
 import { EventsController } from './eventsController.js';
 import { ChartManager } from '../chart.js';
+import { showConfirmModal } from '../confirm.js';
 
 export class PodsController {
     constructor(api, sidePanel) {
@@ -47,7 +48,12 @@ export class PodsController {
 
         }, async (podName) => {
             // Delete Click
-            if (confirm(`Are you sure you want to delete pod ${podName}?`)) {
+            if (await showConfirmModal({
+                title: 'Delete Pod',
+                message: `Are you sure you want to delete pod ${podName}?`,
+                confirmText: 'Delete',
+                intent: 'danger',
+            })) {
                 try {
                     await this.api.deletePod(podName);
                     window.showToast(`Pod ${podName} deleted successfully`, 'success');

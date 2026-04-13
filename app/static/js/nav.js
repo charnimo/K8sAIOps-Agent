@@ -1,6 +1,7 @@
 export class NavigationManager {
     constructor(routerCallback) {
         this.navLinks = document.querySelectorAll('.nav-link');
+        this.groupToggles = document.querySelectorAll('.nav-group-toggle');
         this.pageTitle = document.getElementById('topPageTitle');
         this.viewContainer = document.getElementById('viewContainer');
         this.routerCallback = routerCallback; // Function to call after loading a view
@@ -12,6 +13,8 @@ export class NavigationManager {
     }
 
     init() {
+        this.initGroupToggles();
+
         this.navLinks.forEach(link => {
             link.addEventListener('click', async (e) => {
                 e.preventDefault();
@@ -24,6 +27,11 @@ export class NavigationManager {
                     'view-deployments': 'deployments.html',
                     'view-services': 'services.html',
                     'view-cluster': 'cluster.html',
+                    'view-workloads': 'workloads.html',
+                    'view-workloads-statefulsets': 'workloads-statefulsets.html',
+                    'view-workloads-daemonsets': 'workloads-daemonsets.html',
+                    'view-workloads-jobs': 'workloads-jobs.html',
+                    'view-workloads-cronjobs': 'workloads-cronjobs.html',
                 };
                 
                 const viewName = viewMap[targetId];
@@ -49,6 +57,25 @@ export class NavigationManager {
         // Load default view (Overview)
         const defaultLink = document.querySelector('[data-target="view-overview"]');
         if (defaultLink) defaultLink.click();
+    }
+
+    initGroupToggles() {
+        this.groupToggles.forEach((toggle) => {
+            toggle.addEventListener('click', () => {
+                const group = toggle.getAttribute('data-group');
+                if (!group) return;
+
+                const submenu = document.getElementById(`${group}-submenu`);
+                const chevron = toggle.querySelector('.nav-group-chevron');
+                if (!submenu) return;
+
+                const willOpen = submenu.classList.contains('hidden');
+                submenu.classList.toggle('hidden', !willOpen);
+                if (chevron) {
+                    chevron.classList.toggle('rotate-90', willOpen);
+                }
+            });
+        });
     }
 
     async loadView(viewName, targetId) {

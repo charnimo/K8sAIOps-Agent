@@ -6,6 +6,7 @@ import { PodsController } from './controllers/podsController.js';
 import { DeploymentsController } from './controllers/deploymentsController.js';
 import { ServicesController } from './controllers/servicesController.js';
 import { ClusterController } from './controllers/clusterController.js';
+import { WorkloadsController } from './controllers/workloadsController.js';
 import { EventsController } from './controllers/eventsController.js';
 import { LogsController } from './controllers/logsController.js';
 import { SidePanel } from './panel.js';
@@ -24,6 +25,11 @@ class Dashboard {
             'view-deployments': new DeploymentsController(this.api, this.sidePanel),
             'view-services': new ServicesController(this.api, this.sidePanel),
             'view-cluster': new ClusterController(this.api, this.sidePanel),
+            'view-workloads': new WorkloadsController(this.api, this.sidePanel),
+            'view-workloads-statefulsets': new WorkloadsController(this.api, this.sidePanel, 'statefulsets'),
+            'view-workloads-daemonsets': new WorkloadsController(this.api, this.sidePanel, 'daemonsets'),
+            'view-workloads-jobs': new WorkloadsController(this.api, this.sidePanel, 'jobs'),
+            'view-workloads-cronjobs': new WorkloadsController(this.api, this.sidePanel, 'cronjobs'),
             'view-events': new EventsController(this.api),
             'view-logs': new LogsController(this.api)
         };

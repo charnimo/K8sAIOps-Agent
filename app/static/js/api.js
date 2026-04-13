@@ -450,4 +450,208 @@ export class ApiClient {
         if (!res.ok) throw new Error('Failed to fetch storage class details');
         return await res.json();
     }
+
+    async getStatefulSets(namespace = null) {
+        const ns = this._resolveNamespace(namespace);
+        const res = await fetch(`/workloads/statefulsets?namespace=${ns}`, { headers: this.headers });
+        if (!res.ok) throw new Error('Failed to fetch StatefulSets');
+        return await res.json();
+    }
+
+    async getStatefulSet(name, namespace = null) {
+        const ns = this._resolveNamespace(namespace);
+        const res = await fetch(`/workloads/statefulsets/${name}?namespace=${ns}`, { headers: this.headers });
+        if (!res.ok) throw new Error('Failed to fetch StatefulSet details');
+        return await res.json();
+    }
+
+    async getStatefulSetIssues(name, namespace = null) {
+        const ns = this._resolveNamespace(namespace);
+        const res = await fetch(`/workloads/statefulsets/${name}/issues?namespace=${ns}`, { headers: this.headers });
+        if (!res.ok) throw new Error('Failed to fetch StatefulSet issues');
+        return await res.json();
+    }
+
+    async scaleStatefulSet(name, replicas, namespace = null) {
+        const ns = this._resolveNamespace(namespace);
+        const res = await fetch(`/workloads/statefulsets/${name}/scale?namespace=${ns}`, {
+            method: 'PATCH',
+            headers: { ...this.headers, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ replicas }),
+        });
+        if (!res.ok) {
+            let errorMsg = 'Failed to scale StatefulSet';
+            try { errorMsg = (await res.json()).detail || errorMsg; } catch (e) {}
+            throw new Error(errorMsg);
+        }
+        return await res.json();
+    }
+
+    async restartStatefulSet(name, namespace = null) {
+        const ns = this._resolveNamespace(namespace);
+        const res = await fetch(`/workloads/statefulsets/${name}/restart?namespace=${ns}`, {
+            method: 'POST',
+            headers: this.headers,
+        });
+        if (!res.ok) {
+            let errorMsg = 'Failed to restart StatefulSet';
+            try { errorMsg = (await res.json()).detail || errorMsg; } catch (e) {}
+            throw new Error(errorMsg);
+        }
+        return await res.json();
+    }
+
+    async getDaemonSets(namespace = null) {
+        const ns = this._resolveNamespace(namespace);
+        const res = await fetch(`/workloads/daemonsets?namespace=${ns}`, { headers: this.headers });
+        if (!res.ok) throw new Error('Failed to fetch DaemonSets');
+        return await res.json();
+    }
+
+    async getDaemonSet(name, namespace = null) {
+        const ns = this._resolveNamespace(namespace);
+        const res = await fetch(`/workloads/daemonsets/${name}?namespace=${ns}`, { headers: this.headers });
+        if (!res.ok) throw new Error('Failed to fetch DaemonSet details');
+        return await res.json();
+    }
+
+    async getDaemonSetIssues(name, namespace = null) {
+        const ns = this._resolveNamespace(namespace);
+        const res = await fetch(`/workloads/daemonsets/${name}/issues?namespace=${ns}`, { headers: this.headers });
+        if (!res.ok) throw new Error('Failed to fetch DaemonSet issues');
+        return await res.json();
+    }
+
+    async restartDaemonSet(name, namespace = null) {
+        const ns = this._resolveNamespace(namespace);
+        const res = await fetch(`/workloads/daemonsets/${name}/restart?namespace=${ns}`, {
+            method: 'POST',
+            headers: this.headers,
+        });
+        if (!res.ok) {
+            let errorMsg = 'Failed to restart DaemonSet';
+            try { errorMsg = (await res.json()).detail || errorMsg; } catch (e) {}
+            throw new Error(errorMsg);
+        }
+        return await res.json();
+    }
+
+    async updateDaemonSetImage(name, payload) {
+        const res = await fetch(`/workloads/daemonsets/${name}/image`, {
+            method: 'PATCH',
+            headers: { ...this.headers, 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+        });
+        if (!res.ok) {
+            let errorMsg = 'Failed to update DaemonSet image';
+            try { errorMsg = (await res.json()).detail || errorMsg; } catch (e) {}
+            throw new Error(errorMsg);
+        }
+        return await res.json();
+    }
+
+    async getJobs(namespace = null) {
+        const ns = this._resolveNamespace(namespace);
+        const res = await fetch(`/workloads/jobs?namespace=${ns}`, { headers: this.headers });
+        if (!res.ok) throw new Error('Failed to fetch Jobs');
+        return await res.json();
+    }
+
+    async getJob(name, namespace = null) {
+        const ns = this._resolveNamespace(namespace);
+        const res = await fetch(`/workloads/jobs/${name}?namespace=${ns}`, { headers: this.headers });
+        if (!res.ok) throw new Error('Failed to fetch Job details');
+        return await res.json();
+    }
+
+    async getJobIssues(name, namespace = null) {
+        const ns = this._resolveNamespace(namespace);
+        const res = await fetch(`/workloads/jobs/${name}/issues?namespace=${ns}`, { headers: this.headers });
+        if (!res.ok) throw new Error('Failed to fetch Job issues');
+        return await res.json();
+    }
+
+    async deleteJob(name, namespace = null, propagationPolicy = 'Foreground') {
+        const ns = this._resolveNamespace(namespace);
+        const res = await fetch(`/workloads/jobs/${name}?namespace=${ns}&propagation_policy=${propagationPolicy}`, {
+            method: 'DELETE',
+            headers: this.headers,
+        });
+        if (!res.ok) {
+            let errorMsg = 'Failed to delete Job';
+            try { errorMsg = (await res.json()).detail || errorMsg; } catch (e) {}
+            throw new Error(errorMsg);
+        }
+        return await res.json();
+    }
+
+    async suspendJob(name, namespace = null) {
+        const ns = this._resolveNamespace(namespace);
+        const res = await fetch(`/workloads/jobs/${name}/suspend?namespace=${ns}`, {
+            method: 'POST',
+            headers: this.headers,
+        });
+        if (!res.ok) {
+            let errorMsg = 'Failed to suspend Job';
+            try { errorMsg = (await res.json()).detail || errorMsg; } catch (e) {}
+            throw new Error(errorMsg);
+        }
+        return await res.json();
+    }
+
+    async resumeJob(name, namespace = null) {
+        const ns = this._resolveNamespace(namespace);
+        const res = await fetch(`/workloads/jobs/${name}/resume?namespace=${ns}`, {
+            method: 'POST',
+            headers: this.headers,
+        });
+        if (!res.ok) {
+            let errorMsg = 'Failed to resume Job';
+            try { errorMsg = (await res.json()).detail || errorMsg; } catch (e) {}
+            throw new Error(errorMsg);
+        }
+        return await res.json();
+    }
+
+    async getCronJobs(namespace = null) {
+        const ns = this._resolveNamespace(namespace);
+        const res = await fetch(`/workloads/cronjobs?namespace=${ns}`, { headers: this.headers });
+        if (!res.ok) throw new Error('Failed to fetch CronJobs');
+        return await res.json();
+    }
+
+    async getCronJob(name, namespace = null) {
+        const ns = this._resolveNamespace(namespace);
+        const res = await fetch(`/workloads/cronjobs/${name}?namespace=${ns}`, { headers: this.headers });
+        if (!res.ok) throw new Error('Failed to fetch CronJob details');
+        return await res.json();
+    }
+
+    async suspendCronJob(name, namespace = null) {
+        const ns = this._resolveNamespace(namespace);
+        const res = await fetch(`/workloads/cronjobs/${name}/suspend?namespace=${ns}`, {
+            method: 'POST',
+            headers: this.headers,
+        });
+        if (!res.ok) {
+            let errorMsg = 'Failed to suspend CronJob';
+            try { errorMsg = (await res.json()).detail || errorMsg; } catch (e) {}
+            throw new Error(errorMsg);
+        }
+        return await res.json();
+    }
+
+    async resumeCronJob(name, namespace = null) {
+        const ns = this._resolveNamespace(namespace);
+        const res = await fetch(`/workloads/cronjobs/${name}/resume?namespace=${ns}`, {
+            method: 'POST',
+            headers: this.headers,
+        });
+        if (!res.ok) {
+            let errorMsg = 'Failed to resume CronJob';
+            try { errorMsg = (await res.json()).detail || errorMsg; } catch (e) {}
+            throw new Error(errorMsg);
+        }
+        return await res.json();
+    }
 }

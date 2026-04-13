@@ -1,4 +1,5 @@
 import { ServiceTableManager } from '../table.js';
+import { showConfirmModal } from '../confirm.js';
 
 export class ServicesController {
     constructor(api, sidePanel) {
@@ -302,7 +303,12 @@ export class ServicesController {
     }
 
     async deleteService(serviceName) {
-        if (!confirm(`Delete service ${serviceName}?`)) return;
+        if (!(await showConfirmModal({
+            title: 'Delete Service',
+            message: `Delete service ${serviceName}?`,
+            confirmText: 'Delete',
+            intent: 'danger',
+        }))) return;
         try {
             await this.api.deleteService(serviceName);
             window.showToast(`Service ${serviceName} deleted`, 'success');
