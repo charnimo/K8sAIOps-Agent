@@ -8,15 +8,20 @@ READ:
   - get_namespace(name)                       → single namespace detail
   - get_namespace_resource_count(namespace)   → count pods/deployments/services
   - get_namespace_events(name, limit)         → recent events in namespace
+
+WRITE:
+    - create_namespace(name, labels)            → create namespace
+    - delete_namespace(name)                    → delete namespace
 """
 
 import logging
 from datetime import datetime, timezone
 
+from kubernetes import client
 from kubernetes.client.exceptions import ApiException
 
 from .client import get_core_v1, get_apps_v1
-from .utils import fmt_duration, retry_on_transient
+from .utils import fmt_duration, retry_on_transient, validate_namespace
 from .events import sort_events
 
 logger = logging.getLogger(__name__)
@@ -152,3 +157,40 @@ def get_namespace_events(name: str, limit: int = 100) -> list[dict]:
         )
 
     return sort_events(rows)
+
+
+def create_namespace(name: str, labels: dict | None = None) -> dict:
+    """
+    Create a new namespace.
+
+    ⚠️  ACTION — requires user approval.
+    """
+    try:
+        validated = validate_namespace(name)
+        body = client.V1Namespace(
+            metadata=client.V1ObjectMeta(name=validated, labels=labels or {}),
+        )
+        core = get_core_v1()
+        core.create_namespace(body=body)
+        logger.info(f"[ACTION] Created namespace {validated}")
+        return {"success": True, "message": f"Namespace {validated} created successfully."}
+    except ApiException as e:
+        logger.error(f"Failed to create namespace {name}: {e}")
+        return {"success": False, "message": str(e)}
+
+
+def delete_namespace(name: str) -> dict:
+    """
+    Delete an existing namespace.
+
+    ⚠️  ACTION — requires user approval.
+    """
+    try:
+        validated = validate_namespace(name)
+        core = get_core_v1()
+        core.delete_namespace(name=validated)
+        logger.info(f"[ACTION] Deleted namespace {validated}")
+        return {"success": True, "message": f"Namespace {validated} deletion requested."}
+    except ApiException as e:
+        logger.error(f"Failed to delete namespace {name}: {e}")
+        return {"success": False, "message": str(e)}

@@ -10,6 +10,7 @@ from Tools import (
     hpa,
     ingress,
     jobs,
+    namespaces,
     nodes,
     pods,
     secrets,
@@ -494,6 +495,31 @@ def _handle_delete_hpa(record: dict, params: dict, name: str, namespace: str) ->
     return result
 
 
+def _handle_create_namespace(record: dict, params: dict, name: str, namespace: str) -> dict:
+    result = namespaces.create_namespace(name=name, labels=params.get("labels"))
+    audit.log_action(
+        "namespace_create",
+        name,
+        name,
+        result.get("success", False),
+        details={"labels": params.get("labels", {})},
+        error_message=_audit_error(result),
+    )
+    return result
+
+
+def _handle_delete_namespace(record: dict, params: dict, name: str, namespace: str) -> dict:
+    result = namespaces.delete_namespace(name=name)
+    audit.log_action(
+        "namespace_delete",
+        name,
+        name,
+        result.get("success", False),
+        error_message=_audit_error(result),
+    )
+    return result
+
+
 def _handle_exec_pod(record: dict, params: dict, name: str, namespace: str) -> dict:
     command = _require_param(params, "command")
     result = pods.exec_pod(
@@ -554,6 +580,8 @@ ACTION_HANDLERS: dict[str, ActionHandler] = {
     "create_hpa": _handle_create_hpa,
     "patch_hpa": _handle_patch_hpa,
     "delete_hpa": _handle_delete_hpa,
+    "create_namespace": _handle_create_namespace,
+    "delete_namespace": _handle_delete_namespace,
 }
 
 

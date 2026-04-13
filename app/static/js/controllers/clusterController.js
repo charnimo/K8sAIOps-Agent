@@ -62,6 +62,13 @@ export class ClusterController {
             createPvcBtn.parentNode.replaceChild(clone, createPvcBtn);
             clone.addEventListener('click', () => this.openCreatePvcPanel());
         }
+
+        const createNamespaceBtn = document.getElementById('createNamespaceBtn');
+        if (createNamespaceBtn) {
+            const clone = createNamespaceBtn.cloneNode(true);
+            createNamespaceBtn.parentNode.replaceChild(clone, createNamespaceBtn);
+            clone.addEventListener('click', () => this.openCreateNamespacePanel());
+        }
     }
 
     bindSortingHeaders() {
@@ -418,13 +425,19 @@ export class ClusterController {
                 <td class="px-6 py-4 ${ns.phase === 'Active' ? 'text-emerald-400' : 'text-amber-400'}">${ns.phase || '-'}</td>
                 <td class="px-6 py-4 text-gray-400">${ns.age || '-'}</td>
                 <td class="px-6 py-4 text-right">
-                    <button class="ns-details-btn w-8 h-8 rounded border border-sky-800/50 bg-sky-900/30 text-sky-400 hover:text-sky-300 hover:bg-sky-900/50 inline-flex items-center justify-center" data-ns="${ns.name}" title="Details"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h7l5 5v11a2 2 0 01-2 2z"/></svg></button>
+                    <div class="inline-flex gap-2">
+                        <button class="ns-details-btn w-8 h-8 rounded border border-sky-800/50 bg-sky-900/30 text-sky-400 hover:text-sky-300 hover:bg-sky-900/50 inline-flex items-center justify-center" data-ns="${ns.name}" title="Details"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h7l5 5v11a2 2 0 01-2 2z"/></svg></button>
+                        <button class="ns-delete-btn w-8 h-8 rounded border border-rose-800/50 bg-rose-900/30 text-rose-400 hover:text-rose-300 hover:bg-rose-900/50 inline-flex items-center justify-center" data-ns="${ns.name}" title="Delete Namespace"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 7h16M10 11v6m4-6v6M9 7V4h6v3m-9 0l1 13h8l1-13"/></svg></button>
+                    </div>
                 </td>
             </tr>
         `).join('');
 
         tbody.querySelectorAll('.ns-details-btn').forEach((btn) => {
             btn.addEventListener('click', () => this.openNamespaceDetails(btn.getAttribute('data-ns')));
+        });
+        tbody.querySelectorAll('.ns-delete-btn').forEach((btn) => {
+            btn.addEventListener('click', () => this.deleteNamespace(btn.getAttribute('data-ns')));
         });
     }
 
@@ -718,6 +731,44 @@ export class ClusterController {
         return result;
     }
 
+    openCreateNamespacePanel() {
+        const html = `
+            <div class="space-y-4">
+                <div><label class="block text-sm text-gray-300 mb-1">Namespace Name</label><input id="namespaceName" class="bg-gray-800 border border-gray-700 text-white rounded-lg w-full p-2.5 text-sm" placeholder="team-a"></div>
+                <div><label class="block text-sm text-gray-300 mb-1">Labels (key=value per line)</label><textarea id="namespaceLabels" rows="4" class="bg-gray-800 border border-gray-700 text-white rounded-lg w-full p-2.5 text-xs font-mono" placeholder="owner=platform"></textarea></div>
+                <button id="createNamespaceConfirm" class="w-full text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg px-5 py-2.5 text-sm font-medium transition-colors">Create Namespace</button>
+            </div>
+        `;
+
+        this.sidePanel.open('Create Namespace', html, (container) => {
+            const btn = container.querySelector('#createNamespaceConfirm');
+            btn.addEventListener('click', async () => {
+                try {
+                    const payload = {
+                        name: container.querySelector('#namespaceName').value.trim(),
+                        labels: this.parseMapInput(container.querySelector('#namespaceLabels').value),
+                    };
+
+                    if (!payload.name) {
+                        window.showToast('Namespace name is required', 'error');
+                        return;
+                    }
+
+                    btn.disabled = true;
+                    btn.textContent = 'Creating...';
+                    await this.api.createNamespace(payload);
+                    window.showToast(`Namespace ${payload.name} created`, 'success');
+                    this.sidePanel.close();
+                    this.loadNamespaces();
+                } catch (err) {
+                    window.showToast(`Create namespace failed: ${err.message}`, 'error');
+                    btn.disabled = false;
+                    btn.textContent = 'Create Namespace';
+                }
+            });
+        });
+    }
+
     async openCreatePvcPanel() {
         const nsOptions = this.namespaces.length
             ? this.namespaces.map((n) => `<option value="${n.name}">${n.name}</option>`).join('')
@@ -861,6 +912,27 @@ export class ClusterController {
             this.loadPVCs();
         } catch (err) {
             window.showToast(`Delete PVC failed: ${err.message}`, 'error');
+        }
+    }
+
+    async deleteNamespace(name) {
+        if (!(await showConfirmModal({
+            title: 'Delete Namespace',
+            message: `Delete namespace ${name}? This may remove all resources inside it.`,
+            confirmText: 'Delete',
+            intent: 'danger',
+        }))) return;
+        try {
+            await this.api.deleteNamespace(name);
+            window.showToast(`Namespace ${name} deletion started`, 'success');
+            this.loadNamespaces();
+            if (this.currentPvcNamespace === name) {
+                this.currentPvcNamespace = this.api.getNamespace();
+                this.populateNamespaceSelect();
+                this.loadPVCs();
+            }
+        } catch (err) {
+            window.showToast(`Delete namespace failed: ${err.message}`, 'error');
         }
     }
 }

@@ -296,6 +296,33 @@ export class ApiClient {
         return await res.json();
     }
 
+    async createNamespace(payload) {
+        const res = await fetch('/cluster/namespaces', {
+            method: 'POST',
+            headers: { ...this.headers, 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+        });
+        if (!res.ok) {
+            let errorMsg = 'Failed to create namespace';
+            try { errorMsg = (await res.json()).detail || errorMsg; } catch (e) {}
+            throw new Error(errorMsg);
+        }
+        return await res.json();
+    }
+
+    async deleteNamespace(name) {
+        const res = await fetch(`/cluster/namespaces/${name}`, {
+            method: 'DELETE',
+            headers: this.headers,
+        });
+        if (!res.ok) {
+            let errorMsg = 'Failed to delete namespace';
+            try { errorMsg = (await res.json()).detail || errorMsg; } catch (e) {}
+            throw new Error(errorMsg);
+        }
+        return await res.json();
+    }
+
     async getNodes() {
         const res = await fetch('/cluster/nodes', { headers: this.headers });
         if (!res.ok) throw new Error('Failed to fetch nodes');

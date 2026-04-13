@@ -6,7 +6,7 @@ from fastapi import APIRouter, HTTPException, Query
 
 from Tools import namespaces, nodes, storage
 from app.api.mutations import run_direct_action
-from app.schemas.mutations import CreatePvcRequest, NodeDrainRequest, PatchPvcRequest
+from app.schemas.mutations import CreateNamespaceRequest, CreatePvcRequest, NodeDrainRequest, PatchPvcRequest
 
 
 router = APIRouter()
@@ -103,6 +103,20 @@ def get_namespace_events(
         return namespaces.get_namespace_events(name=name, limit=limit)
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.post("/namespaces")
+def create_namespace(payload: CreateNamespaceRequest) -> dict:
+    """Create a namespace directly."""
+    params = payload.model_dump()
+    name = params.pop("name")
+    return run_direct_action("create_namespace", name=name, namespace=name, params=params)
+
+
+@router.delete("/namespaces/{name}")
+def delete_namespace(name: str) -> dict:
+    """Delete a namespace directly."""
+    return run_direct_action("delete_namespace", name=name, namespace=name)
 
 
 @router.get("/storage/pvs")

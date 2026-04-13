@@ -216,3 +216,10 @@ class PatchHpaRequest(BaseModel):
     min_replicas: Optional[int] = Field(default=None, ge=0)
     max_replicas: Optional[int] = Field(default=None, ge=0)
     labels: Optional[dict[str, str]] = None
+
+
+class CreateNamespaceRequest(BaseModel):
+    """Namespace creation payload."""
+
+    name: str = Field(..., min_length=1)
+    labels: dict[str, str] = Field(default_factory=dict)
