@@ -116,6 +116,7 @@ EXPECTED_ACTION_TYPES = {
     "update_daemonset_image",
     "delete_job",
     "suspend_job",
+    "resume_job",
     "suspend_cronjob",
     "resume_cronjob",
     "create_service",
@@ -139,6 +140,8 @@ EXPECTED_ACTION_TYPES = {
     "create_hpa",
     "patch_hpa",
     "delete_hpa",
+    "create_namespace",
+    "delete_namespace",
 }
 
 

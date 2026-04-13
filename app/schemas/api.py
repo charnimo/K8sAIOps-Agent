@@ -29,6 +29,12 @@ class ChatMessageRequest(BaseModel):
     content: str = Field(..., min_length=1)
 
 
+class ChatSessionCreateRequest(BaseModel):
+    """Chat session creation payload."""
+
+    title: str = Field(default="New Conversation", min_length=1)
+
+
 class ActionTarget(BaseModel):
     """Generic action target."""
 

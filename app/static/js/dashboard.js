@@ -1,6 +1,7 @@
-import { NavigationManager } from "./nav.js?v=1776092400";
+import { NavigationManager } from "./nav.js?v=1776099800";
 import { AuthManager } from './auth.js';
-import { ApiClient } from './api.js?v=1776092400';
+import { ApiClient } from './api.js?v=1776099800';
+import { ChatDrawer } from './chatDrawer.js?v=1776099800';
 import { OverviewController } from './controllers/overviewController.js';
 import { PodsController } from './controllers/podsController.js';
 import { DeploymentsController } from './controllers/deploymentsController.js';
@@ -43,6 +44,8 @@ class Dashboard {
             'view-events': new EventsController(this.api),
             'view-logs': new LogsController(this.api)
         };
+
+        this.chatDrawer = new ChatDrawer(this.api, this.auth);
 
         this.nav = new NavigationManager((viewId) => this.handleViewLoad(viewId));
         this.activeViewId = 'view-overview';

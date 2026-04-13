@@ -617,7 +617,7 @@ export class ClusterController {
         this.sidePanel.open(title, '<div class="text-cyan-400 mt-10 animate-pulse">Loading namespace details...</div>', async (container) => {
             try {
                 const [ns, resources, events] = await Promise.all([
-                    this.api.getNamespace(name),
+                    this.api.getNamespaceDetails(name),
                     this.api.getNamespaceResources(name).catch(() => ({})),
                     this.api.getNamespaceEvents(name, 100).catch(() => []),
                 ]);

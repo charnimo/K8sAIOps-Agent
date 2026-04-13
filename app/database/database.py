@@ -121,6 +121,63 @@ def seed_permission_catalog():
     finally:
         db.close()
 
+
+def seed_mock_chat_history():
+    from app.database.models import ChatHistory, Conversation, User
+
+    db = SessionLocal()
+    try:
+        users = db.query(User).all()
+        if not users:
+            return
+
+        seed_templates = [
+            {
+                "title": "Cluster Incident Triage (Mock)",
+                "messages": [
+                    ("agent", "Welcome back. I can help triage cluster incidents by collecting symptoms and narrowing root causes."),
+                    ("user", "Pods in namespace payments are restarting every few minutes."),
+                    ("agent", "Start by checking recent events and pod restart reasons; then correlate with rollout or config changes."),
+                ],
+            },
+            {
+                "title": "Capacity Planning Review (Mock)",
+                "messages": [
+                    ("agent", "Ready to review capacity trends. Which namespace or workload do you want to analyze?"),
+                    ("user", "Show me where CPU pressure is highest this week."),
+                    ("agent", "Use resource pressure and top pod CPU metrics to identify hotspots before increasing limits."),
+                ],
+            },
+        ]
+
+        for user in users:
+            for template in seed_templates:
+                existing = (
+                    db.query(Conversation)
+                    .filter(Conversation.user_id == user.id, Conversation.title == template["title"])
+                    .first()
+                )
+                if existing:
+                    continue
+
+                conversation = Conversation(user_id=user.id, title=template["title"])
+                db.add(conversation)
+                db.flush()
+
+                for sender, message in template["messages"]:
+                    sender_name = user.username if sender == "user" else sender
+                    db.add(
+                        ChatHistory(
+                            conversation_id=conversation.id,
+                            sender=sender_name,
+                            message=message,
+                        )
+                    )
+
+        db.commit()
+    finally:
+        db.close()
+
 def get_db():
     db = SessionLocal()
     try:

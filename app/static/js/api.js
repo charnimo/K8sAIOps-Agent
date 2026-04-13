@@ -30,6 +30,39 @@ export class ApiClient {
         return await res.json();
     }
 
+    // Chat APIs used by the persistent right-side chat panel.
+    async getChatSessions() {
+        const res = await fetch('/chat/sessions', { headers: this.headers });
+        if (!res.ok) throw new Error('Failed to fetch chat sessions');
+        return await res.json();
+    }
+
+    async createChatSession(payload = {}) {
+        const res = await fetch('/chat/sessions', {
+            method: 'POST',
+            headers: { ...this.headers, 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+        });
+        if (!res.ok) throw new Error('Failed to create chat session');
+        return await res.json();
+    }
+
+    async getChatSession(sessionId) {
+        const res = await fetch(`/chat/sessions/${encodeURIComponent(sessionId)}`, { headers: this.headers });
+        if (!res.ok) throw new Error('Failed to fetch chat session');
+        return await res.json();
+    }
+
+    async sendChatMessage(sessionId, payload) {
+        const res = await fetch(`/chat/sessions/${encodeURIComponent(sessionId)}/messages`, {
+            method: 'POST',
+            headers: { ...this.headers, 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+        });
+        if (!res.ok) throw new Error('Failed to send chat message');
+        return await res.json();
+    }
+
     async getPods(namespace = null) {
         const ns = this._resolveNamespace(namespace);
         const res = await fetch(`/resources/pods?namespace=${ns}`, { headers: this.headers });
@@ -407,7 +440,7 @@ export class ApiClient {
         return await res.json();
     }
 
-    async getNamespace(name) {
+    async getNamespaceDetails(name) {
         const res = await fetch(`/cluster/namespaces/${name}`, { headers: this.headers });
         if (!res.ok) throw new Error('Failed to fetch namespace details');
         return await res.json();
