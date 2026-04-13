@@ -10,6 +10,7 @@ import { WorkloadsController } from './controllers/workloadsController.js';
 import { ConfigurationController } from './controllers/configurationController.js';
 import { ObservabilityController } from './controllers/observabilityController.js';
 import { GovernanceController } from './controllers/governanceController.js';
+import { TerminalController } from './controllers/terminalController.js';
 import { EventsController } from './controllers/eventsController.js';
 import { LogsController } from './controllers/logsController.js';
 import { SidePanel } from './panel.js';
@@ -36,6 +37,7 @@ class Dashboard {
             'view-configuration': new ConfigurationController(this.api, this.sidePanel),
             'view-observability': new ObservabilityController(this.api, this.sidePanel),
             'view-governance': new GovernanceController(this.api, this.sidePanel),
+            'view-terminal': new TerminalController(this.api),
             'view-events': new EventsController(this.api),
             'view-logs': new LogsController(this.api)
         };

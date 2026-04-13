@@ -35,6 +35,7 @@ export class NavigationManager {
                     'view-configuration': 'configuration.html',
                     'view-observability': 'observability.html',
                     'view-governance': 'governance.html',
+                    'view-terminal': 'terminal.html',
                 };
                 
                 const viewName = viewMap[targetId];
