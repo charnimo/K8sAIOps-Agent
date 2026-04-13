@@ -9,10 +9,11 @@ from app.api.router import api_router
 from app.core.settings import get_settings
 
 # Database imports
-from app.database.database import Base, engine
+from app.database.database import Base, engine, seed_permission_catalog
 
 # Initialize the SQLite tables
 Base.metadata.create_all(bind=engine)
+seed_permission_catalog()
 
 settings = get_settings()
 

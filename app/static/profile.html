@@ -22,6 +22,71 @@
             }
         }
     </script>
+    <style>
+        .permission-switch {
+            position: relative;
+            width: 3.5rem;
+            height: 1.75rem;
+            border-radius: 9999px;
+            transition: transform 140ms ease, filter 220ms ease;
+        }
+
+        .permission-switch:active {
+            transform: scale(0.97);
+        }
+
+        .permission-switch .switch-track {
+            position: absolute;
+            inset: 0;
+            border-radius: 9999px;
+            background: rgba(55, 65, 81, 0.95);
+            border: 1px solid rgba(107, 114, 128, 0.75);
+            transition: background-color 260ms ease, box-shadow 260ms ease, border-color 260ms ease;
+        }
+
+        .permission-switch.is-on .switch-track {
+            background: rgba(6, 182, 212, 0.95);
+            border-color: rgba(34, 211, 238, 0.65);
+            box-shadow: 0 0 0 2px rgba(34, 211, 238, 0.2), 0 0 18px rgba(34, 211, 238, 0.35);
+        }
+
+        .permission-switch .switch-knob {
+            position: absolute;
+            top: 0.2rem;
+            left: 0.2rem;
+            width: 1.35rem;
+            height: 1.35rem;
+            border-radius: 9999px;
+            background: #ffffff;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+            transform: translateX(0);
+            transition: transform 280ms cubic-bezier(0.22, 1, 0.36, 1);
+        }
+
+        .permission-switch.is-on .switch-knob {
+            transform: translateX(1.75rem);
+        }
+
+        .permission-switch.switch-pop .switch-knob {
+            animation: knob-pop 260ms ease;
+        }
+
+        @keyframes knob-pop {
+            0% { transform: translateX(0) scale(1); }
+            35% { transform: translateX(0.9rem) scale(1.11); }
+            100% { transform: translateX(1.75rem) scale(1); }
+        }
+
+        .permission-switch:not(.is-on).switch-pop .switch-knob {
+            animation: knob-pop-off 260ms ease;
+        }
+
+        @keyframes knob-pop-off {
+            0% { transform: translateX(1.75rem) scale(1); }
+            35% { transform: translateX(0.85rem) scale(1.11); }
+            100% { transform: translateX(0) scale(1); }
+        }
+    </style>
 </head>
 <body class="bg-gray-900 text-gray-200 min-h-screen selection:bg-blue-500 selection:text-white">
 
@@ -40,27 +105,86 @@
     </nav>
 
     <!-- Main Content -->
-    <div class="container mx-auto px-4 mt-16 max-w-3xl relative z-10">
+    <div class="container mx-auto px-4 mt-16 max-w-5xl relative z-10">
         <header class="mb-8 text-center">
             <h1 class="text-4xl font-extrabold text-white tracking-tight">User Profile</h1>
-            <p class="text-gray-400 mt-2">Manage your account settings, themes, and preferences.</p>
+            <p class="text-gray-400 mt-2">View your account details and permissions.</p>
         </header>
 
-        <div class="bg-gray-850 rounded-xl border border-gray-800 shadow-2xl p-10 text-center flex flex-col items-center justify-center min-h-[350px]">
-            <div class="w-24 h-24 mb-5 rounded-full bg-gradient-to-tr from-blue-600 to-indigo-600 flex items-center justify-center shadow-lg border-4 border-gray-800 relative overflow-hidden">
-                <img id="profileAvatar" src="" alt="Profile avatar" class="w-full h-full object-cover hidden">
-                <span class="text-4xl text-white font-bold" id="profileInitials">U</span>
-            </div>
-            <h2 class="text-3xl font-bold text-white mb-1" id="profileUsername">User</h2>
-            <p class="text-blue-400 font-medium mb-8">Administrator</p>
-            
-            <div class="px-6 py-4 border border-dashed border-gray-700 bg-gray-900/50 rounded-xl max-w-md w-full flex items-center space-x-4">
-                <div class="p-3 bg-gray-800 rounded-lg text-gray-400">
-                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <section class="bg-gray-850 rounded-xl border border-gray-800 shadow-2xl p-8 text-center flex flex-col items-center justify-center min-h-[350px]">
+                <div class="w-24 h-24 mb-5 rounded-full bg-gradient-to-tr from-blue-600 to-indigo-600 flex items-center justify-center shadow-lg border-4 border-gray-800 relative overflow-hidden">
+                    <img id="profileAvatar" src="" alt="Profile avatar" class="w-full h-full object-cover hidden">
+                    <span class="text-4xl text-white font-bold" id="profileInitials">U</span>
                 </div>
-                <div class="text-left">
-                    <div class="text-gray-300 font-medium">Placeholder Settings</div>
-                    <div class="text-gray-500 text-sm">Profile implementation coming soon.</div>
+                <h2 class="text-3xl font-bold text-white mb-1" id="profileUsername">User</h2>
+                <p class="text-blue-400 font-medium mb-2" id="profileRole">Operator</p>
+                <p class="text-xs text-gray-500" id="profileEmail">-</p>
+            </section>
+
+            <section class="lg:col-span-2 bg-gray-850 rounded-xl border border-gray-800 shadow-2xl p-6">
+                <div class="flex items-center justify-between gap-3 mb-4">
+                    <h3 class="text-lg font-semibold text-white">Permissions</h3>
+                    <span id="permissionsModeBadge" class="text-xs px-2.5 py-1 rounded border border-gray-700 text-gray-300">Read-only</span>
+                </div>
+
+                <div id="adminPanel" class="hidden space-y-4">
+                    <div>
+                        <label class="block text-sm text-gray-300 mb-2">Select User</label>
+                        <select id="userSelect" class="bg-gray-800 border border-gray-700 text-white rounded-lg w-full p-2.5 text-sm"></select>
+                    </div>
+                    <div id="selectedUserCard" class="hidden rounded-xl border border-gray-800 bg-gray-900/45 p-3">
+                        <div class="flex items-center gap-3">
+                            <div class="w-10 h-10 rounded-full bg-gradient-to-tr from-sky-600 to-cyan-600 border border-gray-700 overflow-hidden flex items-center justify-center">
+                                <img id="selectedUserAvatar" src="" alt="Selected user avatar" class="w-full h-full object-cover hidden">
+                                <span id="selectedUserInitials" class="text-sm font-semibold text-white">U</span>
+                            </div>
+                            <div class="min-w-0">
+                                <div id="selectedUserName" class="text-sm font-medium text-gray-200 truncate">-</div>
+                                <div id="selectedUserEmail" class="text-xs text-gray-500 truncate">-</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div id="adminUserInfo" class="text-xs text-gray-400"></div>
+                    <div id="permissionToggleList" class="space-y-2 max-h-[440px] overflow-y-auto pr-1"></div>
+                </div>
+
+                <div id="selfPermissionPanel" class="space-y-3">
+                    <div id="selfPermissionStats" class="grid grid-cols-1 md:grid-cols-3 gap-3">
+                        <div class="rounded-lg border border-gray-800 bg-gray-900/40 p-3">
+                            <div class="text-[11px] uppercase tracking-wide text-gray-500">Granted</div>
+                            <div id="selfGrantedCount" class="text-2xl font-semibold text-cyan-300 mt-1">0</div>
+                        </div>
+                        <div class="rounded-lg border border-gray-800 bg-gray-900/40 p-3">
+                            <div class="text-[11px] uppercase tracking-wide text-gray-500">Domains</div>
+                            <div id="selfDomainCount" class="text-2xl font-semibold text-indigo-300 mt-1">0</div>
+                        </div>
+                        <div class="rounded-lg border border-gray-800 bg-gray-900/40 p-3">
+                            <div class="text-[11px] uppercase tracking-wide text-gray-500">Dangerous</div>
+                            <div id="selfDangerCount" class="text-2xl font-semibold text-rose-300 mt-1">0</div>
+                        </div>
+                    </div>
+
+                    <div class="text-sm text-gray-400 mt-1">My access scope:</div>
+                    <div id="selfPermissionGroups" class="space-y-3 max-h-[430px] overflow-y-auto pr-1"></div>
+                </div>
+            </section>
+        </div>
+
+        <div id="dangerModal" class="hidden fixed inset-0 z-50">
+            <div class="absolute inset-0 bg-black/70"></div>
+            <div class="relative z-10 min-h-full flex items-center justify-center p-4">
+                <div class="w-full max-w-md bg-gray-900 border border-rose-800 rounded-xl shadow-2xl p-5">
+                    <h4 class="text-lg font-semibold text-white">Dangerous Permission</h4>
+                    <p class="text-sm text-gray-300 mt-2" id="dangerModalText">Are you sure?</p>
+                    <label class="mt-3 flex items-center gap-2 text-xs text-gray-400 select-none cursor-pointer">
+                        <input id="dangerSuppressSession" type="checkbox" class="accent-rose-500" />
+                        Don't ask again during this session
+                    </label>
+                    <div class="mt-5 flex justify-end gap-2">
+                        <button id="dangerCancelBtn" class="px-3 py-2 rounded-lg border border-gray-700 text-gray-300 hover:text-white">Cancel</button>
+                        <button id="dangerConfirmBtn" class="px-3 py-2 rounded-lg border border-rose-700 bg-rose-700/30 text-rose-200 hover:bg-rose-700/50">Confirm</button>
+                    </div>
                 </div>
             </div>
         </div>
@@ -72,6 +196,11 @@
 
     <script>
         const token = localStorage.getItem("jwt_token");
+        const authHeaders = token ? { 'Authorization': `Bearer ${token}` } : {};
+        const DANGER_SUPPRESS_KEY = 'danger_permission_confirm_suppressed';
+        let me = null;
+        let users = [];
+        let catalog = [];
 
         function parseJwt (token) {
             try {
@@ -81,13 +210,330 @@
             }
         }
 
+        function parsePermissionDomain(key) {
+            const parts = key.split(':');
+            return parts.length > 1 ? parts.slice(0, -1).join(':') : key;
+        }
+
+        function titleize(text) {
+            return String(text || '')
+                .replace(/[:_]/g, ' ')
+                .replace(/\s+/g, ' ')
+                .trim()
+                .split(' ')
+                .filter(Boolean)
+                .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+                .join(' ');
+        }
+
+        function permissionLabel(entryOrKey) {
+            if (entryOrKey && typeof entryOrKey === 'object') {
+                if (entryOrKey.label) return entryOrKey.label;
+                return titleize(entryOrKey.permission_key || 'Permission');
+            }
+
+            const key = String(entryOrKey || '');
+            const found = catalog.find((item) => item.permission_key === key);
+            if (found?.label) return found.label;
+            return titleize(key);
+        }
+
+        function permissionMeta(key) {
+            const found = catalog.find((item) => item.permission_key === key);
+            return {
+                label: permissionLabel(key),
+                description: found?.description || '',
+                isDangerous: !!found?.is_dangerous,
+                domain: parsePermissionDomain(key),
+            };
+        }
+
+        function setAvatar(imageEl, initialsEl, username, profilePicturePath) {
+            const initial = (username || 'U').substring(0, 1).toUpperCase();
+            initialsEl.textContent = initial;
+
+            if (!profilePicturePath) {
+                imageEl.classList.add('hidden');
+                initialsEl.classList.remove('hidden');
+                imageEl.removeAttribute('src');
+                return;
+            }
+
+            const src = profilePicturePath.includes('?')
+                ? `${profilePicturePath}&v=${Date.now()}`
+                : `${profilePicturePath}?v=${Date.now()}`;
+
+            imageEl.onload = () => {
+                imageEl.classList.remove('hidden');
+                initialsEl.classList.add('hidden');
+            };
+            imageEl.onerror = () => {
+                imageEl.classList.add('hidden');
+                initialsEl.classList.remove('hidden');
+            };
+            imageEl.src = src;
+        }
+
+        function renderSelfPermissions() {
+            const grantedEl = document.getElementById('selfGrantedCount');
+            const domainEl = document.getElementById('selfDomainCount');
+            const dangerEl = document.getElementById('selfDangerCount');
+            const groupsEl = document.getElementById('selfPermissionGroups');
+            const statsEl = document.getElementById('selfPermissionStats');
+
+            if (!groupsEl || !grantedEl || !domainEl || !dangerEl || !statsEl) return;
+            groupsEl.innerHTML = '';
+
+            if (!me) return;
+            if (me.is_god_mode) {
+                statsEl.classList.add('hidden');
+                groupsEl.innerHTML = '<div class="rounded-lg border border-emerald-700/40 bg-emerald-900/20 p-4 text-emerald-200 text-sm">You are in god mode. Access is unrestricted across all modules.</div>';
+                return;
+            }
+
+            statsEl.classList.remove('hidden');
+
+            const perms = Array.isArray(me.permissions) ? me.permissions : [];
+            if (!perms.length) {
+                grantedEl.textContent = '0';
+                domainEl.textContent = '0';
+                dangerEl.textContent = '0';
+                groupsEl.innerHTML = '<div class="rounded-lg border border-gray-800 bg-gray-900/50 p-4 text-gray-400 text-sm">No permissions are currently assigned. Ask an administrator to grant access.</div>';
+                return;
+            }
+
+            const metas = perms.map((key) => ({ key, ...permissionMeta(key) }));
+            const dangerousCount = metas.filter((m) => m.isDangerous).length;
+            const grouped = {};
+            metas.forEach((meta) => {
+                if (!grouped[meta.domain]) grouped[meta.domain] = [];
+                grouped[meta.domain].push(meta);
+            });
+
+            grantedEl.textContent = String(metas.length);
+            domainEl.textContent = String(Object.keys(grouped).length);
+            dangerEl.textContent = String(dangerousCount);
+
+            Object.keys(grouped).sort().forEach((domain) => {
+                const section = document.createElement('section');
+                section.className = 'rounded-xl border border-gray-800 bg-gray-900/35 overflow-hidden';
+
+                const head = document.createElement('div');
+                head.className = 'px-4 py-2.5 border-b border-gray-800 bg-gray-900/70';
+                head.innerHTML = `<h4 class="text-sm font-semibold text-indigo-300">${titleize(domain)}</h4>`;
+
+                const body = document.createElement('div');
+                body.className = 'p-3 space-y-2';
+                grouped[domain].sort((a, b) => a.label.localeCompare(b.label)).forEach((entry) => {
+                    const row = document.createElement('div');
+                    row.className = 'p-2.5 rounded-lg border ' + (entry.isDangerous ? 'border-rose-800/40 bg-rose-900/10' : 'border-gray-800 bg-gray-900/50');
+                    row.innerHTML = `
+                        <div class="flex items-center justify-between gap-3">
+                            <div class="text-sm text-gray-100">${entry.label}</div>
+                            ${entry.isDangerous ? '<span class="text-[10px] uppercase tracking-wide px-2 py-0.5 rounded border border-rose-700/50 text-rose-300">Dangerous</span>' : ''}
+                        </div>
+                        ${entry.description ? `<div class="text-xs text-gray-500 mt-1">${entry.description}</div>` : ''}
+                    `;
+                    body.appendChild(row);
+                });
+
+                section.appendChild(head);
+                section.appendChild(body);
+                groupsEl.appendChild(section);
+            });
+        }
+
+        function showDangerConfirm(message) {
+            return new Promise((resolve) => {
+                const modal = document.getElementById('dangerModal');
+                const text = document.getElementById('dangerModalText');
+                const cancel = document.getElementById('dangerCancelBtn');
+                const confirm = document.getElementById('dangerConfirmBtn');
+                const suppress = document.getElementById('dangerSuppressSession');
+
+                text.textContent = message;
+                suppress.checked = false;
+                modal.classList.remove('hidden');
+
+                const cleanup = () => {
+                    modal.classList.add('hidden');
+                    cancel.removeEventListener('click', onCancel);
+                    confirm.removeEventListener('click', onConfirm);
+                };
+                const onCancel = () => {
+                    cleanup();
+                    resolve({ confirmed: false, suppressForSession: false });
+                };
+                const onConfirm = () => {
+                    const suppressForSession = !!suppress.checked;
+                    cleanup();
+                    resolve({ confirmed: true, suppressForSession });
+                };
+
+                cancel.addEventListener('click', onCancel);
+                confirm.addEventListener('click', onConfirm);
+            });
+        }
+
+        async function togglePermissionForUser(userId, entry) {
+            const res = await fetch(`/auth/users/${userId}/permissions/${encodeURIComponent(entry.permission_key)}/toggle`, {
+                method: 'PATCH',
+                headers: authHeaders,
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) {
+                throw new Error(data.detail || 'Failed to toggle permission');
+            }
+        }
+
+        function buildToggleSwitch(enabled, disabled) {
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.setAttribute('aria-pressed', enabled ? 'true' : 'false');
+            button.className = `permission-switch ${enabled ? 'is-on' : ''} ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer hover:brightness-110'}`;
+
+            const track = document.createElement('span');
+            track.className = 'switch-track';
+
+            const knob = document.createElement('span');
+            knob.className = 'switch-knob';
+
+            button.appendChild(track);
+            button.appendChild(knob);
+            button.disabled = !!disabled;
+            return button;
+        }
+
+        function setToggleVisual(toggle, isOn) {
+            toggle.classList.toggle('is-on', !!isOn);
+            toggle.setAttribute('aria-pressed', isOn ? 'true' : 'false');
+            toggle.classList.remove('switch-pop');
+            requestAnimationFrame(() => {
+                toggle.classList.add('switch-pop');
+                setTimeout(() => toggle.classList.remove('switch-pop'), 300);
+            });
+        }
+
+        function renderAdminPanel() {
+            const userSelect = document.getElementById('userSelect');
+            const info = document.getElementById('adminUserInfo');
+            const list = document.getElementById('permissionToggleList');
+            const userCard = document.getElementById('selectedUserCard');
+            const userName = document.getElementById('selectedUserName');
+            const userEmail = document.getElementById('selectedUserEmail');
+            const userAvatar = document.getElementById('selectedUserAvatar');
+            const userInitials = document.getElementById('selectedUserInitials');
+
+            const selectedId = Number(userSelect.value || 0);
+            const selectedUser = users.find((u) => u.id === selectedId);
+            if (!selectedUser) {
+                list.innerHTML = '<div class="text-sm text-gray-500">Select a user.</div>';
+                info.textContent = '';
+                userCard.classList.add('hidden');
+                return;
+            }
+
+            userCard.classList.remove('hidden');
+            userName.textContent = selectedUser.username || '-';
+            userEmail.textContent = selectedUser.email || '-';
+            setAvatar(userAvatar, userInitials, selectedUser.username, selectedUser.profile_picture);
+
+            info.textContent = selectedUser.is_god_mode
+                ? 'God-mode user: permissions are implicit and cannot be modified.'
+                : `Editing permissions for ${selectedUser.username}`;
+
+            const assigned = new Set(Array.isArray(selectedUser.permissions) ? selectedUser.permissions : []);
+            const groups = {};
+            catalog.forEach((entry) => {
+                const domain = parsePermissionDomain(entry.permission_key);
+                if (!groups[domain]) groups[domain] = [];
+                groups[domain].push(entry);
+            });
+
+            list.innerHTML = '';
+            Object.keys(groups).sort().forEach((domainKey) => {
+                const block = document.createElement('section');
+                block.className = 'border border-gray-800 rounded-xl bg-gray-900/30 overflow-hidden';
+
+                const header = document.createElement('div');
+                header.className = 'px-4 py-2.5 border-b border-gray-800 bg-gray-900/60';
+                header.innerHTML = `<h4 class="text-sm font-semibold text-cyan-300">${titleize(domainKey)}</h4>`;
+
+                const content = document.createElement('div');
+                content.className = 'p-2 space-y-2';
+
+                groups[domainKey].sort((a, b) => permissionLabel(a).localeCompare(permissionLabel(b))).forEach((entry) => {
+                    const row = document.createElement('div');
+                    row.className = 'flex items-center justify-between gap-3 p-3 border rounded-lg ' + (entry.is_dangerous ? 'border-rose-800/40 bg-rose-900/10' : 'border-gray-800 bg-gray-900/40');
+
+                    const left = document.createElement('div');
+                    left.className = 'min-w-0';
+                    left.innerHTML = `
+                        <div class="text-sm text-gray-100">${permissionLabel(entry)}</div>
+                        <div class="text-xs text-gray-500">${entry.description || ''}</div>
+                    `;
+
+                    const enabled = assigned.has(entry.permission_key);
+                    const toggle = buildToggleSwitch(enabled, !!selectedUser.is_god_mode);
+
+                    toggle.addEventListener('click', async () => {
+                        const nextEnabled = !enabled;
+                        if (entry.is_dangerous && nextEnabled) {
+                            const suppressPrompts = sessionStorage.getItem(DANGER_SUPPRESS_KEY) === '1';
+                            if (!suppressPrompts) {
+                                const modalResult = await showDangerConfirm(`You are about to toggle dangerous permission: ${permissionLabel(entry)}`);
+                                if (!modalResult.confirmed) return;
+                                if (modalResult.suppressForSession) {
+                                    sessionStorage.setItem(DANGER_SUPPRESS_KEY, '1');
+                                }
+                            }
+                        }
+                        setToggleVisual(toggle, nextEnabled);
+                        try {
+                            await togglePermissionForUser(selectedUser.id, entry);
+                            await new Promise((resolve) => setTimeout(resolve, 180));
+                            await loadUsers();
+                            renderAdminPanel();
+                            renderSelfPermissions();
+                        } catch (e) {
+                            setToggleVisual(toggle, enabled);
+                            alert(e.message);
+                        }
+                    });
+
+                    row.appendChild(left);
+                    row.appendChild(toggle);
+                    content.appendChild(row);
+                });
+
+                block.appendChild(header);
+                block.appendChild(content);
+                list.appendChild(block);
+            });
+        }
+
+        async function loadUsers() {
+            const res = await fetch('/auth/users', { headers: authHeaders });
+            const data = await res.json().catch(() => []);
+            if (!res.ok) throw new Error(data.detail || 'Failed to load users');
+            users = Array.isArray(data) ? data : [];
+        }
+
+        async function loadCatalog() {
+            const res = await fetch('/auth/permissions/catalog', { headers: authHeaders });
+            const data = await res.json().catch(() => []);
+            if (!res.ok) throw new Error(data.detail || 'Failed to load permission catalog');
+            catalog = Array.isArray(data) ? data : [];
+        }
+
         async function loadProfile() {
             try {
                 const response = await fetch('/auth/me', {
-                    headers: { 'Authorization': `Bearer ${token}` }
+                    headers: authHeaders
                 });
                 if (!response.ok) return;
                 const profile = await response.json();
+                me = profile;
                 const initialsEl = document.getElementById('profileInitials');
                 const avatarEl = document.getElementById('profileAvatar');
 
@@ -96,18 +542,53 @@
                     initialsEl.innerText = profile.username.substring(0, 1).toUpperCase();
                 }
 
-                if (profile.profile_picture) {
-                    avatarEl.src = profile.profile_picture;
-                    avatarEl.classList.remove('hidden');
-                    initialsEl.classList.add('hidden');
-                    avatarEl.onerror = () => {
-                        avatarEl.classList.add('hidden');
-                        initialsEl.classList.remove('hidden');
-                    };
-                }
+                document.getElementById('profileRole').innerText = profile.is_god_mode ? 'Administrator' : 'Operator';
+                document.getElementById('profileEmail').innerText = profile.email || '-';
+
+                setAvatar(avatarEl, initialsEl, profile.username, profile.profile_picture);
+
+                renderSelfPermissions();
             } catch (e) {
                 // Fallback stays as initials.
             }
+        }
+
+        async function initializePermissionsUi() {
+            const badge = document.getElementById('permissionsModeBadge');
+            const adminPanel = document.getElementById('adminPanel');
+            const selfPanel = document.getElementById('selfPermissionPanel');
+
+            await loadCatalog().catch(() => {
+                catalog = [];
+            });
+            renderSelfPermissions();
+
+            if (!me || !me.is_god_mode) {
+                badge.textContent = 'Read-only';
+                selfPanel.classList.remove('hidden');
+                adminPanel.classList.add('hidden');
+                return;
+            }
+
+            badge.textContent = 'Admin controls';
+            badge.className = 'text-xs px-2.5 py-1 rounded border border-emerald-700/40 text-emerald-300 bg-emerald-900/20';
+            adminPanel.classList.remove('hidden');
+            selfPanel.classList.remove('hidden');
+
+            await Promise.all([loadUsers(), loadCatalog()]);
+            const select = document.getElementById('userSelect');
+            const editableList = users.filter((u) => u.id !== me.id);
+            select.innerHTML = editableList
+                .map((u) => `<option value="${u.id}" ${u.is_god_mode ? 'disabled' : ''}>${u.username}${u.is_god_mode ? ' (admin)' : ''}</option>`)
+                .join('');
+
+            const firstEditable = editableList.find((u) => !u.is_god_mode);
+            if (firstEditable) {
+                select.value = String(firstEditable.id);
+            }
+
+            select.addEventListener('change', () => renderAdminPanel());
+            renderAdminPanel();
         }
 
         if (!token) {
@@ -118,7 +599,7 @@
                 document.getElementById('profileUsername').innerText = claims.sub;
                 document.getElementById('profileInitials').innerText = claims.sub.substring(0, 1).toUpperCase();
             }
-            loadProfile();
+            loadProfile().then(() => initializePermissionsUi()).catch(() => {});
         }
     </script>
 </body>

@@ -13,12 +13,23 @@ class User(Base):
     email = Column(String, unique=True, index=True)
     hashed_password = Column(String)
     profile_picture = Column(String, nullable=True) # Optional URL/Path
-    
-    # We decided every account is mapped to God Mode right now!
-    is_god_mode = Column(Boolean, default=True) 
+    permissions = Column(String, default='[]')
+    is_god_mode = Column(Boolean, default=False) 
 
     # Relationship for later, so you can fetch all conversations for a user
     conversations = relationship("Conversation", back_populates="owner")
+
+
+class PermissionCatalog(Base):
+    __tablename__ = "permission_catalog"
+
+    permission_key = Column(String, primary_key=True, index=True)
+    label = Column(String, nullable=False)
+    description = Column(String, nullable=True)
+    is_dangerous = Column(Boolean, default=False)
+    enabled = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 class Conversation(Base):
     __tablename__ = "conversations"
