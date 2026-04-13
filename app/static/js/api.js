@@ -238,4 +238,169 @@ export class ApiClient {
         if (!res.ok) throw new Error('Failed to fetch namespaces');
         return await res.json();
     }
+
+    async getNodes() {
+        const res = await fetch('/cluster/nodes', { headers: this.headers });
+        if (!res.ok) throw new Error('Failed to fetch nodes');
+        return await res.json();
+    }
+
+    async getNode(name) {
+        const res = await fetch(`/cluster/nodes/${name}`, { headers: this.headers });
+        if (!res.ok) throw new Error('Failed to fetch node details');
+        return await res.json();
+    }
+
+    async getNodeIssues(name) {
+        const res = await fetch(`/cluster/nodes/${name}/issues`, { headers: this.headers });
+        if (!res.ok) throw new Error('Failed to fetch node issues');
+        return await res.json();
+    }
+
+    async getNodeEvents(name) {
+        const res = await fetch(`/cluster/nodes/${name}/events`, { headers: this.headers });
+        if (!res.ok) throw new Error('Failed to fetch node events');
+        return await res.json();
+    }
+
+    async cordonNode(name) {
+        const res = await fetch(`/cluster/nodes/${name}/cordon`, {
+            method: 'POST',
+            headers: this.headers,
+        });
+        if (!res.ok) {
+            let errorMsg = 'Failed to cordon node';
+            try { errorMsg = (await res.json()).detail || errorMsg; } catch (e) {}
+            throw new Error(errorMsg);
+        }
+        return await res.json();
+    }
+
+    async uncordonNode(name) {
+        const res = await fetch(`/cluster/nodes/${name}/uncordon`, {
+            method: 'POST',
+            headers: this.headers,
+        });
+        if (!res.ok) {
+            let errorMsg = 'Failed to uncordon node';
+            try { errorMsg = (await res.json()).detail || errorMsg; } catch (e) {}
+            throw new Error(errorMsg);
+        }
+        return await res.json();
+    }
+
+    async drainNode(name, payload = { ignore_daemonsets: true, grace_period_seconds: 30 }) {
+        const res = await fetch(`/cluster/nodes/${name}/drain`, {
+            method: 'POST',
+            headers: { ...this.headers, 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+        });
+        if (!res.ok) {
+            let errorMsg = 'Failed to drain node';
+            try { errorMsg = (await res.json()).detail || errorMsg; } catch (e) {}
+            throw new Error(errorMsg);
+        }
+        return await res.json();
+    }
+
+    async getNamespace(name) {
+        const res = await fetch(`/cluster/namespaces/${name}`, { headers: this.headers });
+        if (!res.ok) throw new Error('Failed to fetch namespace details');
+        return await res.json();
+    }
+
+    async getNamespaceResources(name) {
+        const res = await fetch(`/cluster/namespaces/${name}/resources`, { headers: this.headers });
+        if (!res.ok) throw new Error('Failed to fetch namespace resources');
+        return await res.json();
+    }
+
+    async getNamespaceEvents(name, limit = 100) {
+        const res = await fetch(`/cluster/namespaces/${name}/events?limit=${limit}`, { headers: this.headers });
+        if (!res.ok) throw new Error('Failed to fetch namespace events');
+        return await res.json();
+    }
+
+    async getPVs() {
+        const res = await fetch('/cluster/storage/pvs', { headers: this.headers });
+        if (!res.ok) throw new Error('Failed to fetch PVs');
+        return await res.json();
+    }
+
+    async getPV(name) {
+        const res = await fetch(`/cluster/storage/pvs/${name}`, { headers: this.headers });
+        if (!res.ok) throw new Error('Failed to fetch PV details');
+        return await res.json();
+    }
+
+    async getPVCs(namespace = 'default') {
+        const res = await fetch(`/cluster/storage/pvcs?namespace=${namespace}`, { headers: this.headers });
+        if (!res.ok) throw new Error('Failed to fetch PVCs');
+        return await res.json();
+    }
+
+    async getPVC(name, namespace = 'default') {
+        const res = await fetch(`/cluster/storage/pvcs/${name}?namespace=${namespace}`, { headers: this.headers });
+        if (!res.ok) throw new Error('Failed to fetch PVC details');
+        return await res.json();
+    }
+
+    async getPVCIssues(name, namespace = 'default') {
+        const res = await fetch(`/cluster/storage/pvcs/${name}/issues?namespace=${namespace}`, { headers: this.headers });
+        if (!res.ok) throw new Error('Failed to fetch PVC issues');
+        return await res.json();
+    }
+
+    async createPVC(payload) {
+        const res = await fetch('/cluster/storage/pvcs', {
+            method: 'POST',
+            headers: { ...this.headers, 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+        });
+        if (!res.ok) {
+            let errorMsg = 'Failed to create PVC';
+            try { errorMsg = (await res.json()).detail || errorMsg; } catch (e) {}
+            throw new Error(errorMsg);
+        }
+        return await res.json();
+    }
+
+    async patchPVC(name, payload, namespace = 'default') {
+        const res = await fetch(`/cluster/storage/pvcs/${name}?namespace=${namespace}`, {
+            method: 'PATCH',
+            headers: { ...this.headers, 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+        });
+        if (!res.ok) {
+            let errorMsg = 'Failed to patch PVC';
+            try { errorMsg = (await res.json()).detail || errorMsg; } catch (e) {}
+            throw new Error(errorMsg);
+        }
+        return await res.json();
+    }
+
+    async deletePVC(name, namespace = 'default') {
+        const res = await fetch(`/cluster/storage/pvcs/${name}?namespace=${namespace}`, {
+            method: 'DELETE',
+            headers: this.headers,
+        });
+        if (!res.ok) {
+            let errorMsg = 'Failed to delete PVC';
+            try { errorMsg = (await res.json()).detail || errorMsg; } catch (e) {}
+            throw new Error(errorMsg);
+        }
+        return await res.json();
+    }
+
+    async getStorageClasses() {
+        const res = await fetch('/cluster/storage/classes', { headers: this.headers });
+        if (!res.ok) throw new Error('Failed to fetch storage classes');
+        return await res.json();
+    }
+
+    async getStorageClass(name) {
+        const res = await fetch(`/cluster/storage/classes/${name}`, { headers: this.headers });
+        if (!res.ok) throw new Error('Failed to fetch storage class details');
+        return await res.json();
+    }
 }

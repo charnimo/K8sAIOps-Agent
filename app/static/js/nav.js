@@ -23,6 +23,7 @@ export class NavigationManager {
                     'view-pods': 'pods.html',
                     'view-deployments': 'deployments.html',
                     'view-services': 'services.html',
+                    'view-cluster': 'cluster.html',
                 };
                 
                 const viewName = viewMap[targetId];

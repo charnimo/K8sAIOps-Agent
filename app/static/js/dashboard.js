@@ -5,6 +5,7 @@ import { OverviewController } from './controllers/overviewController.js';
 import { PodsController } from './controllers/podsController.js';
 import { DeploymentsController } from './controllers/deploymentsController.js';
 import { ServicesController } from './controllers/servicesController.js';
+import { ClusterController } from './controllers/clusterController.js';
 import { EventsController } from './controllers/eventsController.js';
 import { LogsController } from './controllers/logsController.js';
 import { SidePanel } from './panel.js';
@@ -22,6 +23,7 @@ class Dashboard {
             'view-pods': new PodsController(this.api, this.sidePanel),
             'view-deployments': new DeploymentsController(this.api, this.sidePanel),
             'view-services': new ServicesController(this.api, this.sidePanel),
+            'view-cluster': new ClusterController(this.api, this.sidePanel),
             'view-events': new EventsController(this.api),
             'view-logs': new LogsController(this.api)
         };
