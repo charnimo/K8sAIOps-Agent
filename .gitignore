@@ -1,1 +1,11 @@
-./__pycache__/
+__pycache__/
+.venv/
+.pytest_cache/
+*.pyc
+*.pyo
+*.pyd
+*.log
+.env
+app.db
+**/images/profiles/
+audit.jsonl

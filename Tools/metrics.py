@@ -267,3 +267,141 @@ def _fmt_node_metrics(item: dict) -> dict:
         "memory":    usage.get("memory", "0"),
     }
 
+
+import os
+import requests
+import subprocess
+import time
+import atexit
+from typing import Dict, Any, Optional
+import logging
+
+logger = logging.getLogger(__name__)
+
+def get_prometheus_url() -> str:
+    """Dynamically retrieve or proxy Prometheus for Minikube environments."""
+    manual_url = os.environ.get("PROMETHEUS_URL")
+    if manual_url:
+        return manual_url
+        
+    try:
+        # Check if port-forward is already running
+        resp = requests.get("http://127.0.0.1:9090/-/ready", timeout=1)
+        if resp.status_code == 200:
+            return "http://127.0.0.1:9090"
+    except Exception:
+        pass
+
+    try:
+        node_ip = subprocess.check_output(
+            ["kubectl", "get", "nodes", "-o", "jsonpath={.items[0].status.addresses[0].address}"],
+            stderr=subprocess.DEVNULL
+        ).decode("utf-8").strip()
+        
+        node_port = subprocess.check_output(
+            ["kubectl", "get", "services", "prometheus-server", "-n", "monitoring", "-o", "jsonpath={.spec.ports[0].nodePort}"],
+            stderr=subprocess.DEVNULL
+        ).decode("utf-8").strip()
+        
+        if node_ip and node_port:
+            url = f"http://{node_ip}:{node_port}"
+            # Test if reachable (will fail on Minikube Linux/Docker without tunnel)
+            try:
+                requests.get(f"{url}/-/ready", timeout=1)
+                return url
+            except requests.exceptions.RequestException:
+                pass
+    except Exception:
+        pass
+        
+    # If we got here, we're likely on Linux Docker driver where Node IP is unroutable.
+    # Automatically spawn a background port-forward process.
+    try:
+        logger.info("Spawning background kubectl port-forward for Prometheus on port 9090...")
+        pf_process = subprocess.Popen(
+            ["kubectl", "port-forward", "-n", "monitoring", "svc/prometheus-server", "9090:80"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        
+        # Kill the port-forward when Uvicorn/app exits
+        atexit.register(lambda: pf_process.terminate())
+        
+        # Wait a brief moment to ensure the tunnel establishes
+        time.sleep(2)
+        return "http://127.0.0.1:9090"
+    except Exception as e:
+        logger.error(f"Failed to auto-start port-forward: {e}")
+
+    return "http://127.0.0.1:9090"
+
+PROMETHEUS_URL = get_prometheus_url()
+
+def query_prometheus(query_expr: str) -> Dict[str, Any]:
+    """Execute an instant query against the Prometheus API."""
+    url = f"{PROMETHEUS_URL}/api/v1/query"
+    try:
+        response = requests.get(url, params={"query": query_expr}, timeout=5)
+        response.raise_for_status()
+        return response.json()
+    except requests.exceptions.RequestException as e:
+        logger.error(f"Prometheus query failed: {e}")
+        return {"status": "error", "error": str(e), "data": None}
+
+def query_prometheus_range(query_expr: str, start: str, end: str, step: str) -> Dict[str, Any]:
+    """Execute a range query (for charts/graphs) against the Prometheus API."""
+    url = f"{PROMETHEUS_URL}/api/v1/query_range"
+    params = {
+        "query": query_expr,
+        "start": start,
+        "end": end,
+        "step": step
+    }
+    try:
+        response = requests.get(url, params=params, timeout=10)
+        response.raise_for_status()
+        return response.json()
+    except requests.exceptions.RequestException as e:
+        logger.error(f"Prometheus range query failed: {e}")
+        return {"status": "error", "error": str(e), "data": None}
+
+def get_pod_metric_history(pod_name: str, namespace: str, metric_type: str = "cpu", duration_mins: int = 60, step: str = "1m"):
+    """Template for a specific Prometheus query: Pod metrics history."""
+    
+    if metric_type == "memory":
+        query = f'sum(container_memory_working_set_bytes{{pod="{pod_name}", namespace="{namespace}"}}) by (pod)'
+    elif metric_type == "network_receive":
+        query = f'sum(rate(container_network_receive_bytes_total{{pod="{pod_name}", namespace="{namespace}"}}[5m])) by (pod)'
+    elif metric_type == "network_transmit":
+        query = f'sum(rate(container_network_transmit_bytes_total{{pod="{pod_name}", namespace="{namespace}"}}[5m])) by (pod)'
+    else: # cpu
+        query = f'sum(rate(container_cpu_usage_seconds_total{{pod="{pod_name}", namespace="{namespace}"}}[5m])) by (pod)'
+    
+    # Calculate start and end times dynamically in UNIX timestamps using Python
+    import time
+    end_time = int(time.time())
+    start_time = end_time - (duration_mins * 60)
+    
+    response = query_prometheus_range(query, str(start_time), str(end_time), step)
+    
+    # If the metrics are missing (common with cAdvisor network metrics on some CNIs/Minikube),
+    # pad the output with zero values so the frontend chart doesn't break or hang.
+    if response and response.get("status") == "success" and response.get("data"):
+        if not response["data"].get("result"):
+            def parse_step_to_seconds(s: str) -> int:
+                unit, val = s[-1], int(s[:-1])
+                if unit == 's': return val
+                if unit == 'm': return val * 60
+                if unit == 'h': return val * 3600
+                if unit == 'd': return val * 86400
+                return val
+            
+            step_secs = parse_step_to_seconds(step)
+            timestamps = list(range(start_time, end_time + 1, step_secs))
+            
+            response["data"]["result"] = [{
+                "metric": {"pod": pod_name, "namespace": namespace, "_synthetic": "true"},
+                "values": [[ts, "0"] for ts in timestamps]
+            }]
+            
+    return response

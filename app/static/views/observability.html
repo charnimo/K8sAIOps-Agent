@@ -1,0 +1,91 @@
+<div class="flex items-center justify-between mb-4 gap-3 flex-wrap">
+   <h2 class="text-lg font-bold text-white tracking-tight flex items-center">
+      <svg class="w-5 h-5 mr-2 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 3v18h18M7 13l3-3 3 2 4-5"></path>
+      </svg>
+      Observability & Diagnostics
+   </h2>
+   <button id="observabilityRefreshBtn" class="bg-cyan-600 hover:bg-cyan-700 text-white text-sm font-medium px-3 py-1.5 rounded-lg border border-cyan-500/40 transition-colors">Refresh</button>
+</div>
+
+<div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6" id="obsSummaryCards"></div>
+
+<div class="space-y-6 mb-10">
+   <section class="bg-gray-850 rounded-xl border border-gray-800 shadow-xl overflow-hidden">
+      <div class="px-6 py-4 border-b border-gray-800"><h3 class="text-white font-semibold">Recent Warning Events</h3></div>
+      <div class="overflow-x-auto">
+         <table class="w-full text-left border-collapse whitespace-nowrap">
+            <thead>
+               <tr class="bg-gray-900 border-b border-gray-700 text-xs uppercase tracking-wider text-gray-400 font-semibold">
+                  <th class="px-6 py-4">Time</th>
+                  <th class="px-6 py-4">Reason</th>
+                  <th class="px-6 py-4">Object</th>
+                  <th class="px-6 py-4">Message</th>
+               </tr>
+            </thead>
+            <tbody class="divide-y divide-gray-800 text-sm text-gray-300" id="warningEventsTableBody"></tbody>
+         </table>
+      </div>
+   </section>
+
+   <section class="bg-gray-850 rounded-xl border border-gray-800 shadow-xl overflow-hidden">
+      <div class="px-6 py-4 border-b border-gray-800"><h3 class="text-white font-semibold">Node Metrics</h3></div>
+      <div class="overflow-x-auto">
+         <table class="w-full text-left border-collapse whitespace-nowrap">
+            <thead>
+               <tr class="bg-gray-900 border-b border-gray-700 text-xs uppercase tracking-wider text-gray-400 font-semibold">
+                  <th class="px-6 py-4">Node</th>
+                  <th class="px-6 py-4">CPU</th>
+                  <th class="px-6 py-4">Memory</th>
+                  <th class="px-6 py-4">Timestamp</th>
+               </tr>
+            </thead>
+            <tbody class="divide-y divide-gray-800 text-sm text-gray-300" id="nodeMetricsTableBody"></tbody>
+         </table>
+      </div>
+   </section>
+
+   <section class="bg-gray-850 rounded-xl border border-gray-800 shadow-xl overflow-hidden">
+      <div class="px-6 py-4 border-b border-gray-800"><h3 class="text-white font-semibold">Pod Metrics</h3></div>
+      <div class="overflow-x-auto">
+         <table class="w-full text-left border-collapse whitespace-nowrap">
+            <thead>
+               <tr class="bg-gray-900 border-b border-gray-700 text-xs uppercase tracking-wider text-gray-400 font-semibold">
+                  <th class="px-6 py-4">Pod</th>
+                  <th class="px-6 py-4">Namespace</th>
+                  <th class="px-6 py-4">Containers</th>
+                  <th class="px-6 py-4">Timestamp</th>
+               </tr>
+            </thead>
+            <tbody class="divide-y divide-gray-800 text-sm text-gray-300" id="podMetricsTableBody"></tbody>
+         </table>
+      </div>
+   </section>
+
+   <section class="bg-gray-850 rounded-xl border border-gray-800 shadow-xl overflow-hidden">
+      <div class="px-6 py-4 border-b border-gray-800"><h3 class="text-white font-semibold">Resource Pressure</h3></div>
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-4 p-4" id="resourcePressureGrid"></div>
+   </section>
+
+   <section class="bg-gray-850 rounded-xl border border-gray-800 shadow-xl overflow-hidden">
+      <div class="px-6 py-4 border-b border-gray-800"><h3 class="text-white font-semibold">Run Diagnostics</h3></div>
+      <div class="p-4 grid grid-cols-1 md:grid-cols-3 gap-4">
+         <div class="space-y-2">
+            <label class="text-xs text-gray-500 uppercase tracking-wider">Pod Name</label>
+            <select id="diagPodName" class="bg-gray-800 border border-gray-700 text-white rounded-lg w-full p-2.5 text-sm"></select>
+            <button id="runPodDiagBtn" class="w-full bg-cyan-600 hover:bg-cyan-700 text-white rounded-lg px-3 py-2 text-sm font-medium transition-colors">Diagnose Pod</button>
+         </div>
+         <div class="space-y-2">
+            <label class="text-xs text-gray-500 uppercase tracking-wider">Deployment Name</label>
+            <select id="diagDeploymentName" class="bg-gray-800 border border-gray-700 text-white rounded-lg w-full p-2.5 text-sm"></select>
+            <button id="runDeploymentDiagBtn" class="w-full bg-cyan-600 hover:bg-cyan-700 text-white rounded-lg px-3 py-2 text-sm font-medium transition-colors">Diagnose Deployment</button>
+         </div>
+         <div class="space-y-2">
+            <label class="text-xs text-gray-500 uppercase tracking-wider">Service Name</label>
+            <select id="diagServiceName" class="bg-gray-800 border border-gray-700 text-white rounded-lg w-full p-2.5 text-sm"></select>
+            <button id="runServiceDiagBtn" class="w-full bg-cyan-600 hover:bg-cyan-700 text-white rounded-lg px-3 py-2 text-sm font-medium transition-colors">Diagnose Service</button>
+         </div>
+      </div>
+      <div id="diagnosticsResultArea" class="p-4 pt-0"></div>
+   </section>
+</div>

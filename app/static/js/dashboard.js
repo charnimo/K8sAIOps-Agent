@@ -1,0 +1,140 @@
+import { NavigationManager } from "./nav.js?v=1776099800";
+import { AuthManager } from './auth.js';
+import { ApiClient } from './api.js?v=1776099800';
+import { ChatDrawer } from './chatDrawer.js?v=1776099800';
+import { OverviewController } from './controllers/overviewController.js';
+import { PodsController } from './controllers/podsController.js';
+import { DeploymentsController } from './controllers/deploymentsController.js';
+import { ServicesController } from './controllers/servicesController.js';
+import { ClusterController } from './controllers/clusterController.js';
+import { WorkloadsController } from './controllers/workloadsController.js';
+import { ConfigurationController } from './controllers/configurationController.js';
+import { ObservabilityController } from './controllers/observabilityController.js';
+import { GovernanceController } from './controllers/governanceController.js';
+import { AuditController } from './controllers/auditController.js';
+import { TerminalController } from './controllers/terminalController.js';
+import { EventsController } from './controllers/eventsController.js';
+import { LogsController } from './controllers/logsController.js';
+import { SidePanel } from './panel.js';
+
+class Dashboard {
+    constructor() {
+        this.auth = new AuthManager();
+        if (!this.auth.getToken()) return;
+
+        this.api = new ApiClient(this.auth.getToken());
+        this.sidePanel = new SidePanel();
+
+        this.controllers = {
+            'view-overview': new OverviewController(this.api),
+            'view-pods': new PodsController(this.api, this.sidePanel),
+            'view-deployments': new DeploymentsController(this.api, this.sidePanel),
+            'view-services': new ServicesController(this.api, this.sidePanel),
+            'view-cluster': new ClusterController(this.api, this.sidePanel),
+            'view-workloads': new WorkloadsController(this.api, this.sidePanel),
+            'view-workloads-statefulsets': new WorkloadsController(this.api, this.sidePanel, 'statefulsets'),
+            'view-workloads-daemonsets': new WorkloadsController(this.api, this.sidePanel, 'daemonsets'),
+            'view-workloads-jobs': new WorkloadsController(this.api, this.sidePanel, 'jobs'),
+            'view-workloads-cronjobs': new WorkloadsController(this.api, this.sidePanel, 'cronjobs'),
+            'view-configuration': new ConfigurationController(this.api, this.sidePanel),
+            'view-observability': new ObservabilityController(this.api, this.sidePanel),
+            'view-governance': new GovernanceController(this.api, this.sidePanel),
+            'view-audit': new AuditController(this.api, this.sidePanel),
+            'view-terminal': new TerminalController(this.api),
+            'view-events': new EventsController(this.api),
+            'view-logs': new LogsController(this.api)
+        };
+
+        this.chatDrawer = new ChatDrawer(this.api, this.auth);
+
+        this.nav = new NavigationManager((viewId) => this.handleViewLoad(viewId));
+        this.activeViewId = 'view-overview';
+
+        this.setupNamespaceSwitcher();
+        window.addEventListener('namespace-changed', () => {
+            this.handleViewLoad(this.activeViewId || 'view-overview');
+        });
+
+        this.startHealthMonitor();
+    }
+
+    startHealthMonitor() {
+        const dot = document.getElementById('clusterHealthDot');
+        const label = document.getElementById('clusterHealthText');
+        if (!dot || !label) return;
+
+        const applyStatus = (status, isReadOnly = false) => {
+            dot.classList.remove('bg-emerald-500', 'bg-amber-500', 'bg-rose-500');
+            dot.classList.remove('shadow-[0_0_8px_rgba(16,185,129,0.8)]', 'shadow-[0_0_8px_rgba(245,158,11,0.8)]', 'shadow-[0_0_8px_rgba(244,63,94,0.8)]');
+
+            if (status === 'healthy' || status === 'ok') {
+                if (isReadOnly) {
+                    dot.classList.add('bg-amber-500', 'shadow-[0_0_8px_rgba(245,158,11,0.8)]');
+                    label.textContent = 'Cluster Read-Only';
+                } else {
+                    dot.classList.add('bg-emerald-500', 'shadow-[0_0_8px_rgba(16,185,129,0.8)]');
+                    label.textContent = 'Cluster Connected';
+                }
+                return;
+            }
+
+            dot.classList.add('bg-rose-500', 'shadow-[0_0_8px_rgba(244,63,94,0.8)]');
+            label.textContent = 'Cluster Degraded';
+        };
+
+        const refreshHealth = async () => {
+            try {
+                const health = await this.api.getHealth();
+                applyStatus(health.status, Boolean(health.read_only_mode));
+            } catch (err) {
+                applyStatus('unhealthy');
+            }
+        };
+
+        refreshHealth();
+        setInterval(refreshHealth, 15000);
+    }
+
+    async setupNamespaceSwitcher() {
+        const select = document.getElementById('activeNamespaceSelect');
+        if (!select) return;
+
+        const current = this.api.getNamespace();
+        try {
+            const namespaces = await this.api.getNamespaces();
+            const list = Array.isArray(namespaces) && namespaces.length ? namespaces : [{ name: 'default' }];
+            select.innerHTML = list.map((ns) => `<option value="${ns.name}">${ns.name}</option>`).join('');
+            if (!list.find((ns) => ns.name === current)) {
+                this.api.setNamespace(list[0].name);
+            }
+            select.value = this.api.getNamespace();
+        } catch (e) {
+            select.innerHTML = '<option value="default">default</option>';
+            select.value = current || 'default';
+        }
+
+        const selectClone = select.cloneNode(true);
+        select.parentNode.replaceChild(selectClone, select);
+        selectClone.addEventListener('change', () => {
+            this.api.setNamespace(selectClone.value || 'default');
+        });
+    }
+
+    handleViewLoad(viewId) {
+        this.activeViewId = viewId;
+        // Unmount all active controllers to cleanup intervals/listeners
+        Object.values(this.controllers).forEach(ctrl => {
+            if (ctrl.unmount) ctrl.unmount();
+        });
+
+        // Initialize/Mount the requested view controller main area
+        const activeController = this.controllers[viewId];
+        if (activeController && activeController.mount) {
+            activeController.mount();
+        }
+    }
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    new Dashboard();
+});

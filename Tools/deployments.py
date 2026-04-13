@@ -88,23 +88,23 @@ def get_deployment_events(name: str, namespace: str = "default") -> list[dict]:
     """Fetch events related to a specific deployment (and its ReplicaSets)."""
     core = get_core_v1()
     try:
-        event_list = core.list_namespaced_event(
-            namespace=namespace,
-            field_selector=f"involvedObject.name={name},involvedObject.kind=Deployment",
-        )
+        event_list = core.list_namespaced_event(namespace=namespace)
     except ApiException as e:
         logger.error(f"Failed to fetch events for deployment {namespace}/{name}: {e}")
         raise
 
     events = []
+    prefix = f"{name}-"
     for ev in event_list.items:
-        events.append({
-            "type":       ev.type,
-            "reason":     ev.reason,
-            "message":    ev.message,
-            "count":      ev.count,
-            "last_time":  fmt_time(ev.last_timestamp),
-        })
+        obj_name = ev.involved_object.name
+        if obj_name and (obj_name == name or obj_name.startswith(prefix)):
+            events.append({
+                "type":       ev.type,
+                "reason":     ev.reason,
+                "message":    ev.message,
+                "count":      ev.count,
+                "last_time":  fmt_time(ev.last_timestamp),
+            })
     return sort_events(events)
 
 
@@ -363,8 +363,12 @@ def patch_resource_limits(
         }
     except ApiException as e:
         logger.error(f"Failed to patch resources for {namespace}/{name}: {e}")
-        audit_patch_resource_limits(name, namespace, target.name, changes, success=False, error=str(e))
-        return {"success": False, "message": str(e)}
+        import json
+        try:
+            err_msg = json.loads(e.body).get("message", str(e))
+        except:
+            err_msg = str(e)
+        return {"success": False, "message": err_msg}
 
 
 def patch_env_var(
@@ -466,21 +470,23 @@ def rollout_status(name: str, namespace: str = "default") -> dict:
         return {"error": str(e)}
 
     spec = dep.spec
-    status = dep.status or {}
+    status = dep.status
 
-    desired = spec.replicas or 1
-    current = status.current_replicas or 0
-    ready = status.ready_replicas or 0
-    updated = status.updated_replicas or 0
-    available = status.available_replicas or 0
+    desired = (spec.replicas or 1) if spec else 1
+    # Some client versions do not expose current_replicas on V1DeploymentStatus.
+    current = getattr(status, "replicas", 0) or 0
+    ready = getattr(status, "ready_replicas", 0) or 0
+    updated = getattr(status, "updated_replicas", 0) or 0
+    available = getattr(status, "available_replicas", 0) or 0
+    conditions = getattr(status, "conditions", None) or []
 
     # Determine rollout status
     if ready == desired and available == desired:
         status_str = "complete"
         message = f"Rollout complete. {ready} of {desired} pods ready."
-    elif status.conditions:
+    elif conditions:
         # Check for failure conditions
-        for cond in status.conditions:
+        for cond in conditions:
             if cond.type == "Progressing" and cond.reason == "ProgressDeadlineExceeded":
                 status_str = "failed"
                 message = f"Rollout failed: {cond.message}"
