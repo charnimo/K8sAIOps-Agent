@@ -46,6 +46,70 @@ export class PodsController {
             
             this.sidePanel.onClose(() => this.eventsCtrl.unmount());
 
+        }, (podName) => {
+            // Exec Click
+            const title = `Exec: ${podName}`;
+            const contentHtml = `
+                <div class="space-y-4">
+                    <p class="text-amber-300 text-sm">Run a diagnostic command inside this pod.</p>
+                    <div>
+                        <label class="block text-sm text-gray-300 mb-1">Command</label>
+                        <input id="podExecCommand" value="printenv | head -n 30" class="bg-gray-800 border border-gray-700 text-white rounded-lg w-full p-2.5 text-sm font-mono"/>
+                    </div>
+                    <button id="runPodExecBtn" class="w-full text-white bg-amber-600 hover:bg-amber-700 rounded-lg px-5 py-2.5 text-sm font-medium transition-colors">Run Command</button>
+                    <section class="bg-gray-950 border border-gray-800 rounded-lg p-3">
+                        <div class="text-sm font-semibold text-white mb-2">Output</div>
+                        <pre id="podExecOutput" class="bg-gray-900 border border-gray-800 rounded p-3 text-xs text-gray-300 overflow-x-auto whitespace-pre-wrap break-all min-h-[140px]">No command executed yet.</pre>
+                    </section>
+                </div>
+            `;
+
+            this.sidePanel.open(title, contentHtml, (containerDOM) => {
+                const runBtn = containerDOM.querySelector('#runPodExecBtn');
+                const commandInput = containerDOM.querySelector('#podExecCommand');
+                const output = containerDOM.querySelector('#podExecOutput');
+
+                runBtn.addEventListener('click', async () => {
+                    const command = commandInput.value.trim();
+                    if (!command) {
+                        window.showToast('Command is required', 'error');
+                        return;
+                    }
+
+                    runBtn.disabled = true;
+                    runBtn.textContent = 'Running...';
+                    output.textContent = 'Executing command...';
+
+                    try {
+                        const result = await this.api.execPodCommand(podName, command);
+                        const stdout = result.stdout || '';
+                        const stderr = result.stderr || '';
+                        const message = result.message || '';
+                        const rc = result.returncode ?? 0;
+
+                        const sections = [];
+                        sections.push(`message: ${message}`);
+                        sections.push(`returncode: ${rc}`);
+                        if (stdout) sections.push(`\nstdout:\n${stdout}`);
+                        if (stderr) sections.push(`\nstderr:\n${stderr}`);
+                        if (!stdout && !stderr) sections.push('\n(no stdout/stderr output)');
+
+                        output.textContent = sections.join('\n');
+                        if (result.success) {
+                            window.showToast(`Command executed in ${podName}`, 'success');
+                        } else {
+                            window.showToast(`Exec failed: ${result.message || 'unknown error'}`, 'error');
+                        }
+                    } catch (e) {
+                        output.textContent = `Execution failed:\n${e.message}`;
+                        window.showToast(`Exec failed: ${e.message}`, 'error');
+                    } finally {
+                        runBtn.disabled = false;
+                        runBtn.textContent = 'Run Command';
+                    }
+                });
+            });
+
         }, async (podName) => {
             // Delete Click
             if (await showConfirmModal({

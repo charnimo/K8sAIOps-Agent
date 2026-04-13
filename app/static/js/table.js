@@ -1,8 +1,9 @@
 export class PodTableManager {
-    constructor(tbodyId, onLogsClick, onEventsClick, onDeleteClick, onMonitorClick, onDetailsClick) {
+    constructor(tbodyId, onLogsClick, onEventsClick, onExecClick, onDeleteClick, onMonitorClick, onDetailsClick) {
         this.tbody = document.getElementById(tbodyId);
         this.onLogsClick = onLogsClick;
         this.onEventsClick = onEventsClick;
+        this.onExecClick = onExecClick;
         this.onDeleteClick = onDeleteClick;
         this.onMonitorClick = onMonitorClick;
         this.onDetailsClick = onDetailsClick;
@@ -191,6 +192,10 @@ export class PodTableManager {
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3M5 11h14M7 21h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
                             <span class="pointer-events-none absolute -top-8 left-1/2 -translate-x-1/2 whitespace-nowrap rounded bg-gray-950 border border-gray-700 px-2 py-1 text-[10px] text-gray-200 opacity-0 group-hover:opacity-100 transition-opacity">Events</span>
                         </button>
+                        <button aria-label="Exec" title="Exec" class="group relative action-btn-exec text-amber-400 hover:text-amber-300 bg-amber-900/30 hover:bg-amber-900/50 border border-amber-800/50 w-8 h-8 rounded transition-colors inline-flex items-center justify-center" data-pod="${pod.name}">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 9l3 3-3 3m5 0h3M5 5h14v14H5z"/></svg>
+                            <span class="pointer-events-none absolute -top-8 left-1/2 -translate-x-1/2 whitespace-nowrap rounded bg-gray-950 border border-gray-700 px-2 py-1 text-[10px] text-gray-200 opacity-0 group-hover:opacity-100 transition-opacity">Exec</span>
+                        </button>
                         <button aria-label="Delete" title="Delete" class="group relative action-btn-delete text-rose-400 hover:text-rose-300 bg-rose-900/30 hover:bg-rose-900/50 border border-rose-800/50 w-8 h-8 rounded transition-colors inline-flex items-center justify-center" data-pod="${pod.name}">
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 7h12M9 7V5a1 1 0 011-1h4a1 1 0 011 1v2m-7 0l1 12h4l1-12"/></svg>
                             <span class="pointer-events-none absolute -top-8 left-1/2 -translate-x-1/2 whitespace-nowrap rounded bg-gray-950 border border-gray-700 px-2 py-1 text-[10px] text-gray-200 opacity-0 group-hover:opacity-100 transition-opacity">Delete</span>
@@ -245,6 +250,14 @@ export class PodTableManager {
             btn.addEventListener("click", (e) => {
                 const podName = e.currentTarget.getAttribute("data-pod");
                 if (this.onEventsClick) this.onEventsClick(podName);
+            });
+        });
+
+        const execBtns = this.tbody.querySelectorAll(".action-btn-exec");
+        execBtns.forEach(btn => {
+            btn.addEventListener("click", (e) => {
+                const podName = e.currentTarget.getAttribute("data-pod");
+                if (this.onExecClick) this.onExecClick(podName);
             });
         });
 
