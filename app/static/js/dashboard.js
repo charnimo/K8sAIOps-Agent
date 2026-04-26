@@ -95,22 +95,99 @@ class Dashboard {
         setInterval(refreshHealth, 15000);
     }
 
+    _extractNamespaceName(item) {
+        if (typeof item === 'string') return item.trim();
+        if (item && typeof item.name === 'string') return item.name.trim();
+        return '';
+    }
+
+    _normalizePermissions(raw) {
+        const normalized = { global: [], namespaces: {} };
+
+        if (!raw || typeof raw !== 'object') {
+            return normalized;
+        }
+
+        if (Array.isArray(raw.global)) {
+            normalized.global = [...new Set(raw.global.filter((item) => typeof item === 'string'))];
+        }
+
+        if (raw.namespaces && typeof raw.namespaces === 'object' && !Array.isArray(raw.namespaces)) {
+            Object.entries(raw.namespaces).forEach(([namespace, perms]) => {
+                if (typeof namespace !== 'string' || !Array.isArray(perms)) return;
+                const clean = [...new Set(perms.filter((item) => typeof item === 'string'))];
+                if (clean.length) {
+                    normalized.namespaces[namespace] = clean;
+                }
+            });
+        }
+
+        return normalized;
+    }
+
     async setupNamespaceSwitcher() {
         const select = document.getElementById('activeNamespaceSelect');
         if (!select) return;
 
         const current = this.api.getNamespace();
+        let options = [];
+
         try {
-            const namespaces = await this.api.getNamespaces();
-            const list = Array.isArray(namespaces) && namespaces.length ? namespaces : [{ name: 'default' }];
-            select.innerHTML = list.map((ns) => `<option value="${ns.name}">${ns.name}</option>`).join('');
-            if (!list.find((ns) => ns.name === current)) {
-                this.api.setNamespace(list[0].name);
+            const me = await this.api.getCurrentUser();
+            const isGodMode = Boolean(me && me.is_god_mode);
+            const perms = this._normalizePermissions(me ? me.permissions : null);
+            const namespacesWithPerms = new Set(Object.keys(perms.namespaces));
+            const canSeeAllNamespaces = isGodMode || perms.global.includes('cluster:namespaces:read');
+
+            if (canSeeAllNamespaces) {
+                let fetchedNamespaces = [];
+                try {
+                    const namespaces = await this.api.getNamespaces();
+                    fetchedNamespaces = Array.isArray(namespaces)
+                        ? namespaces.map((ns) => this._extractNamespaceName(ns)).filter(Boolean)
+                        : [];
+                } catch (e) {
+                    fetchedNamespaces = [];
+                }
+
+                const namespaceSet = new Set(fetchedNamespaces);
+                namespacesWithPerms.forEach((ns) => namespaceSet.add(ns));
+                if (!namespaceSet.size) namespaceSet.add('default');
+
+                options = [...namespaceSet]
+                    .sort((a, b) => a.localeCompare(b))
+                    .map((ns) => ({
+                        value: ns,
+                        label: ns,
+                        disabled: !isGodMode && !namespacesWithPerms.has(ns),
+                    }));
+            } else {
+                options = [...namespacesWithPerms]
+                    .sort((a, b) => a.localeCompare(b))
+                    .map((ns) => ({ value: ns, label: ns, disabled: false }));
+
+                if (!options.length) {
+                    options = [{ value: '', label: 'No accessible namespaces', disabled: true }];
+                }
+            }
+        } catch (e) {
+            options = [{ value: 'default', label: 'default', disabled: false }];
+        }
+
+        select.innerHTML = options
+            .map((opt) => `<option value="${opt.value}"${opt.disabled ? ' disabled' : ''}>${opt.label}</option>`)
+            .join('');
+
+        const enabledOptions = options.filter((opt) => !opt.disabled && opt.value);
+        if (enabledOptions.length) {
+            if (!enabledOptions.find((opt) => opt.value === current)) {
+                this.api.setNamespace(enabledOptions[0].value);
             }
             select.value = this.api.getNamespace();
-        } catch (e) {
-            select.innerHTML = '<option value="default">default</option>';
-            select.value = current || 'default';
+            select.disabled = false;
+        } else {
+            select.value = options[0] ? options[0].value : '';
+            select.disabled = true;
         }
 
         const selectClone = select.cloneNode(true);
