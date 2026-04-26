@@ -1,7 +1,14 @@
+import { installApiPermissionGuards } from './permissions.js';
+
 export class ApiClient {
     constructor(token) {
         this.headers = { 'Authorization': `Bearer ${token}` };
         this.currentNamespace = localStorage.getItem('active_namespace') || 'default';
+        this.permissionManager = null;
+    }
+
+    setPermissionManager(permissionManager) {
+        this.permissionManager = permissionManager || null;
     }
 
     _resolveNamespace(namespace) {
@@ -1185,3 +1192,5 @@ export class ApiClient {
         return await res.json();
     }
 }
+
+installApiPermissionGuards(ApiClient);
