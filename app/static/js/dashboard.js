@@ -24,6 +24,7 @@ class Dashboard {
 
         this.api = new ApiClient(this.auth.getToken());
         this.sidePanel = new SidePanel();
+        this.currentUser = null;
 
         this.controllers = {
             'view-overview': new OverviewController(this.api),
@@ -50,6 +51,7 @@ class Dashboard {
         this.nav = new NavigationManager((viewId) => this.handleViewLoad(viewId));
         this.activeViewId = 'view-overview';
 
+        this.setupPermissionGatedNavigation();
         this.setupNamespaceSwitcher();
         window.addEventListener('namespace-changed', () => {
             this.handleViewLoad(this.activeViewId || 'view-overview');
@@ -95,6 +97,30 @@ class Dashboard {
         setInterval(refreshHealth, 15000);
     }
 
+    async setupPermissionGatedNavigation() {
+        const terminalLink = document.querySelector('.nav-link[data-target="view-terminal"]');
+        if (!terminalLink) return;
+
+        try {
+            const me = await this.api.getCurrentUser();
+            this.currentUser = me;
+
+            const perms = this._normalizePermissions(me ? me.permissions : null);
+            const hasTerminalPermission = Boolean(me && me.is_god_mode)
+                || perms.global.includes('terminal:kubectl:readonly');
+
+            if (!hasTerminalPermission) {
+                terminalLink.classList.add('hidden');
+                terminalLink.setAttribute('aria-hidden', 'true');
+            } else {
+                terminalLink.classList.remove('hidden');
+                terminalLink.removeAttribute('aria-hidden');
+            }
+        } catch (e) {
+            // Keep navigation unchanged on profile fetch failures.
+        }
+    }
+
     _extractNamespaceName(item) {
         if (typeof item === 'string') return item.trim();
         if (item && typeof item.name === 'string') return item.name.trim();
@@ -133,7 +159,8 @@ class Dashboard {
         let options = [];
 
         try {
-            const me = await this.api.getCurrentUser();
+            const me = this.currentUser || await this.api.getCurrentUser();
+            this.currentUser = me;
             const isGodMode = Boolean(me && me.is_god_mode);
             const perms = this._normalizePermissions(me ? me.permissions : null);
             const namespacesWithPerms = new Set(Object.keys(perms.namespaces));
