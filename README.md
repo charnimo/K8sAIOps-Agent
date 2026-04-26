@@ -94,6 +94,10 @@ Run the backend locally:
 uvicorn app.main:app --reload
 ```
 
+Set `SECRET_KEY` to a strong random value in any shared or production environment. If it is omitted, the app generates an ephemeral development-only JWT secret on startup, which invalidates existing tokens after restart.
+
+Cross-origin requests are restricted to local development origins by default. Set `AIOPS_CORS_ORIGINS` to a comma-separated list of trusted origins when serving the UI from another host.
+
 Plaintext secret reads through `/config/secrets/{name}/values` are disabled by default. Enable them only in a trusted environment with `AIOPS_ALLOW_PLAINTEXT_SECRET_READS=true`.
 
 Note: the package directory is `Tools/`, while some files still import `tools` in lowercase. That works on case-insensitive filesystems, but should be normalized before cross-platform release.
