@@ -1,6 +1,8 @@
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordBearer
 from jose import jwt, JWTError
+from sqlalchemy import text
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 import json
 
@@ -13,14 +15,30 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login")
 PERM_CATALOG: dict[str, str] = {}
 PERM_LABELS: dict[str, str] = {}
 
+def _ensure_catalog_schema(db: Session) -> None:
+    rows = db.execute(text("PRAGMA table_info(permission_catalog)")).mappings().all()
+    if not rows:
+        return
+
+    columns = {row["name"] for row in rows}
+    if "scope" not in columns:
+        db.execute(text("ALTER TABLE permission_catalog ADD COLUMN scope VARCHAR DEFAULT 'namespace'"))
+        db.commit()
+
 def _load_catalog():
     db = SessionLocal()
     try:
+        _ensure_catalog_schema(db)
         rows = db.query(PermissionCatalog).filter(PermissionCatalog.enabled == True).all()
+        PERM_CATALOG.clear()
+        PERM_LABELS.clear()
         for r in rows:
             # DB uses 'cluster' for global, 'namespace' for namespaced
             PERM_CATALOG[r.permission_key] = r.scope or "namespace"
             PERM_LABELS[r.permission_key] = r.label or r.permission_key
+    except OperationalError:
+        PERM_CATALOG.clear()
+        PERM_LABELS.clear()
     finally:
         db.close()
 
@@ -48,6 +66,7 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
 
 def require_permission(permission_key: str):
     async def checker(request: Request, user: User = Depends(get_current_user)):
+        _load_catalog()
         if user.is_god_mode:
             return user
 
