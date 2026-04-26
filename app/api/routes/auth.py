@@ -18,6 +18,34 @@ router = APIRouter(prefix="/auth", tags=["Authentication"])
 
 # Define upload directory
 UPLOAD_DIR = "app/static/images/profiles"
+DEFAULT_PERMISSION_NAMESPACE = "default"
+
+DEFAULT_SIGNUP_PERMISSION_KEYS = [
+    "dashboard:read",
+    "cluster:nodes:read",
+    "cluster:namespaces:read",
+    "storage:pvs:read",
+    "storage:classes:read",
+    "observability:read",
+    "terminal:kubectl:readonly",
+    "pods:read",
+    "pods:logs",
+    "deployments:read",
+    "events:read",
+    "services:read",
+    "configmaps:read",
+    "ingresses:read",
+    "storage:pvcs:read",
+    "hpa:read",
+    "resource_quotas:read",
+    "workloads:statefulsets:read",
+    "workloads:daemonsets:read",
+    "workloads:cronjobs:read",
+    "workloads:jobs:read",
+    "network_policies:read",
+    "rbac:read",
+]
+
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 class Token(BaseModel):
@@ -72,6 +100,39 @@ def _effective_permissions(user: User) -> dict:
         return {"is_god_mode": True}
     return _parse_permissions(user.permissions)
 
+
+def _build_default_signup_permissions(db: Session) -> dict:
+    rows = (
+        db.query(PermissionCatalog)
+        .filter(
+            PermissionCatalog.permission_key.in_(DEFAULT_SIGNUP_PERMISSION_KEYS),
+            PermissionCatalog.enabled == True,
+        )
+        .all()
+    )
+
+    by_key = {row.permission_key: row for row in rows}
+    global_permissions: list[str] = []
+    namespace_permissions: list[str] = []
+
+    for key in DEFAULT_SIGNUP_PERMISSION_KEYS:
+        row = by_key.get(key)
+        if not row:
+            continue
+        if (row.scope or "namespace") == "cluster":
+            global_permissions.append(key)
+        else:
+            namespace_permissions.append(key)
+
+    payload = {
+        "global": global_permissions,
+        "namespaces": {},
+    }
+    if namespace_permissions:
+        payload["namespaces"][DEFAULT_PERMISSION_NAMESPACE] = namespace_permissions
+
+    return payload
+
 @router.post("/signup", response_model=dict, summary="Create a new user account")
 def create_user(
     first_name: str = Form(...),
@@ -108,13 +169,15 @@ def create_user(
         profile_picture_path = f"/static/images/profiles/{unique_filename}"
     
     # Save to SQLite
+    default_permissions = _build_default_signup_permissions(db)
     new_user = User(
         first_name=first_name,
         last_name=last_name,
         username=username,
         email=email,
         hashed_password=hashed_pwd,
-        profile_picture=profile_picture_path
+        profile_picture=profile_picture_path,
+        permissions=json.dumps(default_permissions, sort_keys=True),
     )
     
     db.add(new_user)
