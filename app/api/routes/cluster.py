@@ -9,12 +9,13 @@ import tempfile
 from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Query, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, WebSocketDisconnect
 from jose import ExpiredSignatureError, JWTError, jwt
 from sqlalchemy.orm import Session
 
 from Tools import namespaces, nodes, storage
 from app.api.mutations import run_direct_action
+from app.auth.dependencies import require_permission
 from app.auth.security import ALGORITHM, SECRET_KEY
 from app.database.database import SessionLocal
 from app.database.models import User
@@ -260,7 +261,7 @@ async def _stream_process_output(websocket: WebSocket, args: list[str], env: dic
 
 
 @router.get("/nodes")
-def list_nodes() -> list[dict]:
+def list_nodes(user: User = Depends(require_permission("cluster:nodes:read"))) -> list[dict]:
     """List cluster nodes."""
     try:
         return nodes.list_nodes()
@@ -269,7 +270,7 @@ def list_nodes() -> list[dict]:
 
 
 @router.get("/nodes/{name}")
-def get_node(name: str) -> dict:
+def get_node(name: str, user: User = Depends(require_permission("cluster:nodes:read"))) -> dict:
     """Fetch a node summary."""
     try:
         return nodes.get_node(name=name)
@@ -278,7 +279,7 @@ def get_node(name: str) -> dict:
 
 
 @router.get("/nodes/{name}/issues")
-def get_node_issues(name: str) -> dict:
+def get_node_issues(name: str, user: User = Depends(require_permission("cluster:nodes:read"))) -> dict:
     """Return node issue classification."""
     try:
         return nodes.detect_node_issues(name=name)
@@ -287,7 +288,7 @@ def get_node_issues(name: str) -> dict:
 
 
 @router.get("/nodes/{name}/events")
-def get_node_events(name: str) -> list[dict]:
+def get_node_events(name: str, user: User = Depends(require_permission("cluster:nodes:read"))) -> list[dict]:
     """Return node events."""
     try:
         return nodes.get_node_events(name=name)
@@ -296,25 +297,29 @@ def get_node_events(name: str) -> list[dict]:
 
 
 @router.post("/nodes/{name}/cordon")
-def cordon_node(name: str) -> dict:
+def cordon_node(name: str, user: User = Depends(require_permission("cluster:nodes:cordon"))) -> dict:
     """Cordon a node directly."""
     return run_direct_action("cordon_node", name=name)
 
 
 @router.post("/nodes/{name}/uncordon")
-def uncordon_node(name: str) -> dict:
+def uncordon_node(name: str, user: User = Depends(require_permission("cluster:nodes:uncordon"))) -> dict:
     """Uncordon a node directly."""
     return run_direct_action("uncordon_node", name=name)
 
 
 @router.post("/nodes/{name}/drain")
-def drain_node(name: str, payload: NodeDrainRequest) -> dict:
+def drain_node(
+    name: str,
+    payload: NodeDrainRequest,
+    user: User = Depends(require_permission("cluster:nodes:drain")),
+) -> dict:
     """Drain a node directly."""
     return run_direct_action("drain_node", name=name, params=payload.model_dump())
 
 
 @router.get("/namespaces")
-def list_namespaces() -> list[dict]:
+def list_namespaces(user: User = Depends(require_permission("cluster:namespaces:read"))) -> list[dict]:
     """List namespaces."""
     try:
         return namespaces.list_namespaces()
@@ -323,7 +328,7 @@ def list_namespaces() -> list[dict]:
 
 
 @router.get("/namespaces/{name}")
-def get_namespace(name: str) -> dict:
+def get_namespace(name: str, user: User = Depends(require_permission("cluster:namespaces:read"))) -> dict:
     """Fetch a namespace summary."""
     try:
         return namespaces.get_namespace(name=name)
@@ -332,7 +337,10 @@ def get_namespace(name: str) -> dict:
 
 
 @router.get("/namespaces/{name}/resources")
-def get_namespace_resource_count(name: str) -> dict:
+def get_namespace_resource_count(
+    name: str,
+    user: User = Depends(require_permission("cluster:namespaces:read")),
+) -> dict:
     """Return resource counts for a namespace."""
     try:
         return namespaces.get_namespace_resource_count(namespace=name)
@@ -344,6 +352,7 @@ def get_namespace_resource_count(name: str) -> dict:
 def get_namespace_events(
     name: str,
     limit: int = Query(default=100, ge=1, le=500),
+    user: User = Depends(require_permission("cluster:namespaces:read")),
 ) -> list[dict]:
     """Return namespace events."""
     try:
@@ -353,7 +362,10 @@ def get_namespace_events(
 
 
 @router.post("/namespaces")
-def create_namespace(payload: CreateNamespaceRequest) -> dict:
+def create_namespace(
+    payload: CreateNamespaceRequest,
+    user: User = Depends(require_permission("cluster:namespaces:create")),
+) -> dict:
     """Create a namespace directly."""
     params = payload.model_dump()
     name = params.pop("name")
@@ -361,7 +373,10 @@ def create_namespace(payload: CreateNamespaceRequest) -> dict:
 
 
 @router.delete("/namespaces/{name}")
-def delete_namespace(name: str) -> dict:
+def delete_namespace(
+    name: str,
+    user: User = Depends(require_permission("cluster:namespaces:delete")),
+) -> dict:
     """Delete a namespace directly."""
     return run_direct_action("delete_namespace", name=name, namespace=name)
 
@@ -424,7 +439,10 @@ async def cluster_terminal_ws(websocket: WebSocket) -> None:
 
 
 @router.get("/storage/pvs")
-def list_pvs(label_selector: Optional[str] = Query(default=None)) -> list[dict]:
+def list_pvs(
+    label_selector: Optional[str] = Query(default=None),
+    user: User = Depends(require_permission("storage:pvs:read")),
+) -> list[dict]:
     """List persistent volumes."""
     try:
         return storage.list_pvs(label_selector=label_selector)
@@ -433,7 +451,7 @@ def list_pvs(label_selector: Optional[str] = Query(default=None)) -> list[dict]:
 
 
 @router.get("/storage/pvs/{name}")
-def get_pv(name: str) -> dict:
+def get_pv(name: str, user: User = Depends(require_permission("storage:pvs:read"))) -> dict:
     """Fetch a persistent volume summary."""
     try:
         return storage.get_pv(name=name)
@@ -445,6 +463,7 @@ def get_pv(name: str) -> dict:
 def list_pvcs(
     namespace: str = Query(default="default"),
     label_selector: Optional[str] = Query(default=None),
+    user: User = Depends(require_permission("storage:pvcs:read")),
 ) -> list[dict]:
     """List persistent volume claims."""
     try:
@@ -454,7 +473,11 @@ def list_pvcs(
 
 
 @router.get("/storage/pvcs/{name}")
-def get_pvc(name: str, namespace: str = Query(default="default")) -> dict:
+def get_pvc(
+    name: str,
+    namespace: str = Query(default="default"),
+    user: User = Depends(require_permission("storage:pvcs:read")),
+) -> dict:
     """Fetch a persistent volume claim summary."""
     try:
         return storage.get_pvc(name=name, namespace=namespace)
@@ -463,7 +486,11 @@ def get_pvc(name: str, namespace: str = Query(default="default")) -> dict:
 
 
 @router.get("/storage/pvcs/{name}/issues")
-def get_pvc_issues(name: str, namespace: str = Query(default="default")) -> dict:
+def get_pvc_issues(
+    name: str,
+    namespace: str = Query(default="default"),
+    user: User = Depends(require_permission("storage:pvcs:read")),
+) -> dict:
     """Return PVC issue classification."""
     try:
         return storage.detect_pvc_issues(name=name, namespace=namespace)
@@ -472,7 +499,10 @@ def get_pvc_issues(name: str, namespace: str = Query(default="default")) -> dict
 
 
 @router.post("/storage/pvcs")
-def create_pvc(payload: CreatePvcRequest) -> dict:
+def create_pvc(
+    payload: CreatePvcRequest,
+    user: User = Depends(require_permission("storage:pvcs:create")),
+) -> dict:
     """Create a PVC directly."""
     params = payload.model_dump()
     name = params.pop("name")
@@ -481,7 +511,11 @@ def create_pvc(payload: CreatePvcRequest) -> dict:
 
 
 @router.patch("/storage/pvcs/{name}")
-def patch_pvc(name: str, payload: PatchPvcRequest) -> dict:
+def patch_pvc(
+    name: str,
+    payload: PatchPvcRequest,
+    user: User = Depends(require_permission("storage:pvcs:patch")),
+) -> dict:
     """Patch a PVC directly."""
     params = payload.model_dump()
     namespace = params.pop("namespace")
@@ -489,13 +523,19 @@ def patch_pvc(name: str, payload: PatchPvcRequest) -> dict:
 
 
 @router.delete("/storage/pvcs/{name}")
-def delete_pvc(name: str, namespace: str = Query(default="default")) -> dict:
+def delete_pvc(
+    name: str,
+    namespace: str = Query(default="default"),
+    user: User = Depends(require_permission("storage:pvcs:delete")),
+) -> dict:
     """Delete a PVC directly."""
     return run_direct_action("delete_pvc", name=name, namespace=namespace)
 
 
 @router.get("/storage/classes")
-def list_storage_classes() -> list[dict]:
+def list_storage_classes(
+    user: User = Depends(require_permission("storage:classes:read")),
+) -> list[dict]:
     """List storage classes."""
     try:
         return storage.list_storage_classes()
@@ -504,7 +544,10 @@ def list_storage_classes() -> list[dict]:
 
 
 @router.get("/storage/classes/{name}")
-def get_storage_class(name: str) -> dict:
+def get_storage_class(
+    name: str,
+    user: User = Depends(require_permission("storage:classes:read")),
+) -> dict:
     """Fetch a storage class summary."""
     try:
         return storage.get_storage_class(name=name)

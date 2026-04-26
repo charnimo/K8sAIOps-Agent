@@ -2,10 +2,12 @@
 
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from Tools import daemonsets, jobs, statefulsets
 from app.api.mutations import run_direct_action
+from app.auth.dependencies import require_permission
+from app.database.models import User
 from app.schemas.mutations import DaemonSetImageUpdateRequest, ScaleRequest
 
 
@@ -16,9 +18,12 @@ router = APIRouter()
 def list_statefulsets(
     namespace: str = Query(default="default"),
     all_namespaces: bool = Query(default=False),
+    user: User = Depends(require_permission("workloads:statefulsets:read")),
 ) -> list[dict]:
     """List StatefulSets."""
     try:
+        if all_namespaces and not user.is_god_mode:
+            raise HTTPException(status_code=403, detail="all_namespaces requires god-mode")
         if all_namespaces:
             return statefulsets.list_all_statefulsets()
         return statefulsets.list_statefulsets(namespace=namespace)
@@ -27,7 +32,11 @@ def list_statefulsets(
 
 
 @router.get("/statefulsets/{name}")
-def get_statefulset(name: str, namespace: str = Query(default="default")) -> dict:
+def get_statefulset(
+    name: str,
+    namespace: str = Query(default="default"),
+    user: User = Depends(require_permission("workloads:statefulsets:read")),
+) -> dict:
     """Fetch a StatefulSet summary."""
     try:
         return statefulsets.get_statefulset(name=name, namespace=namespace)
@@ -36,7 +45,11 @@ def get_statefulset(name: str, namespace: str = Query(default="default")) -> dic
 
 
 @router.get("/statefulsets/{name}/issues")
-def get_statefulset_issues(name: str, namespace: str = Query(default="default")) -> dict:
+def get_statefulset_issues(
+    name: str,
+    namespace: str = Query(default="default"),
+    user: User = Depends(require_permission("workloads:statefulsets:read")),
+) -> dict:
     """Return StatefulSet issue classification."""
     try:
         return statefulsets.detect_statefulset_issues(name=name, namespace=namespace)
@@ -45,7 +58,12 @@ def get_statefulset_issues(name: str, namespace: str = Query(default="default"))
 
 
 @router.patch("/statefulsets/{name}/scale")
-def scale_statefulset(name: str, payload: ScaleRequest, namespace: str = Query(default="default")) -> dict:
+def scale_statefulset(
+    name: str,
+    payload: ScaleRequest,
+    namespace: str = Query(default="default"),
+    user: User = Depends(require_permission("workloads:statefulsets:scale")),
+) -> dict:
     """Scale a StatefulSet directly."""
     return run_direct_action(
         "scale_statefulset",
@@ -56,7 +74,11 @@ def scale_statefulset(name: str, payload: ScaleRequest, namespace: str = Query(d
 
 
 @router.post("/statefulsets/{name}/restart")
-def restart_statefulset(name: str, namespace: str = Query(default="default")) -> dict:
+def restart_statefulset(
+    name: str,
+    namespace: str = Query(default="default"),
+    user: User = Depends(require_permission("workloads:statefulsets:restart")),
+) -> dict:
     """Restart a StatefulSet directly."""
     return run_direct_action("restart_statefulset", name=name, namespace=namespace)
 
@@ -66,9 +88,12 @@ def list_daemonsets(
     namespace: str = Query(default="default"),
     label_selector: Optional[str] = Query(default=None),
     all_namespaces: bool = Query(default=False),
+    user: User = Depends(require_permission("workloads:daemonsets:read")),
 ) -> list[dict]:
     """List DaemonSets."""
     try:
+        if all_namespaces and not user.is_god_mode:
+            raise HTTPException(status_code=403, detail="all_namespaces requires god-mode")
         if all_namespaces:
             return daemonsets.list_all_daemonsets(label_selector=label_selector)
         return daemonsets.list_daemonsets(namespace=namespace, label_selector=label_selector)
@@ -77,7 +102,11 @@ def list_daemonsets(
 
 
 @router.get("/daemonsets/{name}")
-def get_daemonset(name: str, namespace: str = Query(default="default")) -> dict:
+def get_daemonset(
+    name: str,
+    namespace: str = Query(default="default"),
+    user: User = Depends(require_permission("workloads:daemonsets:read")),
+) -> dict:
     """Fetch a DaemonSet summary."""
     try:
         return daemonsets.get_daemonset(name=name, namespace=namespace)
@@ -86,7 +115,11 @@ def get_daemonset(name: str, namespace: str = Query(default="default")) -> dict:
 
 
 @router.get("/daemonsets/{name}/issues")
-def get_daemonset_issues(name: str, namespace: str = Query(default="default")) -> dict:
+def get_daemonset_issues(
+    name: str,
+    namespace: str = Query(default="default"),
+    user: User = Depends(require_permission("workloads:daemonsets:read")),
+) -> dict:
     """Return DaemonSet issue classification."""
     try:
         return daemonsets.detect_daemonset_issues(name=name, namespace=namespace)
@@ -95,13 +128,21 @@ def get_daemonset_issues(name: str, namespace: str = Query(default="default")) -
 
 
 @router.post("/daemonsets/{name}/restart")
-def restart_daemonset(name: str, namespace: str = Query(default="default")) -> dict:
+def restart_daemonset(
+    name: str,
+    namespace: str = Query(default="default"),
+    user: User = Depends(require_permission("workloads:daemonsets:restart")),
+) -> dict:
     """Restart a DaemonSet directly."""
     return run_direct_action("restart_daemonset", name=name, namespace=namespace)
 
 
 @router.patch("/daemonsets/{name}/image")
-def update_daemonset_image(name: str, payload: DaemonSetImageUpdateRequest) -> dict:
+def update_daemonset_image(
+    name: str,
+    payload: DaemonSetImageUpdateRequest,
+    user: User = Depends(require_permission("workloads:daemonsets:update_image")),
+) -> dict:
     """Update a DaemonSet container image directly."""
     params = payload.model_dump()
     namespace = params.pop("namespace")
@@ -113,9 +154,12 @@ def list_jobs(
     namespace: str = Query(default="default"),
     label_selector: Optional[str] = Query(default=None),
     all_namespaces: bool = Query(default=False),
+    user: User = Depends(require_permission("workloads:jobs:read")),
 ) -> list[dict]:
     """List Jobs."""
     try:
+        if all_namespaces and not user.is_god_mode:
+            raise HTTPException(status_code=403, detail="all_namespaces requires god-mode")
         if all_namespaces:
             return jobs.list_all_jobs(label_selector=label_selector)
         return jobs.list_jobs(namespace=namespace, label_selector=label_selector)
@@ -124,7 +168,11 @@ def list_jobs(
 
 
 @router.get("/jobs/{name}")
-def get_job(name: str, namespace: str = Query(default="default")) -> dict:
+def get_job(
+    name: str,
+    namespace: str = Query(default="default"),
+    user: User = Depends(require_permission("workloads:jobs:read")),
+) -> dict:
     """Fetch a Job summary."""
     try:
         return jobs.get_job(name=name, namespace=namespace)
@@ -133,7 +181,11 @@ def get_job(name: str, namespace: str = Query(default="default")) -> dict:
 
 
 @router.get("/jobs/{name}/issues")
-def get_job_issues(name: str, namespace: str = Query(default="default")) -> dict:
+def get_job_issues(
+    name: str,
+    namespace: str = Query(default="default"),
+    user: User = Depends(require_permission("workloads:jobs:read")),
+) -> dict:
     """Return Job issue classification."""
     try:
         return jobs.detect_job_issues(name=name, namespace=namespace)
@@ -146,6 +198,7 @@ def delete_job(
     name: str,
     namespace: str = Query(default="default"),
     propagation_policy: str = Query(default="Foreground"),
+    user: User = Depends(require_permission("workloads:jobs:delete")),
 ) -> dict:
     """Delete a Job directly."""
     return run_direct_action(
@@ -157,13 +210,21 @@ def delete_job(
 
 
 @router.post("/jobs/{name}/suspend")
-def suspend_job(name: str, namespace: str = Query(default="default")) -> dict:
+def suspend_job(
+    name: str,
+    namespace: str = Query(default="default"),
+    user: User = Depends(require_permission("workloads:jobs:suspend")),
+) -> dict:
     """Suspend a Job directly."""
     return run_direct_action("suspend_job", name=name, namespace=namespace)
 
 
 @router.post("/jobs/{name}/resume")
-def resume_job(name: str, namespace: str = Query(default="default")) -> dict:
+def resume_job(
+    name: str,
+    namespace: str = Query(default="default"),
+    user: User = Depends(require_permission("workloads:jobs:resume")),
+) -> dict:
     """Resume a Job directly."""
     return run_direct_action("resume_job", name=name, namespace=namespace)
 
@@ -172,9 +233,12 @@ def resume_job(name: str, namespace: str = Query(default="default")) -> dict:
 def list_cronjobs(
     namespace: str = Query(default="default"),
     all_namespaces: bool = Query(default=False),
+    user: User = Depends(require_permission("workloads:cronjobs:read")),
 ) -> list[dict]:
     """List CronJobs."""
     try:
+        if all_namespaces and not user.is_god_mode:
+            raise HTTPException(status_code=403, detail="all_namespaces requires god-mode")
         if all_namespaces:
             return jobs.list_all_cronjobs()
         return jobs.list_cronjobs(namespace=namespace)
@@ -183,7 +247,11 @@ def list_cronjobs(
 
 
 @router.get("/cronjobs/{name}")
-def get_cronjob(name: str, namespace: str = Query(default="default")) -> dict:
+def get_cronjob(
+    name: str,
+    namespace: str = Query(default="default"),
+    user: User = Depends(require_permission("workloads:cronjobs:read")),
+) -> dict:
     """Fetch a CronJob summary."""
     try:
         return jobs.get_cronjob(name=name, namespace=namespace)
@@ -192,12 +260,20 @@ def get_cronjob(name: str, namespace: str = Query(default="default")) -> dict:
 
 
 @router.post("/cronjobs/{name}/suspend")
-def suspend_cronjob(name: str, namespace: str = Query(default="default")) -> dict:
+def suspend_cronjob(
+    name: str,
+    namespace: str = Query(default="default"),
+    user: User = Depends(require_permission("workloads:cronjobs:suspend")),
+) -> dict:
     """Suspend a CronJob directly."""
     return run_direct_action("suspend_cronjob", name=name, namespace=namespace)
 
 
 @router.post("/cronjobs/{name}/resume")
-def resume_cronjob(name: str, namespace: str = Query(default="default")) -> dict:
+def resume_cronjob(
+    name: str,
+    namespace: str = Query(default="default"),
+    user: User = Depends(require_permission("workloads:cronjobs:resume")),
+) -> dict:
     """Resume a CronJob directly."""
     return run_direct_action("resume_cronjob", name=name, namespace=namespace)

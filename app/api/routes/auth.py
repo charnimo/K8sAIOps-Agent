@@ -11,7 +11,7 @@ import uuid
 
 from app.database.database import get_db
 from app.database.models import PermissionCatalog, User
-from app.auth.dependencies import get_current_user
+from app.auth.dependencies import require_permission
 from app.auth.security import verify_password, get_password_hash, create_access_token, ACCESS_TOKEN_EXPIRE_MINUTES
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
@@ -148,26 +148,26 @@ def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(), db:
 
 
 @router.get("/me", response_model=dict, summary="Get current user profile")
-def get_me(current_user: User = Depends(get_current_user)):
+def get_me(user: User = Depends(require_permission("dashboard:read"))):
     return {
-        "id": current_user.id,
-        "username": current_user.username,
-        "is_god_mode": bool(current_user.is_god_mode),
-        "permissions": _parse_permissions(current_user.permissions),
-        "effective_permissions": _effective_permissions(current_user),
-        "first_name": current_user.first_name,
-        "last_name": current_user.last_name,
-        "email": current_user.email,
-        "profile_picture": current_user.profile_picture,
+        "id": user.id,
+        "username": user.username,
+        "is_god_mode": bool(user.is_god_mode),
+        "permissions": _parse_permissions(user.permissions),
+        "effective_permissions": _effective_permissions(user),
+        "first_name": user.first_name,
+        "last_name": user.last_name,
+        "email": user.email,
+        "profile_picture": user.profile_picture,
     }
 
 
 @router.get("/permissions/catalog", response_model=list[dict], summary="Get permission catalog")
 def get_permission_catalog(
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    user: User = Depends(require_permission("dashboard:read")),
 ):
-    _ = current_user
+    _ = user
     rows = (
         db.query(PermissionCatalog)
         .filter(PermissionCatalog.enabled == True)
@@ -189,9 +189,9 @@ def get_permission_catalog(
 @router.get("/users", response_model=list[dict], summary="List users (god-mode only)")
 def list_users(
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    user: User = Depends(require_permission("dashboard:read")),
 ):
-    if not current_user.is_god_mode:
+    if not user.is_god_mode:
         raise HTTPException(status_code=403, detail="Only god-mode admins can list users.")
 
     rows = db.query(User).order_by(User.username.asc()).all()
@@ -215,9 +215,9 @@ def toggle_user_permission(
     permission_key: str,
     namespace: Optional[str] = Query(default=None),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    user: User = Depends(require_permission("dashboard:read")),
 ):
-    if not current_user.is_god_mode:
+    if not user.is_god_mode:
         raise HTTPException(status_code=403, detail="Only god-mode admins can change permissions.")
 
     target = db.query(User).filter(User.id == user_id).first()

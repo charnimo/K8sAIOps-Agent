@@ -2,9 +2,11 @@
 
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 
+from app.auth.dependencies import require_permission
 from app.core.settings import get_settings
+from app.database.models import User
 from app.schemas.api import ActionRequestCreate
 from app.services.actions import ACTION_HANDLERS, execute_action_request
 from app.state.store import (
@@ -19,19 +21,28 @@ router = APIRouter()
 
 
 @router.post("/action-requests")
-def create_action(payload: ActionRequestCreate) -> dict:
+def create_action(
+    payload: ActionRequestCreate,
+    user: User = Depends(require_permission("dashboard:read")),
+) -> dict:
     """Create a pending action request."""
     return create_action_request(payload.model_dump())
 
 
 @router.get("/action-requests")
-def list_actions(status: Optional[str] = Query(default=None)) -> list[dict]:
+def list_actions(
+    status: Optional[str] = Query(default=None),
+    user: User = Depends(require_permission("dashboard:read")),
+) -> list[dict]:
     """List action requests, optionally filtered by status."""
     return list_action_requests(status=status)
 
 
 @router.get("/action-requests/{action_id}")
-def get_action(action_id: str) -> dict:
+def get_action(
+    action_id: str,
+    user: User = Depends(require_permission("dashboard:read")),
+) -> dict:
     """Fetch a single action request."""
     record = get_action_request(action_id)
     if record is None:
@@ -40,13 +51,16 @@ def get_action(action_id: str) -> dict:
 
 
 @router.get("/action-types")
-def get_action_types() -> dict:
+def get_action_types(user: User = Depends(require_permission("dashboard:read"))) -> dict:
     """List supported approval-gated action types."""
     return {"action_types": sorted(ACTION_HANDLERS)}
 
 
 @router.post("/action-requests/{action_id}/approve")
-def approve_action(action_id: str) -> dict:
+def approve_action(
+    action_id: str,
+    user: User = Depends(require_permission("dashboard:read")),
+) -> dict:
     """Approve and execute an action request if mutations are enabled."""
     settings = get_settings()
     if settings.read_only_mode or not settings.mutations_enabled:
@@ -70,7 +84,10 @@ def approve_action(action_id: str) -> dict:
 
 
 @router.post("/action-requests/{action_id}/reject")
-def reject_action(action_id: str) -> dict:
+def reject_action(
+    action_id: str,
+    user: User = Depends(require_permission("dashboard:read")),
+) -> dict:
     """Reject a pending action request."""
     record = get_action_request(action_id)
     if record is None:
