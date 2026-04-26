@@ -105,13 +105,13 @@
     </nav>
 
     <!-- Main Content -->
-    <div class="container mx-auto px-4 mt-16 max-w-5xl relative z-10">
+    <div class="container mx-auto px-4 mt-8 max-w-7xl relative z-10">
         <header class="mb-8 text-center">
             <h1 class="text-4xl font-extrabold text-white tracking-tight">User Profile</h1>
             <p class="text-gray-400 mt-2">View your account details and permissions.</p>
         </header>
 
-        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div class="grid grid-cols-1 lg:grid-cols-4 gap-6">
             <section class="bg-gray-850 rounded-xl border border-gray-800 shadow-2xl p-8 text-center flex flex-col items-center justify-center min-h-[350px]">
                 <div class="w-24 h-24 mb-5 rounded-full bg-gradient-to-tr from-blue-600 to-indigo-600 flex items-center justify-center shadow-lg border-4 border-gray-800 relative overflow-hidden">
                     <img id="profileAvatar" src="" alt="Profile avatar" class="w-full h-full object-cover hidden">
@@ -122,7 +122,7 @@
                 <p class="text-xs text-gray-500" id="profileEmail">-</p>
             </section>
 
-            <section class="lg:col-span-2 bg-gray-850 rounded-xl border border-gray-800 shadow-2xl p-6">
+            <section class="lg:col-span-3 bg-gray-850 rounded-xl border border-gray-800 shadow-2xl p-6">
                 <div class="flex items-center justify-between gap-3 mb-4">
                     <h3 class="text-lg font-semibold text-white">Permissions</h3>
                     <span id="permissionsModeBadge" class="text-xs px-2.5 py-1 rounded border border-gray-700 text-gray-300">Read-only</span>
@@ -146,7 +146,16 @@
                         </div>
                     </div>
                     <div id="adminUserInfo" class="text-xs text-gray-400"></div>
-                    <div id="permissionToggleList" class="space-y-2 max-h-[440px] overflow-y-auto pr-1"></div>
+                    <div id="namespaceScopeControls" class="rounded-xl border border-gray-800 bg-gray-900/45 p-3">
+                        <label class="block text-xs uppercase tracking-wide text-gray-400 mb-2">Permission Scope</label>
+                        <select id="permissionNamespaceSelect" class="bg-gray-800 border border-gray-700 text-white rounded-lg w-full p-2 text-sm"></select>
+                        <p class="mt-2 text-[11px] text-gray-500">Choose "Global" for cluster-wide permissions, or pick a namespace.</p>
+                    </div>
+                    <div class="relative">
+                        <input id="permissionSearch" type="text" placeholder="Search permissions..." class="bg-gray-800 border border-gray-700 text-white rounded-lg w-full p-2.5 pl-9 text-sm focus:ring-2 focus:ring-cyan-500 focus:border-transparent">
+                        <svg class="w-4 h-4 absolute left-3 top-3 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+                    </div>
+                    <div id="permissionToggleList" class="space-y-3 max-h-[68vh] overflow-y-auto pr-2"></div>
                 </div>
 
                 <div id="selfPermissionPanel" class="space-y-3">
@@ -166,7 +175,7 @@
                     </div>
 
                     <div class="text-sm text-gray-400 mt-1">My access scope:</div>
-                    <div id="selfPermissionGroups" class="space-y-3 max-h-[430px] overflow-y-auto pr-1"></div>
+                    <div id="selfPermissionGroups" class="space-y-3 max-h-[60vh] overflow-y-auto pr-1"></div>
                 </div>
             </section>
         </div>
@@ -195,14 +204,20 @@
     <div class="fixed bottom-[-20%] right-[-10%] w-[50%] h-[50%] bg-indigo-900 rounded-full blur-[150px] opacity-20 pointer-events-none z-0"></div>
 
     <script>
-        const token = localStorage.getItem("jwt_token");
-        const authHeaders = token ? { 'Authorization': `Bearer ${token}` } : {};
+        const token = localStorage.getItem('jwt_token');
+        const authHeaders = token ? { Authorization: `Bearer ${token}` } : {};
         const DANGER_SUPPRESS_KEY = 'danger_permission_confirm_suppressed';
+        const PERMISSION_NS_KEY = 'permission_admin_namespace';
+        const DEFAULT_NAMESPACE = 'default';
+        const GLOBAL_SCOPE = '__global__';
+
         let me = null;
         let users = [];
         let catalog = [];
+        let availableNamespaces = [];
+        let permissionSearchTerm = '';
 
-        function parseJwt (token) {
+        function parseJwt(token) {
             try {
                 return JSON.parse(atob(token.split('.')[1]));
             } catch (e) {
@@ -211,8 +226,8 @@
         }
 
         function parsePermissionDomain(key) {
-            const parts = key.split(':');
-            return parts.length > 1 ? parts.slice(0, -1).join(':') : key;
+            const parts = String(key || '').split(':');
+            return parts.length > 1 ? parts.slice(0, -1).join(':') : String(key || '');
         }
 
         function titleize(text) {
@@ -226,6 +241,35 @@
                 .join(' ');
         }
 
+        function normalizePermissionPayload(raw) {
+            const normalized = { global: [], namespaces: {} };
+
+            if (Array.isArray(raw)) {
+                normalized.global = [...new Set(raw.filter((item) => typeof item === 'string'))].sort();
+                return normalized;
+            }
+
+            if (!raw || typeof raw !== 'object') {
+                return normalized;
+            }
+
+            if (Array.isArray(raw.global)) {
+                normalized.global = [...new Set(raw.global.filter((item) => typeof item === 'string'))].sort();
+            }
+
+            if (raw.namespaces && typeof raw.namespaces === 'object' && !Array.isArray(raw.namespaces)) {
+                Object.entries(raw.namespaces).forEach(([namespace, perms]) => {
+                    if (typeof namespace !== 'string' || !Array.isArray(perms)) return;
+                    const clean = [...new Set(perms.filter((item) => typeof item === 'string'))].sort();
+                    if (clean.length) {
+                        normalized.namespaces[namespace] = clean;
+                    }
+                });
+            }
+
+            return normalized;
+        }
+
         function permissionLabel(entryOrKey) {
             if (entryOrKey && typeof entryOrKey === 'object') {
                 if (entryOrKey.label) return entryOrKey.label;
@@ -234,16 +278,18 @@
 
             const key = String(entryOrKey || '');
             const found = catalog.find((item) => item.permission_key === key);
-            if (found?.label) return found.label;
+            if (found && found.label) return found.label;
             return titleize(key);
         }
 
         function permissionMeta(key) {
             const found = catalog.find((item) => item.permission_key === key);
             return {
+                key,
                 label: permissionLabel(key),
-                description: found?.description || '',
-                isDangerous: !!found?.is_dangerous,
+                description: found && found.description ? found.description : '',
+                isDangerous: !!(found && found.is_dangerous),
+                scope: found && found.scope === 'cluster' ? 'cluster' : 'namespace',
                 domain: parsePermissionDomain(key),
             };
         }
@@ -274,6 +320,23 @@
             imageEl.src = src;
         }
 
+        function buildSelfPermissionRow(entry, namespace) {
+            const row = document.createElement('div');
+            row.className = 'p-2.5 rounded-lg border ' + (entry.isDangerous ? 'border-rose-800/40 bg-rose-900/10' : 'border-gray-800 bg-gray-900/50');
+            row.innerHTML = `
+                <div class="flex items-center justify-between gap-3">
+                    <div class="text-sm text-gray-100">${entry.label}</div>
+                    <div class="flex items-center gap-1.5">
+                        ${namespace ? `<span class="text-[10px] uppercase tracking-wide px-2 py-0.5 rounded border border-cyan-700/40 text-cyan-300">${namespace}</span>` : '<span class="text-[10px] uppercase tracking-wide px-2 py-0.5 rounded border border-indigo-700/40 text-indigo-300">Global</span>'}
+                        ${entry.isDangerous ? '<span class="text-[10px] uppercase tracking-wide px-2 py-0.5 rounded border border-rose-700/50 text-rose-300">Dangerous</span>' : ''}
+                    </div>
+                </div>
+                <div class="text-[11px] text-gray-500 mt-1">Domain: ${titleize(entry.domain)}</div>
+                ${entry.description ? `<div class="text-xs text-gray-500 mt-1">${entry.description}</div>` : ''}
+            `;
+            return row;
+        }
+
         function renderSelfPermissions() {
             const grantedEl = document.getElementById('selfGrantedCount');
             const domainEl = document.getElementById('selfDomainCount');
@@ -293,8 +356,18 @@
 
             statsEl.classList.remove('hidden');
 
-            const perms = Array.isArray(me.permissions) ? me.permissions : [];
-            if (!perms.length) {
+            const perms = normalizePermissionPayload(me.permissions);
+            const globalEntries = perms.global.map((key) => ({ ...permissionMeta(key), namespace: null }));
+            const namespaceEntries = [];
+
+            Object.keys(perms.namespaces).sort((a, b) => a.localeCompare(b)).forEach((ns) => {
+                perms.namespaces[ns].forEach((key) => {
+                    namespaceEntries.push({ ...permissionMeta(key), namespace: ns });
+                });
+            });
+
+            const allEntries = [...globalEntries, ...namespaceEntries];
+            if (!allEntries.length) {
                 grantedEl.textContent = '0';
                 domainEl.textContent = '0';
                 dangerEl.textContent = '0';
@@ -302,44 +375,42 @@
                 return;
             }
 
-            const metas = perms.map((key) => ({ key, ...permissionMeta(key) }));
-            const dangerousCount = metas.filter((m) => m.isDangerous).length;
-            const grouped = {};
-            metas.forEach((meta) => {
-                if (!grouped[meta.domain]) grouped[meta.domain] = [];
-                grouped[meta.domain].push(meta);
-            });
+            const domainSet = new Set(allEntries.map((entry) => entry.domain));
+            const dangerousCount = allEntries.filter((entry) => entry.isDangerous).length;
 
-            grantedEl.textContent = String(metas.length);
-            domainEl.textContent = String(Object.keys(grouped).length);
+            grantedEl.textContent = String(allEntries.length);
+            domainEl.textContent = String(domainSet.size);
             dangerEl.textContent = String(dangerousCount);
 
-            Object.keys(grouped).sort().forEach((domain) => {
-                const section = document.createElement('section');
-                section.className = 'rounded-xl border border-gray-800 bg-gray-900/35 overflow-hidden';
+            if (globalEntries.length) {
+                const globalSection = document.createElement('section');
+                globalSection.className = 'rounded-xl border border-gray-800 bg-gray-900/35 overflow-hidden';
+                globalSection.innerHTML = '<div class="px-4 py-2.5 border-b border-gray-800 bg-gray-900/70"><h4 class="text-sm font-semibold text-indigo-300">Cluster-Wide Permissions</h4></div>';
+                const globalBody = document.createElement('div');
+                globalBody.className = 'p-3 space-y-2';
+                globalEntries.sort((a, b) => a.label.localeCompare(b.label)).forEach((entry) => {
+                    globalBody.appendChild(buildSelfPermissionRow(entry, null));
+                });
+                globalSection.appendChild(globalBody);
+                groupsEl.appendChild(globalSection);
+            }
 
-                const head = document.createElement('div');
-                head.className = 'px-4 py-2.5 border-b border-gray-800 bg-gray-900/70';
-                head.innerHTML = `<h4 class="text-sm font-semibold text-indigo-300">${titleize(domain)}</h4>`;
+            Object.keys(perms.namespaces).sort((a, b) => a.localeCompare(b)).forEach((namespace) => {
+                const keys = perms.namespaces[namespace];
+                if (!Array.isArray(keys) || !keys.length) return;
 
-                const body = document.createElement('div');
-                body.className = 'p-3 space-y-2';
-                grouped[domain].sort((a, b) => a.label.localeCompare(b.label)).forEach((entry) => {
-                    const row = document.createElement('div');
-                    row.className = 'p-2.5 rounded-lg border ' + (entry.isDangerous ? 'border-rose-800/40 bg-rose-900/10' : 'border-gray-800 bg-gray-900/50');
-                    row.innerHTML = `
-                        <div class="flex items-center justify-between gap-3">
-                            <div class="text-sm text-gray-100">${entry.label}</div>
-                            ${entry.isDangerous ? '<span class="text-[10px] uppercase tracking-wide px-2 py-0.5 rounded border border-rose-700/50 text-rose-300">Dangerous</span>' : ''}
-                        </div>
-                        ${entry.description ? `<div class="text-xs text-gray-500 mt-1">${entry.description}</div>` : ''}
-                    `;
-                    body.appendChild(row);
+                const nsSection = document.createElement('section');
+                nsSection.className = 'rounded-xl border border-gray-800 bg-gray-900/35 overflow-hidden';
+                nsSection.innerHTML = `<div class="px-4 py-2.5 border-b border-gray-800 bg-gray-900/70"><h4 class="text-sm font-semibold text-cyan-300">Namespace: ${namespace}</h4></div>`;
+                const nsBody = document.createElement('div');
+                nsBody.className = 'p-3 space-y-2';
+
+                keys.map((key) => permissionMeta(key)).sort((a, b) => a.label.localeCompare(b.label)).forEach((entry) => {
+                    nsBody.appendChild(buildSelfPermissionRow(entry, namespace));
                 });
 
-                section.appendChild(head);
-                section.appendChild(body);
-                groupsEl.appendChild(section);
+                nsSection.appendChild(nsBody);
+                groupsEl.appendChild(nsSection);
             });
         }
 
@@ -375,8 +446,17 @@
             });
         }
 
-        async function togglePermissionForUser(userId, entry) {
-            const res = await fetch(`/auth/users/${userId}/permissions/${encodeURIComponent(entry.permission_key)}/toggle`, {
+        async function togglePermissionForUser(userId, entry, namespace) {
+            let url = `/auth/users/${userId}/permissions/${encodeURIComponent(entry.permission_key)}/toggle`;
+            if (entry.scope === 'namespace') {
+                const ns = String(namespace || '').trim();
+                if (!ns) {
+                    throw new Error('Select a namespace before toggling namespace-scoped permissions.');
+                }
+                url += `?namespace=${encodeURIComponent(ns)}`;
+            }
+
+            const res = await fetch(url, {
                 method: 'PATCH',
                 headers: authHeaders,
             });
@@ -414,8 +494,154 @@
             });
         }
 
+        function isPermissionAssigned(userPerms, entry, activeNamespace) {
+            if (entry.scope === 'cluster') {
+                return userPerms.global.includes(entry.permission_key);
+            }
+            const nsPerms = userPerms.namespaces[activeNamespace];
+            return Array.isArray(nsPerms) && nsPerms.includes(entry.permission_key);
+        }
+
+        function extractNamespaceName(item) {
+            if (typeof item === 'string') return item.trim();
+            if (item && typeof item.name === 'string') return item.name.trim();
+            return '';
+        }
+
+        async function loadNamespaces() {
+            const namespaceSet = new Set([DEFAULT_NAMESPACE]);
+
+            const currentNs = localStorage.getItem('active_namespace');
+            if (currentNs) namespaceSet.add(currentNs);
+
+            users.forEach((user) => {
+                const perms = normalizePermissionPayload(user.permissions);
+                Object.keys(perms.namespaces).forEach((ns) => namespaceSet.add(ns));
+            });
+
+            try {
+                const res = await fetch('/cluster/namespaces', { headers: authHeaders });
+                const data = await res.json().catch(() => []);
+                if (res.ok && Array.isArray(data)) {
+                    data.map(extractNamespaceName).filter(Boolean).forEach((ns) => namespaceSet.add(ns));
+                }
+            } catch (e) {
+                // Fall back to namespaces already known in user assignments.
+            }
+
+            availableNamespaces = [...namespaceSet].sort((a, b) => a.localeCompare(b));
+            if (!availableNamespaces.length) {
+                availableNamespaces = [DEFAULT_NAMESPACE];
+            }
+        }
+
+        function renderNamespaceSelector() {
+            const namespaceSelect = document.getElementById('permissionNamespaceSelect');
+            if (!namespaceSelect) return GLOBAL_SCOPE;
+
+            const preferred = namespaceSelect.value || localStorage.getItem(PERMISSION_NS_KEY) || GLOBAL_SCOPE;
+            const options = ['<option value="__global__">Global (Cluster-wide)</option>'].concat(
+                availableNamespaces.map(ns => `<option value="${ns}">${ns}</option>`)
+            );
+            namespaceSelect.innerHTML = options.join('');
+
+            const selected = preferred === GLOBAL_SCOPE || availableNamespaces.includes(preferred) ? preferred : GLOBAL_SCOPE;
+            namespaceSelect.value = selected;
+            return selected;
+        }
+
+        function renderAdminPermissionGroup(title, toneClass, entries, selectedUser, selectedPerms, activeNamespace, listElement) {
+            if (!entries.length) return;
+
+            // filter by search
+            const filtered = permissionSearchTerm ? entries.filter(e => {
+                const term = permissionSearchTerm;
+                return e.permission_key.toLowerCase().includes(term) ||
+                       (e.label && e.label.toLowerCase().includes(term)) ||
+                       (e.description && e.description.toLowerCase().includes(term));
+            }) : entries;
+
+            if (!filtered.length) return;
+
+            const groups = {};
+            filtered.forEach((entry) => {
+                const domain = parsePermissionDomain(entry.permission_key);
+                if (!groups[domain]) groups[domain] = [];
+                groups[domain].push(entry);
+            });
+
+            Object.keys(groups).sort().forEach((domainKey) => {
+                const block = document.createElement('section');
+                block.className = 'border border-gray-800 rounded-xl bg-gray-900/30 overflow-hidden';
+
+                const header = document.createElement('div');
+                header.className = 'px-4 py-2.5 border-b border-gray-800 bg-gray-900/60';
+                header.innerHTML = `<div class="flex items-center justify-between gap-2"><h4 class="text-sm font-semibold ${toneClass}">${titleize(domainKey)}</h4>${filtered[0].scope === 'namespace' ? `<span class="text-[10px] uppercase tracking-wide px-2 py-0.5 rounded border border-cyan-700/50 text-cyan-300">${activeNamespace}</span>` : '<span class="text-[10px] uppercase tracking-wide px-2 py-0.5 rounded border border-indigo-700/50 text-indigo-300">Global</span>'}</div>`;
+
+                const content = document.createElement('div');
+                content.className = 'p-3 grid grid-cols-1 xl:grid-cols-2 gap-2.5';
+
+                groups[domainKey]
+                    .sort((a, b) => {
+                        if (a.is_dangerous !== b.is_dangerous) return a.is_dangerous ? 1 : -1;
+                        return permissionLabel(a).localeCompare(permissionLabel(b));
+                    })
+                    .forEach((entry) => {
+                        const row = document.createElement('div');
+                        row.className = 'flex items-start justify-between gap-3 p-3 border rounded-lg ' + (entry.is_dangerous ? 'border-rose-800/40 bg-rose-900/10' : 'border-gray-800 bg-gray-900/40');
+
+                        const left = document.createElement('div');
+                        left.className = 'min-w-0 flex-1';
+                        left.innerHTML = `
+                            <div class="text-sm text-gray-100">${permissionLabel(entry)}</div>
+                            <div class="text-xs text-gray-500 leading-snug break-words">${entry.description || ''}</div>
+                        `;
+
+                        const namespaceForToggle = entry.scope === 'namespace' ? activeNamespace : null;
+                        const enabled = isPermissionAssigned(selectedPerms, entry, activeNamespace);
+                        const toggle = buildToggleSwitch(enabled, !!selectedUser.is_god_mode);
+                        toggle.classList.add('mt-0.5','flex-shrink-0');
+
+                        toggle.addEventListener('click', async () => {
+                            const nextEnabled = !enabled;
+                            if (entry.is_dangerous && nextEnabled) {
+                                const suppressPrompts = sessionStorage.getItem(DANGER_SUPPRESS_KEY) === '1';
+                                if (!suppressPrompts) {
+                                    const modalResult = await showDangerConfirm(`You are about to toggle dangerous permission: ${permissionLabel(entry)}`);
+                                    if (!modalResult.confirmed) return;
+                                    if (modalResult.suppressForSession) {
+                                        sessionStorage.setItem(DANGER_SUPPRESS_KEY, '1');
+                                    }
+                                }
+                            }
+
+                            setToggleVisual(toggle, nextEnabled);
+                            try {
+                                await togglePermissionForUser(selectedUser.id, entry, namespaceForToggle);
+                                await new Promise((resolve) => setTimeout(resolve, 180));
+                                await loadUsers();
+                                renderAdminPanel();
+                                renderSelfPermissions();
+                            } catch (e) {
+                                setToggleVisual(toggle, enabled);
+                                alert(e.message);
+                            }
+                        });
+
+                        row.appendChild(left);
+                        row.appendChild(toggle);
+                        content.appendChild(row);
+                    });
+
+                block.appendChild(header);
+                block.appendChild(content);
+                listElement.appendChild(block);
+            });
+        }
+
         function renderAdminPanel() {
             const userSelect = document.getElementById('userSelect');
+            const namespaceSelect = document.getElementById('permissionNamespaceSelect');
             const info = document.getElementById('adminUserInfo');
             const list = document.getElementById('permissionToggleList');
             const userCard = document.getElementById('selectedUserCard');
@@ -426,6 +652,8 @@
 
             const selectedId = Number(userSelect.value || 0);
             const selectedUser = users.find((u) => u.id === selectedId);
+            const activeScope = namespaceSelect ? namespaceSelect.value : GLOBAL_SCOPE;
+
             if (!selectedUser) {
                 list.innerHTML = '<div class="text-sm text-gray-500">Select a user.</div>';
                 info.textContent = '';
@@ -433,107 +661,67 @@
                 return;
             }
 
+            const selectedPerms = normalizePermissionPayload(selectedUser.permissions);
+
             userCard.classList.remove('hidden');
             userName.textContent = selectedUser.username || '-';
             userEmail.textContent = selectedUser.email || '-';
             setAvatar(userAvatar, userInitials, selectedUser.username, selectedUser.profile_picture);
 
-            info.textContent = selectedUser.is_god_mode
-                ? 'God-mode user: permissions are implicit and cannot be modified.'
-                : `Editing permissions for ${selectedUser.username}`;
-
-            const assigned = new Set(Array.isArray(selectedUser.permissions) ? selectedUser.permissions : []);
-            const groups = {};
-            catalog.forEach((entry) => {
-                const domain = parsePermissionDomain(entry.permission_key);
-                if (!groups[domain]) groups[domain] = [];
-                groups[domain].push(entry);
-            });
+            if (selectedUser.is_god_mode) {
+                info.textContent = 'God-mode user: permissions are implicit and cannot be modified.';
+            } else if (activeScope === GLOBAL_SCOPE) {
+                info.textContent = `Editing GLOBAL permissions for ${selectedUser.username}`;
+            } else {
+                info.textContent = `Editing NAMESPACE permissions for ${selectedUser.username} — namespace: ${activeScope}`;
+            }
 
             list.innerHTML = '';
-            Object.keys(groups).sort().forEach((domainKey) => {
-                const block = document.createElement('section');
-                block.className = 'border border-gray-800 rounded-xl bg-gray-900/30 overflow-hidden';
+            if (activeScope === GLOBAL_SCOPE) {
+                const clusterEntries = catalog.filter((entry) => entry.scope === 'cluster');
+                renderAdminPermissionGroup('Global', 'text-indigo-300', clusterEntries, selectedUser, selectedPerms, null, list);
+            } else {
+                const namespaceEntries = catalog.filter((entry) => entry.scope !== 'cluster');
+                renderAdminPermissionGroup('Namespace', 'text-cyan-300', namespaceEntries, selectedUser, selectedPerms, activeScope, list);
+            }
 
-                const header = document.createElement('div');
-                header.className = 'px-4 py-2.5 border-b border-gray-800 bg-gray-900/60';
-                header.innerHTML = `<h4 class="text-sm font-semibold text-cyan-300">${titleize(domainKey)}</h4>`;
-
-                const content = document.createElement('div');
-                content.className = 'p-2 space-y-2';
-
-                groups[domainKey].sort((a, b) => permissionLabel(a).localeCompare(permissionLabel(b))).forEach((entry) => {
-                    const row = document.createElement('div');
-                    row.className = 'flex items-center justify-between gap-3 p-3 border rounded-lg ' + (entry.is_dangerous ? 'border-rose-800/40 bg-rose-900/10' : 'border-gray-800 bg-gray-900/40');
-
-                    const left = document.createElement('div');
-                    left.className = 'min-w-0';
-                    left.innerHTML = `
-                        <div class="text-sm text-gray-100">${permissionLabel(entry)}</div>
-                        <div class="text-xs text-gray-500">${entry.description || ''}</div>
-                    `;
-
-                    const enabled = assigned.has(entry.permission_key);
-                    const toggle = buildToggleSwitch(enabled, !!selectedUser.is_god_mode);
-
-                    toggle.addEventListener('click', async () => {
-                        const nextEnabled = !enabled;
-                        if (entry.is_dangerous && nextEnabled) {
-                            const suppressPrompts = sessionStorage.getItem(DANGER_SUPPRESS_KEY) === '1';
-                            if (!suppressPrompts) {
-                                const modalResult = await showDangerConfirm(`You are about to toggle dangerous permission: ${permissionLabel(entry)}`);
-                                if (!modalResult.confirmed) return;
-                                if (modalResult.suppressForSession) {
-                                    sessionStorage.setItem(DANGER_SUPPRESS_KEY, '1');
-                                }
-                            }
-                        }
-                        setToggleVisual(toggle, nextEnabled);
-                        try {
-                            await togglePermissionForUser(selectedUser.id, entry);
-                            await new Promise((resolve) => setTimeout(resolve, 180));
-                            await loadUsers();
-                            renderAdminPanel();
-                            renderSelfPermissions();
-                        } catch (e) {
-                            setToggleVisual(toggle, enabled);
-                            alert(e.message);
-                        }
-                    });
-
-                    row.appendChild(left);
-                    row.appendChild(toggle);
-                    content.appendChild(row);
-                });
-
-                block.appendChild(header);
-                block.appendChild(content);
-                list.appendChild(block);
-            });
+            if (!list.children.length) {
+                list.innerHTML = '<div class="text-sm text-gray-500">No permissions available for this scope.</div>';
+            }
         }
 
         async function loadUsers() {
             const res = await fetch('/auth/users', { headers: authHeaders });
             const data = await res.json().catch(() => []);
             if (!res.ok) throw new Error(data.detail || 'Failed to load users');
-            users = Array.isArray(data) ? data : [];
+            users = (Array.isArray(data) ? data : []).map((user) => ({
+                ...user,
+                permissions: normalizePermissionPayload(user.permissions),
+            }));
         }
 
         async function loadCatalog() {
             const res = await fetch('/auth/permissions/catalog', { headers: authHeaders });
             const data = await res.json().catch(() => []);
             if (!res.ok) throw new Error(data.detail || 'Failed to load permission catalog');
-            catalog = Array.isArray(data) ? data : [];
+            catalog = (Array.isArray(data) ? data : []).map((entry) => ({
+                ...entry,
+                scope: entry.scope === 'cluster' ? 'cluster' : 'namespace',
+            }));
         }
 
         async function loadProfile() {
             try {
                 const response = await fetch('/auth/me', {
-                    headers: authHeaders
+                    headers: authHeaders,
                 });
                 if (!response.ok) return;
                 const profile = await response.json();
-                me = profile;
+                me = {
+                    ...profile,
+                    permissions: normalizePermissionPayload(profile.permissions),
+                };
+
                 const initialsEl = document.getElementById('profileInitials');
                 const avatarEl = document.getElementById('profileAvatar');
 
@@ -546,7 +734,6 @@
                 document.getElementById('profileEmail').innerText = profile.email || '-';
 
                 setAvatar(avatarEl, initialsEl, profile.username, profile.profile_picture);
-
                 renderSelfPermissions();
             } catch (e) {
                 // Fallback stays as initials.
@@ -557,6 +744,8 @@
             const badge = document.getElementById('permissionsModeBadge');
             const adminPanel = document.getElementById('adminPanel');
             const selfPanel = document.getElementById('selfPermissionPanel');
+            const select = document.getElementById('userSelect');
+            const namespaceSelect = document.getElementById('permissionNamespaceSelect');
 
             await loadCatalog().catch(() => {
                 catalog = [];
@@ -575,24 +764,40 @@
             adminPanel.classList.remove('hidden');
             selfPanel.classList.remove('hidden');
 
-            await Promise.all([loadUsers(), loadCatalog()]);
-            const select = document.getElementById('userSelect');
+            await loadUsers();
+            await loadNamespaces();
+            renderNamespaceSelector();
+
             const editableList = users.filter((u) => u.id !== me.id);
             select.innerHTML = editableList
                 .map((u) => `<option value="${u.id}" ${u.is_god_mode ? 'disabled' : ''}>${u.username}${u.is_god_mode ? ' (admin)' : ''}</option>`)
                 .join('');
 
-            const firstEditable = editableList.find((u) => !u.is_god_mode);
+            const firstEditable = editableList.find((u) => !u.is_god_mode) || editableList[0];
             if (firstEditable) {
                 select.value = String(firstEditable.id);
             }
 
             select.addEventListener('change', () => renderAdminPanel());
+            if (namespaceSelect) {
+                namespaceSelect.addEventListener('change', () => {
+                    localStorage.setItem(PERMISSION_NS_KEY, namespaceSelect.value || GLOBAL_SCOPE);
+                    renderAdminPanel();
+                });
+            }
+            const searchInput = document.getElementById('permissionSearch');
+            if (searchInput) {
+                searchInput.addEventListener('input', (e) => {
+                    permissionSearchTerm = e.target.value.toLowerCase().trim();
+                    renderAdminPanel();
+                });
+            }
+
             renderAdminPanel();
         }
 
         if (!token) {
-            window.location.href = "/static/login.html";
+            window.location.href = '/static/login.html';
         } else {
             const claims = parseJwt(token);
             if (claims && claims.sub) {
