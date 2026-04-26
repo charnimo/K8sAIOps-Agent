@@ -1,7 +1,8 @@
-import { NavigationManager } from "./nav.js?v=1776099800";
+import { NavigationManager } from "./nav.js?v=1776101200";
 import { AuthManager } from './auth.js';
-import { ApiClient } from './api.js?v=1776099800';
+import { ApiClient } from './api.js?v=1776101200';
 import { ChatDrawer } from './chatDrawer.js?v=1776099800';
+import { PermissionManager, normalizePermissions } from './permissions.js';
 import { OverviewController } from './controllers/overviewController.js';
 import { PodsController } from './controllers/podsController.js';
 import { DeploymentsController } from './controllers/deploymentsController.js';
@@ -25,6 +26,19 @@ class Dashboard {
         this.api = new ApiClient(this.auth.getToken());
         this.sidePanel = new SidePanel();
         this.currentUser = null;
+        this.permissionManager = new PermissionManager(null, this.api);
+        this.api.setPermissionManager(this.permissionManager);
+        window.k8sPermissionManager = this.permissionManager;
+
+        this.controllers = {};
+        this.nav = null;
+        this.activeViewId = 'view-overview';
+
+        this.bootstrap();
+    }
+
+    async bootstrap() {
+        await this.refreshCurrentUser();
 
         this.controllers = {
             'view-overview': new OverviewController(this.api),
@@ -48,16 +62,35 @@ class Dashboard {
 
         this.chatDrawer = new ChatDrawer(this.api, this.auth);
 
-        this.nav = new NavigationManager((viewId) => this.handleViewLoad(viewId));
-        this.activeViewId = 'view-overview';
+        this.nav = new NavigationManager(
+            (viewId, options) => this.handleViewLoad(viewId, options),
+            { permissionManager: this.permissionManager }
+        );
 
         this.setupPermissionGatedNavigation();
-        this.setupNamespaceSwitcher();
+        await this.setupNamespaceSwitcher();
         window.addEventListener('namespace-changed', () => {
-            this.handleViewLoad(this.activeViewId || 'view-overview');
+            if (this.nav) {
+                this.nav.reloadCurrentView();
+            } else {
+                this.handleViewLoad(this.activeViewId || 'view-overview');
+            }
         });
 
         this.startHealthMonitor();
+    }
+
+    async refreshCurrentUser() {
+        try {
+            const me = await this.api.getCurrentUser();
+            this.currentUser = me;
+            this.permissionManager.updateUser(me);
+            return me;
+        } catch (e) {
+            this.currentUser = null;
+            this.permissionManager.updateUser(null);
+            return null;
+        }
     }
 
     startHealthMonitor() {
@@ -102,12 +135,11 @@ class Dashboard {
         if (!terminalLink) return;
 
         try {
-            const me = await this.api.getCurrentUser();
-            this.currentUser = me;
+            if (!this.currentUser) {
+                await this.refreshCurrentUser();
+            }
 
-            const perms = this._normalizePermissions(me ? me.permissions : null);
-            const hasTerminalPermission = Boolean(me && me.is_god_mode)
-                || perms.global.includes('terminal:kubectl:readonly');
+            const hasTerminalPermission = this.permissionManager.can('terminal:kubectl:readonly', null, 'cluster');
 
             if (!hasTerminalPermission) {
                 terminalLink.classList.add('hidden');
@@ -127,30 +159,6 @@ class Dashboard {
         return '';
     }
 
-    _normalizePermissions(raw) {
-        const normalized = { global: [], namespaces: {} };
-
-        if (!raw || typeof raw !== 'object') {
-            return normalized;
-        }
-
-        if (Array.isArray(raw.global)) {
-            normalized.global = [...new Set(raw.global.filter((item) => typeof item === 'string'))];
-        }
-
-        if (raw.namespaces && typeof raw.namespaces === 'object' && !Array.isArray(raw.namespaces)) {
-            Object.entries(raw.namespaces).forEach(([namespace, perms]) => {
-                if (typeof namespace !== 'string' || !Array.isArray(perms)) return;
-                const clean = [...new Set(perms.filter((item) => typeof item === 'string'))];
-                if (clean.length) {
-                    normalized.namespaces[namespace] = clean;
-                }
-            });
-        }
-
-        return normalized;
-    }
-
     async setupNamespaceSwitcher() {
         const select = document.getElementById('activeNamespaceSelect');
         if (!select) return;
@@ -161,8 +169,9 @@ class Dashboard {
         try {
             const me = this.currentUser || await this.api.getCurrentUser();
             this.currentUser = me;
+            this.permissionManager.updateUser(me);
             const isGodMode = Boolean(me && me.is_god_mode);
-            const perms = this._normalizePermissions(me ? me.permissions : null);
+            const perms = normalizePermissions(me ? me.permissions : null);
             const namespacesWithPerms = new Set(Object.keys(perms.namespaces));
             const canSeeAllNamespaces = isGodMode || perms.global.includes('cluster:namespaces:read');
 
@@ -224,12 +233,16 @@ class Dashboard {
         });
     }
 
-    handleViewLoad(viewId) {
+    handleViewLoad(viewId, options = {}) {
         this.activeViewId = viewId;
         // Unmount all active controllers to cleanup intervals/listeners
-        Object.values(this.controllers).forEach(ctrl => {
+        Object.values(this.controllers || {}).forEach(ctrl => {
             if (ctrl.unmount) ctrl.unmount();
         });
+
+        if (options.restricted) {
+            return;
+        }
 
         // Initialize/Mount the requested view controller main area
         const activeController = this.controllers[viewId];

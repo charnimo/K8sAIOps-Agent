@@ -378,6 +378,7 @@ export class PermissionManager {
     assertApi(methodName, args = []) {
         const rule = API_PERMISSION_MAP[methodName];
         if (!rule || !rule.permission) return;
+        if (!this.user && methodName === 'getCurrentUser') return;
 
         const namespace = resolveNamespaceFromRule(rule, args, this.apiClient);
         if (!this.can(rule.permission, namespace, rule.scope)) {
