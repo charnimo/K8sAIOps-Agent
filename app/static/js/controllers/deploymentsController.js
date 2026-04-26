@@ -1,5 +1,6 @@
 import { DeploymentTableManager } from '../table.js';
 import { showConfirmModal } from '../confirm.js';
+import { guardActionElement } from '../permissions.js';
 
 export class DeploymentsController {
     constructor(api, sidePanel) {
@@ -175,6 +176,7 @@ export class DeploymentsController {
 
                         const btns = containerDOM.querySelectorAll('.rollback-btn');
                         btns.forEach(btn => {
+                            if (!guardActionElement(btn, window.k8sPermissionManager, 'deployments:rollback')) return;
                             btn.addEventListener('click', async (e) => {
                                 const revStr = e.target.getAttribute('data-rev');
                                 const rev = parseInt(revStr, 10);

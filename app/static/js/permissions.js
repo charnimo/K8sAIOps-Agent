@@ -446,15 +446,23 @@ export function setActionDisabled(element, disabled = true, message = INSUFFICIE
     element.disabled = Boolean(disabled);
     element.setAttribute('aria-disabled', disabled ? 'true' : 'false');
 
+    if (!element.dataset.originalTitle && element.hasAttribute('title')) {
+        element.dataset.originalTitle = element.getAttribute('title') || '';
+    }
+
     if (disabled) {
         element.dataset.permissionDisabled = 'true';
         element.title = message;
         element.classList.add('opacity-50', 'cursor-not-allowed');
-        element.classList.remove('hover:bg-cyan-700', 'hover:bg-indigo-700', 'hover:bg-emerald-700', 'hover:bg-rose-700', 'hover:bg-blue-700', 'hover:bg-amber-700');
     } else {
         delete element.dataset.permissionDisabled;
         element.removeAttribute('aria-disabled');
         element.classList.remove('opacity-50', 'cursor-not-allowed');
+        if (element.dataset.originalTitle) {
+            element.title = element.dataset.originalTitle;
+        } else {
+            element.removeAttribute('title');
+        }
     }
 
     return !disabled;

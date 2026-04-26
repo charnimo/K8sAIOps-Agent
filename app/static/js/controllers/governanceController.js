@@ -1,4 +1,5 @@
 import { showConfirmModal } from '../confirm.js';
+import { guardActionElement } from '../permissions.js';
 
 export class GovernanceController {
     constructor(api, sidePanel) {
@@ -41,7 +42,9 @@ export class GovernanceController {
         }
 
         if (refreshBtn) refreshBtn.addEventListener('click', () => this.loadAll());
-        if (createHpaBtn) createHpaBtn.addEventListener('click', () => this.openCreateHpaPanel());
+        if (createHpaBtn && guardActionElement(createHpaBtn, window.k8sPermissionManager, 'hpa:create')) {
+            createHpaBtn.addEventListener('click', () => this.openCreateHpaPanel());
+        }
     }
 
     async loadAll() {
@@ -156,14 +159,26 @@ export class GovernanceController {
             </tr>
         `).join('');
 
-        tbody.querySelectorAll('.hpa-details-btn').forEach((btn) => btn.addEventListener('click', () => this.openHpaDetails(btn.getAttribute('data-name'), btn.getAttribute('data-namespace'))));
-        tbody.querySelectorAll('.hpa-edit-btn').forEach((btn) => btn.addEventListener('click', () => this.openPatchHpaPanel(
-            btn.getAttribute('data-name'),
-            btn.getAttribute('data-namespace'),
-            btn.getAttribute('data-min'),
-            btn.getAttribute('data-max')
-        )));
-        tbody.querySelectorAll('.hpa-delete-btn').forEach((btn) => btn.addEventListener('click', () => this.deleteHpa(btn.getAttribute('data-name'), btn.getAttribute('data-namespace'))));
+        tbody.querySelectorAll('.hpa-details-btn').forEach((btn) => {
+            if (guardActionElement(btn, window.k8sPermissionManager, 'hpa:read', btn.getAttribute('data-namespace'))) {
+                btn.addEventListener('click', () => this.openHpaDetails(btn.getAttribute('data-name'), btn.getAttribute('data-namespace')));
+            }
+        });
+        tbody.querySelectorAll('.hpa-edit-btn').forEach((btn) => {
+            if (guardActionElement(btn, window.k8sPermissionManager, 'hpa:patch', btn.getAttribute('data-namespace'))) {
+                btn.addEventListener('click', () => this.openPatchHpaPanel(
+                    btn.getAttribute('data-name'),
+                    btn.getAttribute('data-namespace'),
+                    btn.getAttribute('data-min'),
+                    btn.getAttribute('data-max')
+                ));
+            }
+        });
+        tbody.querySelectorAll('.hpa-delete-btn').forEach((btn) => {
+            if (guardActionElement(btn, window.k8sPermissionManager, 'hpa:delete', btn.getAttribute('data-namespace'))) {
+                btn.addEventListener('click', () => this.deleteHpa(btn.getAttribute('data-name'), btn.getAttribute('data-namespace')));
+            }
+        });
     }
 
     async openHpaDetails(name, namespace) {

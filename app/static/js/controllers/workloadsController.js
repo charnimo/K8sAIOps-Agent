@@ -1,4 +1,5 @@
 import { showConfirmModal } from '../confirm.js';
+import { guardActionElement } from '../permissions.js';
 
 export class WorkloadsController {
     constructor(api, sidePanel, mode = 'all') {
@@ -123,9 +124,21 @@ export class WorkloadsController {
             `;
         }).join('');
 
-        tbody.querySelectorAll('.sts-details-btn').forEach((btn) => btn.addEventListener('click', () => this.openStatefulsetDetails(btn.getAttribute('data-name'))));
-        tbody.querySelectorAll('.sts-scale-btn').forEach((btn) => btn.addEventListener('click', () => this.openScaleStatefulsetPanel(btn.getAttribute('data-name'), Number(btn.getAttribute('data-replicas') || 0))));
-        tbody.querySelectorAll('.sts-restart-btn').forEach((btn) => btn.addEventListener('click', () => this.restartStatefulset(btn.getAttribute('data-name'))));
+        tbody.querySelectorAll('.sts-details-btn').forEach((btn) => {
+            if (guardActionElement(btn, window.k8sPermissionManager, 'workloads:statefulsets:read')) {
+                btn.addEventListener('click', () => this.openStatefulsetDetails(btn.getAttribute('data-name')));
+            }
+        });
+        tbody.querySelectorAll('.sts-scale-btn').forEach((btn) => {
+            if (guardActionElement(btn, window.k8sPermissionManager, 'workloads:statefulsets:scale')) {
+                btn.addEventListener('click', () => this.openScaleStatefulsetPanel(btn.getAttribute('data-name'), Number(btn.getAttribute('data-replicas') || 0)));
+            }
+        });
+        tbody.querySelectorAll('.sts-restart-btn').forEach((btn) => {
+            if (guardActionElement(btn, window.k8sPermissionManager, 'workloads:statefulsets:restart')) {
+                btn.addEventListener('click', () => this.restartStatefulset(btn.getAttribute('data-name')));
+            }
+        });
     }
 
     renderDaemonsets() {
@@ -156,9 +169,21 @@ export class WorkloadsController {
             `;
         }).join('');
 
-        tbody.querySelectorAll('.ds-details-btn').forEach((btn) => btn.addEventListener('click', () => this.openDaemonsetDetails(btn.getAttribute('data-name'))));
-        tbody.querySelectorAll('.ds-image-btn').forEach((btn) => btn.addEventListener('click', () => this.openDaemonsetImagePanel(btn.getAttribute('data-name'))));
-        tbody.querySelectorAll('.ds-restart-btn').forEach((btn) => btn.addEventListener('click', () => this.restartDaemonset(btn.getAttribute('data-name'))));
+        tbody.querySelectorAll('.ds-details-btn').forEach((btn) => {
+            if (guardActionElement(btn, window.k8sPermissionManager, 'workloads:daemonsets:read')) {
+                btn.addEventListener('click', () => this.openDaemonsetDetails(btn.getAttribute('data-name')));
+            }
+        });
+        tbody.querySelectorAll('.ds-image-btn').forEach((btn) => {
+            if (guardActionElement(btn, window.k8sPermissionManager, 'workloads:daemonsets:update_image')) {
+                btn.addEventListener('click', () => this.openDaemonsetImagePanel(btn.getAttribute('data-name')));
+            }
+        });
+        tbody.querySelectorAll('.ds-restart-btn').forEach((btn) => {
+            if (guardActionElement(btn, window.k8sPermissionManager, 'workloads:daemonsets:restart')) {
+                btn.addEventListener('click', () => this.restartDaemonset(btn.getAttribute('data-name')));
+            }
+        });
     }
 
     renderJobs() {
@@ -193,12 +218,26 @@ export class WorkloadsController {
             </tr>
         `).join('');
 
-        tbody.querySelectorAll('.job-details-btn').forEach((btn) => btn.addEventListener('click', () => this.openJobDetails(btn.getAttribute('data-name'))));
-        tbody.querySelectorAll('.job-toggle-btn').forEach((btn) => btn.addEventListener('click', () => this.toggleJobSuspend(
-            btn.getAttribute('data-name'),
-            btn.getAttribute('data-suspended') === 'true'
-        )));
-        tbody.querySelectorAll('.job-delete-btn').forEach((btn) => btn.addEventListener('click', () => this.openDeleteJobPanel(btn.getAttribute('data-name'))));
+        tbody.querySelectorAll('.job-details-btn').forEach((btn) => {
+            if (guardActionElement(btn, window.k8sPermissionManager, 'workloads:jobs:read')) {
+                btn.addEventListener('click', () => this.openJobDetails(btn.getAttribute('data-name')));
+            }
+        });
+        tbody.querySelectorAll('.job-toggle-btn').forEach((btn) => {
+            const permission = btn.getAttribute('data-suspended') === 'true'
+                ? 'workloads:jobs:resume'
+                : 'workloads:jobs:suspend';
+            if (!guardActionElement(btn, window.k8sPermissionManager, permission)) return;
+            btn.addEventListener('click', () => this.toggleJobSuspend(
+                btn.getAttribute('data-name'),
+                btn.getAttribute('data-suspended') === 'true'
+            ));
+        });
+        tbody.querySelectorAll('.job-delete-btn').forEach((btn) => {
+            if (guardActionElement(btn, window.k8sPermissionManager, 'workloads:jobs:delete')) {
+                btn.addEventListener('click', () => this.openDeleteJobPanel(btn.getAttribute('data-name')));
+            }
+        });
     }
 
     renderCronjobs() {
@@ -232,11 +271,21 @@ export class WorkloadsController {
             </tr>
         `).join('');
 
-        tbody.querySelectorAll('.cron-details-btn').forEach((btn) => btn.addEventListener('click', () => this.openCronDetails(btn.getAttribute('data-name'))));
-        tbody.querySelectorAll('.cron-toggle-btn').forEach((btn) => btn.addEventListener('click', () => this.toggleCronSuspend(
-            btn.getAttribute('data-name'),
-            btn.getAttribute('data-suspended') === 'true'
-        )));
+        tbody.querySelectorAll('.cron-details-btn').forEach((btn) => {
+            if (guardActionElement(btn, window.k8sPermissionManager, 'workloads:cronjobs:read')) {
+                btn.addEventListener('click', () => this.openCronDetails(btn.getAttribute('data-name')));
+            }
+        });
+        tbody.querySelectorAll('.cron-toggle-btn').forEach((btn) => {
+            const permission = btn.getAttribute('data-suspended') === 'true'
+                ? 'workloads:cronjobs:resume'
+                : 'workloads:cronjobs:suspend';
+            if (!guardActionElement(btn, window.k8sPermissionManager, permission)) return;
+            btn.addEventListener('click', () => this.toggleCronSuspend(
+                btn.getAttribute('data-name'),
+                btn.getAttribute('data-suspended') === 'true'
+            ));
+        });
     }
 
     escapeHtml(value) {

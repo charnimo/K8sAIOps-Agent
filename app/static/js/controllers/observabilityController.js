@@ -1,3 +1,5 @@
+import { guardActionElement } from '../permissions.js';
+
 export class ObservabilityController {
     constructor(api, sidePanel) {
         this.api = api;
@@ -36,9 +38,15 @@ export class ObservabilityController {
         const runServiceBtn = document.getElementById('runServiceDiagBtn');
 
         if (refreshBtn) refreshBtn.addEventListener('click', () => this.loadAll());
-        if (runPodBtn) runPodBtn.addEventListener('click', () => this.runPodDiagnostics());
-        if (runDeploymentBtn) runDeploymentBtn.addEventListener('click', () => this.runDeploymentDiagnostics());
-        if (runServiceBtn) runServiceBtn.addEventListener('click', () => this.runServiceDiagnostics());
+        if (runPodBtn && guardActionElement(runPodBtn, window.k8sPermissionManager, 'diagnostics:run', null, 'cluster')) {
+            runPodBtn.addEventListener('click', () => this.runPodDiagnostics());
+        }
+        if (runDeploymentBtn && guardActionElement(runDeploymentBtn, window.k8sPermissionManager, 'diagnostics:run', null, 'cluster')) {
+            runDeploymentBtn.addEventListener('click', () => this.runDeploymentDiagnostics());
+        }
+        if (runServiceBtn && guardActionElement(runServiceBtn, window.k8sPermissionManager, 'diagnostics:run', null, 'cluster')) {
+            runServiceBtn.addEventListener('click', () => this.runServiceDiagnostics());
+        }
     }
 
     async loadAll() {

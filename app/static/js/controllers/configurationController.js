@@ -1,4 +1,5 @@
 import { showConfirmModal } from '../confirm.js';
+import { guardActionElement } from '../permissions.js';
 
 export class ConfigurationController {
     constructor(api, sidePanel) {
@@ -43,9 +44,15 @@ export class ConfigurationController {
         }
 
         if (refreshBtn) refreshBtn.addEventListener('click', () => this.loadAll());
-        if (createConfigMapBtn) createConfigMapBtn.addEventListener('click', () => this.openCreateConfigMapPanel());
-        if (createSecretBtn) createSecretBtn.addEventListener('click', () => this.openCreateSecretPanel());
-        if (createIngressBtn) createIngressBtn.addEventListener('click', () => this.openCreateIngressPanel());
+        if (createConfigMapBtn && guardActionElement(createConfigMapBtn, window.k8sPermissionManager, 'configmaps:create')) {
+            createConfigMapBtn.addEventListener('click', () => this.openCreateConfigMapPanel());
+        }
+        if (createSecretBtn && guardActionElement(createSecretBtn, window.k8sPermissionManager, 'secrets:create')) {
+            createSecretBtn.addEventListener('click', () => this.openCreateSecretPanel());
+        }
+        if (createIngressBtn && guardActionElement(createIngressBtn, window.k8sPermissionManager, 'ingresses:create')) {
+            createIngressBtn.addEventListener('click', () => this.openCreateIngressPanel());
+        }
     }
 
     async loadAll() {
@@ -156,9 +163,21 @@ export class ConfigurationController {
             </tr>
         `).join('');
 
-        tbody.querySelectorAll('.cm-details-btn').forEach((btn) => btn.addEventListener('click', () => this.openConfigMapDetails(btn.getAttribute('data-name'), btn.getAttribute('data-namespace'))));
-        tbody.querySelectorAll('.cm-edit-btn').forEach((btn) => btn.addEventListener('click', () => this.openPatchConfigMapPanel(btn.getAttribute('data-name'), btn.getAttribute('data-namespace'))));
-        tbody.querySelectorAll('.cm-delete-btn').forEach((btn) => btn.addEventListener('click', () => this.deleteConfigMap(btn.getAttribute('data-name'), btn.getAttribute('data-namespace'))));
+        tbody.querySelectorAll('.cm-details-btn').forEach((btn) => {
+            if (guardActionElement(btn, window.k8sPermissionManager, 'configmaps:read', btn.getAttribute('data-namespace'))) {
+                btn.addEventListener('click', () => this.openConfigMapDetails(btn.getAttribute('data-name'), btn.getAttribute('data-namespace')));
+            }
+        });
+        tbody.querySelectorAll('.cm-edit-btn').forEach((btn) => {
+            if (guardActionElement(btn, window.k8sPermissionManager, 'configmaps:patch', btn.getAttribute('data-namespace'))) {
+                btn.addEventListener('click', () => this.openPatchConfigMapPanel(btn.getAttribute('data-name'), btn.getAttribute('data-namespace')));
+            }
+        });
+        tbody.querySelectorAll('.cm-delete-btn').forEach((btn) => {
+            if (guardActionElement(btn, window.k8sPermissionManager, 'configmaps:delete', btn.getAttribute('data-namespace'))) {
+                btn.addEventListener('click', () => this.deleteConfigMap(btn.getAttribute('data-name'), btn.getAttribute('data-namespace')));
+            }
+        });
     }
 
     async openConfigMapDetails(name, namespace) {
@@ -334,9 +353,21 @@ export class ConfigurationController {
             </tr>
         `).join('');
 
-        tbody.querySelectorAll('.secret-details-btn').forEach((btn) => btn.addEventListener('click', () => this.openSecretDetails(btn.getAttribute('data-name'), btn.getAttribute('data-namespace'))));
-        tbody.querySelectorAll('.secret-edit-btn').forEach((btn) => btn.addEventListener('click', () => this.openUpdateSecretPanel(btn.getAttribute('data-name'), btn.getAttribute('data-namespace'))));
-        tbody.querySelectorAll('.secret-delete-btn').forEach((btn) => btn.addEventListener('click', () => this.deleteSecret(btn.getAttribute('data-name'), btn.getAttribute('data-namespace'))));
+        tbody.querySelectorAll('.secret-details-btn').forEach((btn) => {
+            if (guardActionElement(btn, window.k8sPermissionManager, 'secrets:read', btn.getAttribute('data-namespace'))) {
+                btn.addEventListener('click', () => this.openSecretDetails(btn.getAttribute('data-name'), btn.getAttribute('data-namespace')));
+            }
+        });
+        tbody.querySelectorAll('.secret-edit-btn').forEach((btn) => {
+            if (guardActionElement(btn, window.k8sPermissionManager, 'secrets:update', btn.getAttribute('data-namespace'))) {
+                btn.addEventListener('click', () => this.openUpdateSecretPanel(btn.getAttribute('data-name'), btn.getAttribute('data-namespace')));
+            }
+        });
+        tbody.querySelectorAll('.secret-delete-btn').forEach((btn) => {
+            if (guardActionElement(btn, window.k8sPermissionManager, 'secrets:delete', btn.getAttribute('data-namespace'))) {
+                btn.addEventListener('click', () => this.deleteSecret(btn.getAttribute('data-name'), btn.getAttribute('data-namespace')));
+            }
+        });
     }
 
     async openSecretDetails(name, namespace) {
@@ -554,9 +585,21 @@ export class ConfigurationController {
             </tr>
         `).join('');
 
-        tbody.querySelectorAll('.ing-details-btn').forEach((btn) => btn.addEventListener('click', () => this.openIngressDetails(btn.getAttribute('data-name'), btn.getAttribute('data-namespace'))));
-        tbody.querySelectorAll('.ing-patch-btn').forEach((btn) => btn.addEventListener('click', () => this.openPatchIngressPanel(btn.getAttribute('data-name'), btn.getAttribute('data-namespace'))));
-        tbody.querySelectorAll('.ing-delete-btn').forEach((btn) => btn.addEventListener('click', () => this.deleteIngress(btn.getAttribute('data-name'), btn.getAttribute('data-namespace'))));
+        tbody.querySelectorAll('.ing-details-btn').forEach((btn) => {
+            if (guardActionElement(btn, window.k8sPermissionManager, 'ingresses:read', btn.getAttribute('data-namespace'))) {
+                btn.addEventListener('click', () => this.openIngressDetails(btn.getAttribute('data-name'), btn.getAttribute('data-namespace')));
+            }
+        });
+        tbody.querySelectorAll('.ing-patch-btn').forEach((btn) => {
+            if (guardActionElement(btn, window.k8sPermissionManager, 'ingresses:patch', btn.getAttribute('data-namespace'))) {
+                btn.addEventListener('click', () => this.openPatchIngressPanel(btn.getAttribute('data-name'), btn.getAttribute('data-namespace')));
+            }
+        });
+        tbody.querySelectorAll('.ing-delete-btn').forEach((btn) => {
+            if (guardActionElement(btn, window.k8sPermissionManager, 'ingresses:delete', btn.getAttribute('data-namespace'))) {
+                btn.addEventListener('click', () => this.deleteIngress(btn.getAttribute('data-name'), btn.getAttribute('data-namespace')));
+            }
+        });
     }
 
     async openIngressDetails(name, namespace) {
