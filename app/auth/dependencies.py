@@ -1,17 +1,30 @@
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordBearer
 from jose import jwt, JWTError
 from sqlalchemy.orm import Session
+import json
 
-from app.database.database import get_db
-from app.database.models import User
+from app.database.database import get_db, SessionLocal
+from app.database.models import User, PermissionCatalog
 from app.auth.security import SECRET_KEY, ALGORITHM
 
-# This URL points to the route that hands out tokens
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login")
 
+PERM_CATALOG: dict[str, str] = {}
+
+def _load_catalog():
+    db = SessionLocal()
+    try:
+        rows = db.query(PermissionCatalog).filter(PermissionCatalog.enabled == True).all()
+        for r in rows:
+            # DB uses 'cluster' for global, 'namespace' for namespaced
+            PERM_CATALOG[r.permission_key] = r.scope or "namespace"
+    finally:
+        db.close()
+
+_load_catalog()
+
 def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
-    """Gatekeeper function that extracts the user from the JWT."""
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Could not validate credentials",
@@ -30,3 +43,33 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
         raise credentials_exception
         
     return user
+
+def require_permission(permission_key: str):
+    async def checker(request: Request, user: User = Depends(get_current_user)):
+        if user.is_god_mode:
+            return user
+
+        try:
+            perms = json.loads(user.permissions or '{"global":[],"namespaces":{}}')
+        except Exception:
+            perms = {"global": [], "namespaces": {}}
+
+        scope = PERM_CATALOG.get(permission_key, "namespace")
+
+        if scope == "cluster":
+            if permission_key in perms.get("global", []):
+                return user
+        else:
+            # find namespace from path or query, fallback to default
+            ns = (
+                request.path_params.get("namespace")
+                or request.path_params.get("name")
+                or request.query_params.get("namespace")
+                or "default"
+            )
+            if permission_key in perms.get("namespaces", {}).get(ns, []):
+                return user
+
+        raise HTTPException(status_code=403, detail=f"Missing permission: {permission_key}")
+    
+    return checker
