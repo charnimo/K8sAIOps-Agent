@@ -1,5 +1,5 @@
 import { showConfirmModal } from '../confirm.js';
-import { guardActionElement } from '../permissions.js';
+import { guardActionElement, isPermissionDeniedError, renderPermissionDeniedTable } from '../permissions.js';
 
 export class ClusterController {
     constructor(api, sidePanel) {
@@ -277,6 +277,11 @@ export class ClusterController {
             this.nodes = Array.isArray(result) ? result : [];
             this.renderNodesTable();
         } catch (err) {
+            this.nodes = [];
+            if (isPermissionDeniedError(err)) {
+                renderPermissionDeniedTable('nodesTableBody', 6);
+                return;
+            }
             console.error('Failed to load nodes:', err);
         }
     }
@@ -288,6 +293,12 @@ export class ClusterController {
             this.renderNamespacesTable();
             this.populateNamespaceSelect();
         } catch (err) {
+            this.namespaces = [];
+            this.populateNamespaceSelect();
+            if (isPermissionDeniedError(err)) {
+                renderPermissionDeniedTable('namespacesTableBody', 4);
+                return;
+            }
             console.error('Failed to load namespaces:', err);
         }
     }
@@ -298,6 +309,11 @@ export class ClusterController {
             this.pvs = Array.isArray(result) ? result : [];
             this.renderPVsTable();
         } catch (err) {
+            this.pvs = [];
+            if (isPermissionDeniedError(err)) {
+                renderPermissionDeniedTable('pvsTableBody', 6);
+                return;
+            }
             console.error('Failed to load PVs:', err);
         }
     }
@@ -308,6 +324,11 @@ export class ClusterController {
             this.pvcs = Array.isArray(result) ? result : [];
             this.renderPVCsTable();
         } catch (err) {
+            this.pvcs = [];
+            if (isPermissionDeniedError(err)) {
+                renderPermissionDeniedTable('pvcsTableBody', 7);
+                return;
+            }
             console.error('Failed to load PVCs:', err);
         }
     }
@@ -318,6 +339,11 @@ export class ClusterController {
             this.storageClasses = Array.isArray(result) ? result : [];
             this.renderStorageClassesTable();
         } catch (err) {
+            this.storageClasses = [];
+            if (isPermissionDeniedError(err)) {
+                renderPermissionDeniedTable('scTableBody', 6);
+                return;
+            }
             console.error('Failed to load storage classes:', err);
         }
     }
@@ -327,12 +353,13 @@ export class ClusterController {
         if (!select) return;
 
         const selected = this.currentPvcNamespace || 'default';
+        const fallbackNamespace = selected || this.api.getNamespace() || 'default';
         const options = this.namespaces.length
             ? this.namespaces.map((ns) => `<option value="${ns.name}">${ns.name}</option>`).join('')
-            : '<option value="default">default</option>';
+            : `<option value="${fallbackNamespace}">${fallbackNamespace}</option>`;
         select.innerHTML = options;
 
-        const available = this.namespaces.map((n) => n.name);
+        const available = this.namespaces.length ? this.namespaces.map((n) => n.name) : [fallbackNamespace];
         if (!available.includes(selected)) {
             this.currentPvcNamespace = available.includes('default') ? 'default' : (available[0] || 'default');
         }

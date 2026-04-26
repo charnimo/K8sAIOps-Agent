@@ -1,6 +1,6 @@
 import { ServiceTableManager } from '../table.js';
 import { showConfirmModal } from '../confirm.js';
-import { guardActionElement } from '../permissions.js';
+import { guardActionElement, isPermissionDeniedError, renderPermissionDeniedTable } from '../permissions.js';
 
 export class ServicesController {
     constructor(api, sidePanel) {
@@ -118,6 +118,9 @@ export class ServicesController {
             }
         } catch (err) {
             console.error('Failed to load services table:', err);
+            if (isPermissionDeniedError(err)) {
+                renderPermissionDeniedTable('servicesTableBody', 7);
+            }
         }
     }
 

@@ -1,6 +1,6 @@
 import { DeploymentTableManager } from '../table.js';
 import { showConfirmModal } from '../confirm.js';
-import { guardActionElement } from '../permissions.js';
+import { guardActionElement, isPermissionDeniedError, renderPermissionDeniedTable } from '../permissions.js';
 
 export class DeploymentsController {
     constructor(api, sidePanel) {
@@ -370,6 +370,10 @@ export class DeploymentsController {
             }
         } catch (err) {
             console.error("Failed to load deployments table:", err);
+            if (isPermissionDeniedError(err)) {
+                renderPermissionDeniedTable('deploymentsTableBody', 6);
+                return;
+            }
             // Ignore renderError for now
         }
     }

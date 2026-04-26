@@ -440,6 +440,22 @@ export function permissionDeniedRow(colspan, message = PAGE_PERMISSION_DENIED_ME
     `;
 }
 
+export function renderPermissionDeniedTable(tbodyOrId, colspan, message = PAGE_PERMISSION_DENIED_MESSAGE) {
+    const tbody = typeof tbodyOrId === 'string' ? document.getElementById(tbodyOrId) : tbodyOrId;
+    if (!tbody) return;
+    tbody.innerHTML = permissionDeniedRow(colspan, message);
+}
+
+export function renderPermissionDeniedBlock(containerOrId, message = PAGE_PERMISSION_DENIED_MESSAGE) {
+    const container = typeof containerOrId === 'string' ? document.getElementById(containerOrId) : containerOrId;
+    if (!container) return;
+    container.innerHTML = `
+        <div class="rounded-lg border border-amber-800/50 bg-amber-950/20 p-4 text-sm text-amber-200">
+            ${message}
+        </div>
+    `;
+}
+
 export function setActionDisabled(element, disabled = true, message = INSUFFICIENT_PERMISSIONS_MESSAGE) {
     if (!element) return false;
 

@@ -1,5 +1,5 @@
 import { showConfirmModal } from '../confirm.js';
-import { guardActionElement } from '../permissions.js';
+import { guardActionElement, isPermissionDeniedError, renderPermissionDeniedTable } from '../permissions.js';
 
 export class ConfigurationController {
     constructor(api, sidePanel) {
@@ -135,6 +135,11 @@ export class ConfigurationController {
             this.configMaps = Array.isArray(list) ? list : [];
             this.renderConfigMaps();
         } catch (err) {
+            this.configMaps = [];
+            if (isPermissionDeniedError(err)) {
+                renderPermissionDeniedTable('configMapsTableBody', 4);
+                return;
+            }
             console.error('Failed to load ConfigMaps:', err);
         }
     }
@@ -324,6 +329,11 @@ export class ConfigurationController {
             this.secrets = Array.isArray(list) ? list : [];
             this.renderSecrets();
         } catch (err) {
+            this.secrets = [];
+            if (isPermissionDeniedError(err)) {
+                renderPermissionDeniedTable('secretsTableBody', 5);
+                return;
+            }
             console.error('Failed to load secrets:', err);
         }
     }
@@ -554,6 +564,11 @@ export class ConfigurationController {
             this.ingresses = Array.isArray(list) ? list : [];
             this.renderIngresses();
         } catch (err) {
+            this.ingresses = [];
+            if (isPermissionDeniedError(err)) {
+                renderPermissionDeniedTable('ingressesTableBody', 7);
+                return;
+            }
             console.error('Failed to load ingresses:', err);
         }
     }
@@ -786,6 +801,11 @@ export class ConfigurationController {
             this.networkPolicies = Array.isArray(list) ? list : [];
             this.renderNetworkPolicies();
         } catch (err) {
+            this.networkPolicies = [];
+            if (isPermissionDeniedError(err)) {
+                renderPermissionDeniedTable('networkPoliciesTableBody', 7);
+                return;
+            }
             console.error('Failed to load network policies:', err);
         }
     }

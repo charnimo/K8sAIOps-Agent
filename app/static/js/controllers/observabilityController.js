@@ -1,4 +1,4 @@
-import { guardActionElement } from '../permissions.js';
+import { guardActionElement, isPermissionDeniedError, renderPermissionDeniedBlock, renderPermissionDeniedTable } from '../permissions.js';
 
 export class ObservabilityController {
     constructor(api, sidePanel) {
@@ -132,6 +132,11 @@ export class ObservabilityController {
             this.clusterDiagnostics = await this.api.getClusterDiagnostics();
             this.renderSummaryCards();
         } catch (err) {
+            this.clusterDiagnostics = null;
+            if (isPermissionDeniedError(err)) {
+                renderPermissionDeniedBlock('obsSummaryCards');
+                return;
+            }
             console.error('Failed to load cluster diagnostics:', err);
         }
     }
@@ -142,6 +147,11 @@ export class ObservabilityController {
             this.warningSummary = Array.isArray(data) ? data : [];
             this.renderWarningSummary();
         } catch (err) {
+            this.warningSummary = [];
+            if (isPermissionDeniedError(err)) {
+                renderPermissionDeniedTable('warningEventsTableBody', 4);
+                return;
+            }
             console.error('Failed to load warning summary:', err);
         }
     }
@@ -207,6 +217,11 @@ export class ObservabilityController {
             this.nodeMetrics = Array.isArray(data) ? data : [];
             this.renderNodeMetrics();
         } catch (err) {
+            this.nodeMetrics = [];
+            if (isPermissionDeniedError(err)) {
+                renderPermissionDeniedTable('nodeMetricsTableBody', 4);
+                return;
+            }
             console.error('Failed to load node metrics:', err);
         }
     }
@@ -236,6 +251,11 @@ export class ObservabilityController {
             this.podMetrics = Array.isArray(data) ? data : [];
             this.renderPodMetrics();
         } catch (err) {
+            this.podMetrics = [];
+            if (isPermissionDeniedError(err)) {
+                renderPermissionDeniedTable('podMetricsTableBody', 4);
+                return;
+            }
             console.error('Failed to load pod metrics:', err);
         }
     }
@@ -311,6 +331,11 @@ export class ObservabilityController {
             this.resourcePressure = await this.api.getResourcePressure();
             this.renderResourcePressure();
         } catch (err) {
+            this.resourcePressure = null;
+            if (isPermissionDeniedError(err)) {
+                renderPermissionDeniedBlock('resourcePressureGrid');
+                return;
+            }
             console.error('Failed to load resource pressure:', err);
         }
     }

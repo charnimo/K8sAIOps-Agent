@@ -1,5 +1,5 @@
 import { showConfirmModal } from '../confirm.js';
-import { guardActionElement } from '../permissions.js';
+import { guardActionElement, isPermissionDeniedError, renderPermissionDeniedTable } from '../permissions.js';
 
 export class WorkloadsController {
     constructor(api, sidePanel, mode = 'all') {
@@ -61,6 +61,11 @@ export class WorkloadsController {
             this.statefulsets = Array.isArray(result) ? result : [];
             this.renderStatefulsets();
         } catch (err) {
+            this.statefulsets = [];
+            if (isPermissionDeniedError(err)) {
+                renderPermissionDeniedTable('statefulsetsTableBody', 5);
+                return;
+            }
             console.error('Failed to load StatefulSets:', err);
         }
     }
@@ -71,6 +76,11 @@ export class WorkloadsController {
             this.daemonsets = Array.isArray(result) ? result : [];
             this.renderDaemonsets();
         } catch (err) {
+            this.daemonsets = [];
+            if (isPermissionDeniedError(err)) {
+                renderPermissionDeniedTable('daemonsetsTableBody', 5);
+                return;
+            }
             console.error('Failed to load DaemonSets:', err);
         }
     }
@@ -81,6 +91,11 @@ export class WorkloadsController {
             this.jobs = Array.isArray(result) ? result : [];
             this.renderJobs();
         } catch (err) {
+            this.jobs = [];
+            if (isPermissionDeniedError(err)) {
+                renderPermissionDeniedTable('jobsTableBody', 6);
+                return;
+            }
             console.error('Failed to load Jobs:', err);
         }
     }
@@ -91,6 +106,11 @@ export class WorkloadsController {
             this.cronjobs = Array.isArray(result) ? result : [];
             this.renderCronjobs();
         } catch (err) {
+            this.cronjobs = [];
+            if (isPermissionDeniedError(err)) {
+                renderPermissionDeniedTable('cronjobsTableBody', 6);
+                return;
+            }
             console.error('Failed to load CronJobs:', err);
         }
     }
