@@ -31,6 +31,12 @@ export class ApiClient {
         return await res.json();
     }
 
+    async getPermissionCatalog() {
+        const res = await fetch('/auth/permissions/catalog', { headers: this.headers });
+        if (!res.ok) throw new Error('Failed to fetch permission catalog');
+        return await res.json();
+    }
+
     async getHealth() {
         const res = await fetch('/health', { headers: this.headers });
         if (!res.ok) throw new Error('Failed to fetch health status');

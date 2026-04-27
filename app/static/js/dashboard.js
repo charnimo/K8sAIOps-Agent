@@ -1,6 +1,6 @@
-import { NavigationManager } from "./nav.js?v=1776101200";
+import { NavigationManager } from "./nav.js?v=1776271200";
 import { AuthManager } from './auth.js';
-import { ApiClient } from './api.js?v=1776101200';
+import { ApiClient } from './api.js?v=1776271200';
 import { ChatDrawer } from './chatDrawer.js?v=1776099800';
 import { PermissionManager, normalizePermissions } from './permissions.js';
 import { OverviewController } from './controllers/overviewController.js';
@@ -39,6 +39,7 @@ class Dashboard {
 
     async bootstrap() {
         await this.refreshCurrentUser();
+        await this.refreshPermissionCatalog();
 
         this.controllers = {
             'view-overview': new OverviewController(this.api),
@@ -90,6 +91,22 @@ class Dashboard {
             this.currentUser = null;
             this.permissionManager.updateUser(null);
             return null;
+        }
+    }
+
+    async refreshPermissionCatalog() {
+        if (!this.currentUser) {
+            this.permissionManager.updateCatalog([]);
+            return [];
+        }
+
+        try {
+            const catalog = await this.api.getPermissionCatalog();
+            this.permissionManager.updateCatalog(Array.isArray(catalog) ? catalog : []);
+            return catalog;
+        } catch (e) {
+            this.permissionManager.updateCatalog([]);
+            return [];
         }
     }
 

@@ -87,6 +87,7 @@ export const PERMISSION_SCOPES = {
 
 export const API_PERMISSION_MAP = {
     getCurrentUser: { permission: 'dashboard:read', scope: 'cluster' },
+    getPermissionCatalog: { permission: 'dashboard:read', scope: 'cluster' },
     getHealth: { permission: null },
     getChatSessions: { permission: 'dashboard:read', scope: 'cluster' },
     createChatSession: { permission: 'dashboard:read', scope: 'cluster' },
@@ -289,6 +290,15 @@ export function normalizePermissions(raw) {
     return normalized;
 }
 
+function titleizePermission(permission) {
+    return String(permission || '')
+        .split(':')
+        .filter(Boolean)
+        .map((part) => part.replace(/_/g, ' '))
+        .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+        .join(' / ') || 'Permission';
+}
+
 function resolveScope(permission, explicitScope = null) {
     return explicitScope || PERMISSION_SCOPES[permission] || 'namespace';
 }
@@ -320,12 +330,27 @@ export class PermissionManager {
         this.user = null;
         this.permissions = normalizePermissions(null);
         this.apiClient = apiClient;
+        this.permissionLabels = {};
         this.updateUser(user);
     }
 
     updateUser(user) {
         this.user = user || null;
         this.permissions = normalizePermissions(this.user ? this.user.permissions : null);
+    }
+
+    updateCatalog(entries = []) {
+        const labels = {};
+        if (Array.isArray(entries)) {
+            entries.forEach((entry) => {
+                if (!entry || typeof entry.permission_key !== 'string') return;
+                const label = typeof entry.label === 'string' && entry.label.trim()
+                    ? entry.label.trim()
+                    : titleizePermission(entry.permission_key);
+                labels[entry.permission_key] = label;
+            });
+        }
+        this.permissionLabels = labels;
     }
 
     isGodMode() {
@@ -338,6 +363,21 @@ export class PermissionManager {
             return this.apiClient.getNamespace();
         }
         return localStorage.getItem('active_namespace') || 'default';
+    }
+
+    getPermissionLabel(permission) {
+        return this.permissionLabels[permission] || titleizePermission(permission);
+    }
+
+    getDeniedMessage(permission, namespace = null, explicitScope = null) {
+        const scope = resolveScope(permission, explicitScope);
+        const label = this.getPermissionLabel(permission);
+        if (scope === 'cluster') {
+            return `Disabled: missing permission: ${label}.`;
+        }
+
+        const resolvedNamespace = this.getNamespace(namespace);
+        return `Disabled: missing permission: ${label} in namespace "${resolvedNamespace}".`;
     }
 
     can(permission, namespace = null, explicitScope = null) {
@@ -382,9 +422,18 @@ export class PermissionManager {
 
         const namespace = resolveNamespaceFromRule(rule, args, this.apiClient);
         if (!this.can(rule.permission, namespace, rule.scope)) {
-            const error = new PermissionDeniedError(rule.permission, namespace);
+            const error = new PermissionDeniedError(
+                rule.permission,
+                namespace,
+                this.getDeniedMessage(rule.permission, namespace, rule.scope)
+            );
             window.dispatchEvent(new CustomEvent('permission-denied', {
-                detail: { methodName, permission: rule.permission, namespace },
+                detail: {
+                    methodName,
+                    permission: rule.permission,
+                    namespace,
+                    label: this.getPermissionLabel(rule.permission),
+                },
             }));
             throw error;
         }
@@ -486,12 +535,18 @@ export function setActionDisabled(element, disabled = true, message = INSUFFICIE
 
 export function guardActionElement(element, permissionManager, permission, namespace = null, scope = null) {
     const allowed = permissionManager ? permissionManager.can(permission, namespace, scope) : true;
-    setActionDisabled(element, !allowed);
+    const message = permissionManager && typeof permissionManager.getDeniedMessage === 'function'
+        ? permissionManager.getDeniedMessage(permission, namespace, scope)
+        : INSUFFICIENT_PERMISSIONS_MESSAGE;
+    setActionDisabled(element, !allowed, message);
     return allowed;
 }
 
-export function blockedActionToast() {
+export function blockedActionToast(permissionManager = null, permission = null, namespace = null, scope = null) {
     if (window.showToast) {
-        window.showToast(INSUFFICIENT_PERMISSIONS_MESSAGE, 'error');
+        const message = permissionManager && permission && typeof permissionManager.getDeniedMessage === 'function'
+            ? permissionManager.getDeniedMessage(permission, namespace, scope)
+            : INSUFFICIENT_PERMISSIONS_MESSAGE;
+        window.showToast(message, 'error');
     }
 }
