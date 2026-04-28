@@ -1,3 +1,5 @@
+import { guardActionElement, isPermissionDeniedError, renderPermissionDeniedBlock, renderPermissionDeniedTable } from '../permissions.js';
+
 export class ObservabilityController {
     constructor(api, sidePanel) {
         this.api = api;
@@ -36,9 +38,15 @@ export class ObservabilityController {
         const runServiceBtn = document.getElementById('runServiceDiagBtn');
 
         if (refreshBtn) refreshBtn.addEventListener('click', () => this.loadAll());
-        if (runPodBtn) runPodBtn.addEventListener('click', () => this.runPodDiagnostics());
-        if (runDeploymentBtn) runDeploymentBtn.addEventListener('click', () => this.runDeploymentDiagnostics());
-        if (runServiceBtn) runServiceBtn.addEventListener('click', () => this.runServiceDiagnostics());
+        if (runPodBtn && guardActionElement(runPodBtn, window.k8sPermissionManager, 'diagnostics:run', null, 'cluster')) {
+            runPodBtn.addEventListener('click', () => this.runPodDiagnostics());
+        }
+        if (runDeploymentBtn && guardActionElement(runDeploymentBtn, window.k8sPermissionManager, 'diagnostics:run', null, 'cluster')) {
+            runDeploymentBtn.addEventListener('click', () => this.runDeploymentDiagnostics());
+        }
+        if (runServiceBtn && guardActionElement(runServiceBtn, window.k8sPermissionManager, 'diagnostics:run', null, 'cluster')) {
+            runServiceBtn.addEventListener('click', () => this.runServiceDiagnostics());
+        }
     }
 
     async loadAll() {
@@ -124,6 +132,11 @@ export class ObservabilityController {
             this.clusterDiagnostics = await this.api.getClusterDiagnostics();
             this.renderSummaryCards();
         } catch (err) {
+            this.clusterDiagnostics = null;
+            if (isPermissionDeniedError(err)) {
+                renderPermissionDeniedBlock('obsSummaryCards');
+                return;
+            }
             console.error('Failed to load cluster diagnostics:', err);
         }
     }
@@ -134,6 +147,11 @@ export class ObservabilityController {
             this.warningSummary = Array.isArray(data) ? data : [];
             this.renderWarningSummary();
         } catch (err) {
+            this.warningSummary = [];
+            if (isPermissionDeniedError(err)) {
+                renderPermissionDeniedTable('warningEventsTableBody', 4);
+                return;
+            }
             console.error('Failed to load warning summary:', err);
         }
     }
@@ -199,6 +217,11 @@ export class ObservabilityController {
             this.nodeMetrics = Array.isArray(data) ? data : [];
             this.renderNodeMetrics();
         } catch (err) {
+            this.nodeMetrics = [];
+            if (isPermissionDeniedError(err)) {
+                renderPermissionDeniedTable('nodeMetricsTableBody', 4);
+                return;
+            }
             console.error('Failed to load node metrics:', err);
         }
     }
@@ -228,6 +251,11 @@ export class ObservabilityController {
             this.podMetrics = Array.isArray(data) ? data : [];
             this.renderPodMetrics();
         } catch (err) {
+            this.podMetrics = [];
+            if (isPermissionDeniedError(err)) {
+                renderPermissionDeniedTable('podMetricsTableBody', 4);
+                return;
+            }
             console.error('Failed to load pod metrics:', err);
         }
     }
@@ -303,6 +331,11 @@ export class ObservabilityController {
             this.resourcePressure = await this.api.getResourcePressure();
             this.renderResourcePressure();
         } catch (err) {
+            this.resourcePressure = null;
+            if (isPermissionDeniedError(err)) {
+                renderPermissionDeniedBlock('resourcePressureGrid');
+                return;
+            }
             console.error('Failed to load resource pressure:', err);
         }
     }

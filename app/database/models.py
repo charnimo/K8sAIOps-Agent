@@ -13,7 +13,7 @@ class User(Base):
     email = Column(String, unique=True, index=True)
     hashed_password = Column(String)
     profile_picture = Column(String, nullable=True) # Optional URL/Path
-    permissions = Column(String, default='[]')
+    permissions = Column(String, default='{"global": [], "namespaces": {}}')
     is_god_mode = Column(Boolean, default=False) 
 
     # Relationship for later, so you can fetch all conversations for a user
@@ -28,6 +28,7 @@ class PermissionCatalog(Base):
     description = Column(String, nullable=True)
     is_dangerous = Column(Boolean, default=False)
     enabled = Column(Boolean, default=True)
+    scope = Column(String, default="namespace")
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 

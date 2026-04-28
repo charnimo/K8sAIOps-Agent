@@ -1,5 +1,6 @@
 import { ServiceTableManager } from '../table.js';
 import { showConfirmModal } from '../confirm.js';
+import { guardActionElement, isPermissionDeniedError, renderPermissionDeniedTable } from '../permissions.js';
 
 export class ServicesController {
     constructor(api, sidePanel) {
@@ -90,7 +91,9 @@ export class ServicesController {
         if (createBtn) {
             const newCreateBtn = createBtn.cloneNode(true);
             createBtn.parentNode.replaceChild(newCreateBtn, createBtn);
-            newCreateBtn.addEventListener('click', () => this.openCreatePanel());
+            if (guardActionElement(newCreateBtn, window.k8sPermissionManager, 'services:create')) {
+                newCreateBtn.addEventListener('click', () => this.openCreatePanel());
+            }
         }
 
         this.loadTable();
@@ -115,6 +118,9 @@ export class ServicesController {
             }
         } catch (err) {
             console.error('Failed to load services table:', err);
+            if (isPermissionDeniedError(err)) {
+                renderPermissionDeniedTable('servicesTableBody', 7);
+            }
         }
     }
 

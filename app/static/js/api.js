@@ -1,7 +1,14 @@
+import { installApiPermissionGuards } from './permissions.js';
+
 export class ApiClient {
     constructor(token) {
         this.headers = { 'Authorization': `Bearer ${token}` };
         this.currentNamespace = localStorage.getItem('active_namespace') || 'default';
+        this.permissionManager = null;
+    }
+
+    setPermissionManager(permissionManager) {
+        this.permissionManager = permissionManager || null;
     }
 
     _resolveNamespace(namespace) {
@@ -21,6 +28,12 @@ export class ApiClient {
     async getCurrentUser() {
         const res = await fetch('/auth/me', { headers: this.headers });
         if (!res.ok) throw new Error('Failed to fetch current user');
+        return await res.json();
+    }
+
+    async getPermissionCatalog() {
+        const res = await fetch('/auth/permissions/catalog', { headers: this.headers });
+        if (!res.ok) throw new Error('Failed to fetch permission catalog');
         return await res.json();
     }
 
@@ -1185,3 +1198,5 @@ export class ApiClient {
         return await res.json();
     }
 }
+
+installApiPermissionGuards(ApiClient);

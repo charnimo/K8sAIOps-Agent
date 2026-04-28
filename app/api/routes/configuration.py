@@ -2,10 +2,12 @@
 
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from Tools import configmaps, ingress, network_policies, secrets
 from app.api.mutations import run_direct_action
+from app.auth.dependencies import require_permission
+from app.database.models import User
 from app.core.settings import get_settings
 from app.schemas.mutations import (
     CreateConfigMapRequest,
@@ -21,7 +23,10 @@ router = APIRouter()
 
 
 @router.get("/configmaps")
-def list_configmaps(namespace: str = Query(default="default")) -> list[dict]:
+def list_configmaps(
+    namespace: str = Query(default="default"),
+    user: User = Depends(require_permission("configmaps:read")),
+) -> list[dict]:
     """List ConfigMaps in a namespace."""
     try:
         return configmaps.list_configmaps(namespace=namespace)
@@ -30,7 +35,11 @@ def list_configmaps(namespace: str = Query(default="default")) -> list[dict]:
 
 
 @router.get("/configmaps/{name}")
-def get_configmap(name: str, namespace: str = Query(default="default")) -> dict:
+def get_configmap(
+    name: str,
+    namespace: str = Query(default="default"),
+    user: User = Depends(require_permission("configmaps:read")),
+) -> dict:
     """Fetch a ConfigMap."""
     try:
         return configmaps.get_configmap(name=name, namespace=namespace)
@@ -39,7 +48,10 @@ def get_configmap(name: str, namespace: str = Query(default="default")) -> dict:
 
 
 @router.post("/configmaps")
-def create_configmap(payload: CreateConfigMapRequest) -> dict:
+def create_configmap(
+    payload: CreateConfigMapRequest,
+    user: User = Depends(require_permission("configmaps:create")),
+) -> dict:
     """Create a ConfigMap directly."""
     params = payload.model_dump()
     name = params.pop("name")
@@ -48,7 +60,11 @@ def create_configmap(payload: CreateConfigMapRequest) -> dict:
 
 
 @router.patch("/configmaps/{name}")
-def patch_configmap(name: str, payload: PatchConfigMapRequest) -> dict:
+def patch_configmap(
+    name: str,
+    payload: PatchConfigMapRequest,
+    user: User = Depends(require_permission("configmaps:patch")),
+) -> dict:
     """Patch a ConfigMap directly."""
     params = payload.model_dump()
     namespace = params.pop("namespace")
@@ -56,13 +72,20 @@ def patch_configmap(name: str, payload: PatchConfigMapRequest) -> dict:
 
 
 @router.delete("/configmaps/{name}")
-def delete_configmap(name: str, namespace: str = Query(default="default")) -> dict:
+def delete_configmap(
+    name: str,
+    namespace: str = Query(default="default"),
+    user: User = Depends(require_permission("configmaps:delete")),
+) -> dict:
     """Delete a ConfigMap directly."""
     return run_direct_action("delete_configmap", name=name, namespace=namespace)
 
 
 @router.get("/secrets")
-def list_secrets(namespace: str = Query(default="default")) -> list[dict]:
+def list_secrets(
+    namespace: str = Query(default="default"),
+    user: User = Depends(require_permission("secrets:read")),
+) -> list[dict]:
     """List secrets without exposing values."""
     try:
         return secrets.list_secrets(namespace=namespace)
@@ -71,7 +94,11 @@ def list_secrets(namespace: str = Query(default="default")) -> list[dict]:
 
 
 @router.get("/secrets/{name}")
-def check_secret(name: str, namespace: str = Query(default="default")) -> dict:
+def check_secret(
+    name: str,
+    namespace: str = Query(default="default"),
+    user: User = Depends(require_permission("secrets:read")),
+) -> dict:
     """Return existence and key names for a secret."""
     try:
         return secrets.check_secret(name=name, namespace=namespace)
@@ -80,7 +107,11 @@ def check_secret(name: str, namespace: str = Query(default="default")) -> dict:
 
 
 @router.get("/secrets/{name}/exists")
-def secret_exists(name: str, namespace: str = Query(default="default")) -> dict:
+def secret_exists(
+    name: str,
+    namespace: str = Query(default="default"),
+    user: User = Depends(require_permission("secrets:read")),
+) -> dict:
     """Return whether a secret exists."""
     try:
         return {"exists": secrets.secret_exists(name=name, namespace=namespace)}
@@ -89,7 +120,11 @@ def secret_exists(name: str, namespace: str = Query(default="default")) -> dict:
 
 
 @router.get("/secrets/{name}/metadata")
-def get_secret_metadata(name: str, namespace: str = Query(default="default")) -> dict:
+def get_secret_metadata(
+    name: str,
+    namespace: str = Query(default="default"),
+    user: User = Depends(require_permission("secrets:read")),
+) -> dict:
     """Return secret metadata and key names."""
     try:
         return secrets.get_secret_metadata(name=name, namespace=namespace)
@@ -98,7 +133,11 @@ def get_secret_metadata(name: str, namespace: str = Query(default="default")) ->
 
 
 @router.get("/secrets/{name}/values")
-def get_secret_values(name: str, namespace: str = Query(default="default")) -> dict:
+def get_secret_values(
+    name: str,
+    namespace: str = Query(default="default"),
+    user: User = Depends(require_permission("secrets:read_plaintext")),
+) -> dict:
     """Return plaintext secret values."""
     settings = get_settings()
     if not settings.allow_plaintext_secret_reads:
@@ -116,7 +155,10 @@ def get_secret_values(name: str, namespace: str = Query(default="default")) -> d
 
 
 @router.post("/secrets")
-def create_secret(payload: CreateSecretRequest) -> dict:
+def create_secret(
+    payload: CreateSecretRequest,
+    user: User = Depends(require_permission("secrets:create")),
+) -> dict:
     """Create a secret directly."""
     params = payload.model_dump()
     name = params.pop("name")
@@ -125,7 +167,11 @@ def create_secret(payload: CreateSecretRequest) -> dict:
 
 
 @router.patch("/secrets/{name}")
-def update_secret(name: str, payload: UpdateSecretRequest) -> dict:
+def update_secret(
+    name: str,
+    payload: UpdateSecretRequest,
+    user: User = Depends(require_permission("secrets:update")),
+) -> dict:
     """Update a secret directly."""
     params = payload.model_dump()
     namespace = params.pop("namespace")
@@ -133,7 +179,11 @@ def update_secret(name: str, payload: UpdateSecretRequest) -> dict:
 
 
 @router.delete("/secrets/{name}")
-def delete_secret(name: str, namespace: str = Query(default="default")) -> dict:
+def delete_secret(
+    name: str,
+    namespace: str = Query(default="default"),
+    user: User = Depends(require_permission("secrets:delete")),
+) -> dict:
     """Delete a secret directly."""
     return run_direct_action("delete_secret", name=name, namespace=namespace)
 
@@ -143,9 +193,12 @@ def list_ingresses(
     namespace: str = Query(default="default"),
     label_selector: Optional[str] = Query(default=None),
     all_namespaces: bool = Query(default=False),
+    user: User = Depends(require_permission("ingresses:read")),
 ) -> list[dict]:
     """List ingresses."""
     try:
+        if all_namespaces and not user.is_god_mode:
+            raise HTTPException(status_code=403, detail="all_namespaces requires god-mode")
         if all_namespaces:
             return ingress.list_all_ingresses(label_selector=label_selector)
         return ingress.list_ingresses(namespace=namespace, label_selector=label_selector)
@@ -154,7 +207,11 @@ def list_ingresses(
 
 
 @router.get("/ingresses/{name}")
-def get_ingress(name: str, namespace: str = Query(default="default")) -> dict:
+def get_ingress(
+    name: str,
+    namespace: str = Query(default="default"),
+    user: User = Depends(require_permission("ingresses:read")),
+) -> dict:
     """Fetch an ingress summary."""
     try:
         return ingress.get_ingress(name=name, namespace=namespace)
@@ -163,7 +220,11 @@ def get_ingress(name: str, namespace: str = Query(default="default")) -> dict:
 
 
 @router.get("/ingresses/{name}/issues")
-def get_ingress_issues(name: str, namespace: str = Query(default="default")) -> dict:
+def get_ingress_issues(
+    name: str,
+    namespace: str = Query(default="default"),
+    user: User = Depends(require_permission("ingresses:read")),
+) -> dict:
     """Return ingress issue classification."""
     try:
         return ingress.detect_ingress_issues(name=name, namespace=namespace)
@@ -172,7 +233,10 @@ def get_ingress_issues(name: str, namespace: str = Query(default="default")) -> 
 
 
 @router.post("/ingresses")
-def create_ingress(payload: CreateIngressRequest) -> dict:
+def create_ingress(
+    payload: CreateIngressRequest,
+    user: User = Depends(require_permission("ingresses:create")),
+) -> dict:
     """Create an ingress directly."""
     params = payload.model_dump()
     name = params.pop("name")
@@ -181,7 +245,11 @@ def create_ingress(payload: CreateIngressRequest) -> dict:
 
 
 @router.patch("/ingresses/{name}")
-def patch_ingress(name: str, payload: PatchIngressRequest) -> dict:
+def patch_ingress(
+    name: str,
+    payload: PatchIngressRequest,
+    user: User = Depends(require_permission("ingresses:patch")),
+) -> dict:
     """Patch an ingress directly."""
     params = payload.model_dump()
     namespace = params.pop("namespace")
@@ -189,7 +257,11 @@ def patch_ingress(name: str, payload: PatchIngressRequest) -> dict:
 
 
 @router.delete("/ingresses/{name}")
-def delete_ingress(name: str, namespace: str = Query(default="default")) -> dict:
+def delete_ingress(
+    name: str,
+    namespace: str = Query(default="default"),
+    user: User = Depends(require_permission("ingresses:delete")),
+) -> dict:
     """Delete an ingress directly."""
     return run_direct_action("delete_ingress", name=name, namespace=namespace)
 
@@ -199,9 +271,12 @@ def list_network_policies(
     namespace: str = Query(default="default"),
     label_selector: Optional[str] = Query(default=None),
     all_namespaces: bool = Query(default=False),
+    user: User = Depends(require_permission("network_policies:read")),
 ) -> list[dict]:
     """List network policies."""
     try:
+        if all_namespaces and not user.is_god_mode:
+            raise HTTPException(status_code=403, detail="all_namespaces requires god-mode")
         if all_namespaces:
             return network_policies.list_all_network_policies(label_selector=label_selector)
         return network_policies.list_network_policies(namespace=namespace, label_selector=label_selector)
@@ -210,7 +285,10 @@ def list_network_policies(
 
 
 @router.get("/network-policies/issues")
-def get_network_issues(namespace: str = Query(default="default")) -> dict:
+def get_network_issues(
+    namespace: str = Query(default="default"),
+    user: User = Depends(require_permission("network_policies:read")),
+) -> dict:
     """Return namespace-level network policy issues."""
     try:
         return network_policies.detect_network_issues(namespace=namespace)
@@ -219,7 +297,11 @@ def get_network_issues(namespace: str = Query(default="default")) -> dict:
 
 
 @router.get("/network-policies/{name}")
-def get_network_policy(name: str, namespace: str = Query(default="default")) -> dict:
+def get_network_policy(
+    name: str,
+    namespace: str = Query(default="default"),
+    user: User = Depends(require_permission("network_policies:read")),
+) -> dict:
     """Fetch a network policy."""
     try:
         return network_policies.get_network_policy(name=name, namespace=namespace)

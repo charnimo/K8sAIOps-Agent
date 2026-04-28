@@ -2,10 +2,12 @@
 
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from Tools import audit
+from app.auth.dependencies import require_permission
 from app.core.settings import get_settings
+from app.database.models import User
 
 
 router = APIRouter()
@@ -16,6 +18,7 @@ def get_audit_logs(
     limit: int = Query(default=100, ge=1, le=500),
     action_type: Optional[str] = Query(default=None),
     success: Optional[bool] = Query(default=None),
+    user: User = Depends(require_permission("audit:read")),
 ) -> list[dict]:
     """Return recent audit log entries."""
     filter_by = {
@@ -30,7 +33,10 @@ def get_audit_logs(
 
 
 @router.post("/audit-logs/cleanup")
-def cleanup_audit_logs(days: int = Query(default=30, ge=1, le=3650)) -> dict:
+def cleanup_audit_logs(
+    days: int = Query(default=30, ge=1, le=3650),
+    user: User = Depends(require_permission("audit:cleanup")),
+) -> dict:
     """Delete audit entries older than a threshold."""
     settings = get_settings()
     if settings.read_only_mode:

@@ -1,10 +1,16 @@
+import { PAGE_PERMISSION_DENIED_MESSAGE, VIEW_PERMISSION_RULES, renderPermissionDeniedPage } from './permissions.js';
+
 export class NavigationManager {
-    constructor(routerCallback) {
+    constructor(routerCallback, options = {}) {
         this.navLinks = document.querySelectorAll('.nav-link');
         this.groupToggles = document.querySelectorAll('.nav-group-toggle');
         this.pageTitle = document.getElementById('topPageTitle');
         this.viewContainer = document.getElementById('viewContainer');
         this.routerCallback = routerCallback; // Function to call after loading a view
+        this.permissionManager = options.permissionManager || window.k8sPermissionManager || null;
+        this.viewRules = options.viewRules || VIEW_PERMISSION_RULES;
+        this.currentViewName = null;
+        this.currentTargetId = null;
 
         // Create a cache for loaded HTML views
         this.viewCache = {};
@@ -85,8 +91,19 @@ export class NavigationManager {
 
     async loadView(viewName, targetId) {
         try {
+            this.currentViewName = viewName;
+            this.currentTargetId = targetId;
+
             // Optional: Show loading state or skeleton here
             this.viewContainer.innerHTML = '<div class="flex justify-center p-10"><div class="animate-spin w-8 h-8 rounded-full border-4 border-blue-500 border-t-transparent"></div></div>';
+
+            if (!this.canAccessTarget(targetId)) {
+                renderPermissionDeniedPage(this.viewContainer, PAGE_PERMISSION_DENIED_MESSAGE);
+                if (this.routerCallback) {
+                    this.routerCallback(targetId, { restricted: true });
+                }
+                return;
+            }
 
             let html = this.viewCache[viewName];
             
@@ -108,5 +125,19 @@ export class NavigationManager {
             console.error("Failed to load view:", err);
             this.viewContainer.innerHTML = `<div class="p-6 bg-red-900/20 text-red-400 border border-red-800 rounded-lg">Failed to load view components: ${err.message}</div>`;
         }
+    }
+
+    canAccessTarget(targetId) {
+        if (!this.permissionManager || typeof this.permissionManager.canRule !== 'function') {
+            return true;
+        }
+
+        const rule = this.viewRules[targetId];
+        return this.permissionManager.canRule(rule);
+    }
+
+    async reloadCurrentView() {
+        if (!this.currentViewName || !this.currentTargetId) return;
+        await this.loadView(this.currentViewName, this.currentTargetId);
     }
 }
