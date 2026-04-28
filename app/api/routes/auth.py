@@ -11,7 +11,7 @@ import uuid
 
 from app.database.database import get_db
 from app.database.models import PermissionCatalog, User
-from app.auth.dependencies import require_permission
+from app.auth.dependencies import require_permission, get_current_user
 from app.auth.security import verify_password, get_password_hash, create_access_token, ACCESS_TOKEN_EXPIRE_MINUTES
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
@@ -211,7 +211,8 @@ def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(), db:
 
 
 @router.get("/me", response_model=dict, summary="Get current user profile")
-def get_me(user: User = Depends(require_permission("dashboard:read"))):
+def get_me(user: User = Depends(get_current_user)):
+    """Get current user profile. Users can always read their own profile and permissions."""
     return {
         "id": user.id,
         "username": user.username,
@@ -228,8 +229,9 @@ def get_me(user: User = Depends(require_permission("dashboard:read"))):
 @router.get("/permissions/catalog", response_model=list[dict], summary="Get permission catalog")
 def get_permission_catalog(
     db: Session = Depends(get_db),
-    user: User = Depends(require_permission("dashboard:read")),
+    user: User = Depends(get_current_user),
 ):
+    """Get permission catalog. This is needed for all users to understand available permissions."""
     _ = user
     rows = (
         db.query(PermissionCatalog)
@@ -252,8 +254,9 @@ def get_permission_catalog(
 @router.get("/users", response_model=list[dict], summary="List users (god-mode only)")
 def list_users(
     db: Session = Depends(get_db),
-    user: User = Depends(require_permission("dashboard:read")),
+    user: User = Depends(get_current_user),
 ):
+    """List all users. Only accessible to god-mode administrators."""
     if not user.is_god_mode:
         raise HTTPException(status_code=403, detail="Only god-mode admins can list users.")
 
@@ -278,8 +281,9 @@ def toggle_user_permission(
     permission_key: str,
     namespace: Optional[str] = Query(default=None),
     db: Session = Depends(get_db),
-    user: User = Depends(require_permission("dashboard:read")),
+    user: User = Depends(get_current_user),
 ):
+    """Toggle a permission for a user. Only accessible to god-mode administrators."""
     if not user.is_god_mode:
         raise HTTPException(status_code=403, detail="Only god-mode admins can change permissions.")
 
