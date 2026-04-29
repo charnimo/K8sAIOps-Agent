@@ -1,0 +1,141 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: aiops-monitor-config
+  namespace: aiops-system
+data:
+  # Namespace-to-team routing map
+  routing_config.yaml: |
+    namespace_team_mapping:
+      production: ["ops-team", "sre-team"]
+      staging: ["dev-team", "qa-team"]
+      development: ["dev-team"]
+      kube-system: ["platform-team", "sre-team"]
+      default: ["ops-team"]
+
+    severity_thresholds:
+      CRITICAL: ["CrashLoopBackOff", "OOMKilled", "ImagePullBackOff", "NodeNotReady", "Evicted"]
+      WARNING: ["BackOff", "Failed", "FailedScheduling", "FailedMount", "Unhealthy"]
+      INFO: ["Pulling", "Pulled", "Created", "Started", "Scheduled"]
+
+    dedup_window_seconds: 60
+    max_event_history: 1000
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: aiops-monitor
+  namespace: aiops-system
+  labels:
+    app.kubernetes.io/name: aiops-monitor
+    app.kubernetes.io/component: backend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: aiops-monitor
+  template:
+    metadata:
+      labels:
+        app: aiops-monitor
+        app.kubernetes.io/name: aiops-monitor
+    spec:
+      serviceAccountName: aiops-monitor-sa
+      automountServiceAccountToken: true
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+      containers:
+        - name: aiops-monitor
+          image: dou3a2/aiops-monitor:v2
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8765
+              name: websocket
+              protocol: TCP
+            - containerPort: 8080
+              name: http
+              protocol: TCP
+          env:
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: CONFIG_PATH
+              value: /etc/aiops/routing_config.yaml
+            - name: LOG_LEVEL
+              value: INFO
+            - name: WS_PORT
+              value: "8765"
+            - name: HTTP_PORT
+              value: "8080"
+          volumeMounts:
+            - name: config-volume
+              mountPath: /etc/aiops
+            - name: service-account-token
+              mountPath: /var/run/secrets/kubernetes.io/serviceaccount
+              readOnly: true
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+      volumes:
+        - name: config-volume
+          configMap:
+            name: aiops-monitor-config
+        - name: service-account-token
+          projected:
+            sources:
+              - serviceAccountToken:
+                  path: token
+                  expirationSeconds: 3600
+              - configMap:
+                  name: kube-root-ca.crt
+                  items:
+                    - key: ca.crt
+                      path: ca.crt
+              - downwardAPI:
+                  items:
+                    - path: namespace
+                      fieldRef:
+                        fieldPath: metadata.namespace
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: aiops-monitor-svc
+  namespace: aiops-system
+  labels:
+    app.kubernetes.io/name: aiops-monitor
+spec:
+  selector:
+    app: aiops-monitor
+  ports:
+    - name: websocket
+      port: 8765
+      targetPort: 8765
+      protocol: TCP
+    - name: http
+      port: 8080
+      targetPort: 8080
+      protocol: TCP
+  type: ClusterIP

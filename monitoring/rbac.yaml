@@ -1,0 +1,78 @@
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: aiops-system
+  labels:
+    app.kubernetes.io/name: aiops-monitor
+    app.kubernetes.io/component: monitoring
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: aiops-monitor-sa
+  namespace: aiops-system
+  labels:
+    app.kubernetes.io/name: aiops-monitor
+    app.kubernetes.io/component: service-account
+  annotations:
+    description: "AIOps monitoring service account with read-only cluster access"
+
+---
+# ClusterRole for read-only access to monitored resources
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: aiops-monitor-role
+  labels:
+    app.kubernetes.io/name: aiops-monitor
+    app.kubernetes.io/component: rbac
+rules:
+  # Pod monitoring
+  - apiGroups: [""]
+    resources: ["pods", "pods/status", "pods/log"]
+    verbs: ["get", "list", "watch"]
+
+  # Event monitoring
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["get", "list", "watch"]
+
+  # Namespace monitoring
+  - apiGroups: [""]
+    resources: ["namespaces"]
+    verbs: ["get", "list", "watch"]
+
+  # Node monitoring (for scheduling issues)
+  - apiGroups: [""]
+    resources: ["nodes", "nodes/status"]
+    verbs: ["get", "list", "watch"]
+
+  # Service & Endpoints (for enrichment)
+  - apiGroups: [""]
+    resources: ["services", "endpoints"]
+    verbs: ["get", "list", "watch"]
+
+  # Deployment & ReplicaSet (for context)
+  - apiGroups: ["apps"]
+    resources: ["deployments", "replicasets", "statefulsets", "daemonsets"]
+    verbs: ["get", "list", "watch"]
+
+---
+# Bind the ClusterRole to the ServiceAccount
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: aiops-monitor-rolebinding
+  labels:
+    app.kubernetes.io/name: aiops-monitor
+    app.kubernetes.io/component: rbac
+subjects:
+  - kind: ServiceAccount
+    name: aiops-monitor-sa
+    namespace: aiops-system
+roleRef:
+  kind: ClusterRole
+  name: aiops-monitor-role
+  apiGroup: rbac.authorization.k8s.io
