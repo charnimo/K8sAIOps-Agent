@@ -8,6 +8,7 @@ READ:
   - get_namespace(name)                       → single namespace detail
   - get_namespace_resource_count(namespace)   → count pods/deployments/services
   - get_namespace_events(name, limit)         → recent events in namespace
+  - get_namespace_teams(name)                 → resolve owning teams from labels/annotations
 
 WRITE:
     - create_namespace(name, labels)            → create namespace
@@ -15,6 +16,7 @@ WRITE:
 """
 
 import logging
+import os
 from datetime import datetime, timezone
 
 from kubernetes import client
@@ -23,6 +25,7 @@ from kubernetes.client.exceptions import ApiException
 from .client import get_core_v1, get_apps_v1
 from .utils import fmt_duration, retry_on_transient, validate_namespace
 from .events import sort_events
+from .teams import extract_teams
 
 logger = logging.getLogger(__name__)
 
@@ -109,6 +112,33 @@ def get_namespace_resource_count(namespace: str) -> dict:
 
     return counts
 
+def get_namespace_teams(name: str) -> list[str]:
+    """
+    Resolve the owning teams for a namespace.
+ 
+    Resolution order:
+      1. Namespace labels  (team=, owner=, app.kubernetes.io/team=, …)
+      2. Namespace annotations (same keys)
+      3. Empty list if nothing found — caller should apply its own fallback.
+ 
+    Each label value may be a comma-separated list of team names.
+ 
+    Args:
+        name: Namespace name
+ 
+    Returns:
+        Sorted, deduplicated list of team names.  Empty list if none found.
+    """
+    try:
+        ns_summary = get_namespace(name)
+    except ApiException:
+        logger.warning(f"Could not fetch namespace {name} for team resolution")
+        return []
+ 
+    return extract_teams(
+        ns_summary.get("labels", {}),
+        ns_summary.get("annotations", {}),
+    )
 
 # ─────────────────────────────────────────────
 # HELPERS
@@ -129,7 +159,6 @@ def _summarize_namespace(ns) -> dict:
         "age":    age,
         "labels": ns.metadata.labels or {},
     }
-
 
 def get_namespace_events(name: str, limit: int = 100) -> list[dict]:
     """Get recent events in the given namespace."""

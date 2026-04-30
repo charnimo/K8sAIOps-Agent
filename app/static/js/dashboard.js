@@ -1,7 +1,7 @@
-import { NavigationManager } from "./nav.js?v=1776099800";
+import { NavigationManager } from "./nav.js";
 import { AuthManager } from './auth.js';
-import { ApiClient } from './api.js?v=1776099800';
-import { ChatDrawer } from './chatDrawer.js?v=1776099800';
+import { ApiClient } from './api.js';
+import { ChatDrawer } from './chatDrawer.js';
 import { OverviewController } from './controllers/overviewController.js';
 import { PodsController } from './controllers/podsController.js';
 import { DeploymentsController } from './controllers/deploymentsController.js';
@@ -16,6 +16,7 @@ import { TerminalController } from './controllers/terminalController.js';
 import { EventsController } from './controllers/eventsController.js';
 import { LogsController } from './controllers/logsController.js';
 import { SidePanel } from './panel.js';
+// import { NotificationManager }  from './notificationManager.js';
 
 class Dashboard {
     constructor() {
@@ -46,7 +47,8 @@ class Dashboard {
         };
 
         this.chatDrawer = new ChatDrawer(this.api, this.auth);
-
+        // this.notifManager = new NotificationManager();
+        // this.notifManager.mount();
         this.nav = new NavigationManager((viewId) => this.handleViewLoad(viewId));
         this.activeViewId = 'view-overview';
 

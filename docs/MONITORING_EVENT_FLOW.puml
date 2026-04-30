@@ -1,0 +1,136 @@
+@startuml K8sAIOps-Event-Flow
+!theme plain
+skinparam sequenceArrowThickness 2
+skinparam responseMessageBelowArrow true
+
+title K8sAIOps Monitoring - Real-Time Event Flow
+
+participant "Kubernetes\nCluster" as K8s
+participant "KubernetesWatcher" as Watcher
+participant "EventProcessor" as Processor
+participant "Team Resolver\n(NamespaceTeamCache)" as TeamResolver
+participant "Severity\nClassifier" as Classifier
+participant "Dedup Cache" as Cache
+participant "NotificationDispatcher" as Dispatcher
+participant "SubscriptionRegistry" as Registry
+participant "WebSocket\nServer" as WSServer
+participant "Dashboard A\n(platform-ops)" as DashA
+participant "Dashboard B\n(backend team)" as DashB
+
+== 1. Kubernetes Event Occurs ==
+K8s -> K8s: Pod CrashLoopBackOff\nin namespace: production\nwith label: team=backend
+
+== 2. Event Detection ==
+K8s -[#blue]> Watcher: Watch stream event:\ntype=Warning, reason=CrashLoopBackOff
+note right of Watcher
+    Watcher detects:
+    namespace="production"
+    resource="pod-xyz"
+    kind="Pod"
+    reason="CrashLoopBackOff"
+end note
+
+== 3. Event Processing ==
+Watcher -[#green]> Processor: from_k8s_event(raw_object)
+
+== 4. Team Resolution ==
+Processor -[#orange]> TeamResolver: teams_for("production")
+TeamResolver --> Processor: ["backend", "platform-ops"]\n(from namespace labels)
+note right of TeamResolver
+    Resolution chain:
+    1. Check resource labels → "team=backend"
+    2. Check namespace labels → "team=platform-ops"
+    3. Combine & deduplicate
+    Result: [backend, platform-ops]
+end note
+
+== 5. Severity Classification ==
+Processor -[#red]> Classifier: classify("Warning", "CrashLoopBackOff")
+Classifier --> Processor: Severity.CRITICAL
+note right of Classifier
+    CrashLoopBackOff matches
+    _CRITICAL_REASON_EXACT
+    → CRITICAL severity
+end note
+
+== 6. Deduplication ==
+Processor -[#purple]> Cache: is_duplicate(fingerprint)?
+note right of Cache
+    fingerprint = sha256(
+        "production/pod-xyz/CrashLoopBackOff"
+    )[:16]
+
+    Not in cache → New event
+end note
+Cache --> Processor: false (not duplicate)
+
+== 7. Enriched Event Created ==
+Processor -[#blue]> Processor: EnrichedEvent(\n  severity=CRITICAL,\n  namespace="production",\n  resource_name="pod-xyz",\n  reason="CrashLoopBackOff",\n  teams=["backend", "platform-ops"],\n  timestamp="2024-01-15T10:30:45Z"\n)
+
+== 8. Dispatch to Subscribers ==
+Processor -[#green]> Dispatcher: dispatch(enriched_event)
+Dispatcher -[#green]> Registry: get_subscribers(event)
+
+== 9. Subscription Filtering ==
+note over Registry
+    For each WebSocket subscriber:
+
+    Dashboard A (alice@example.com):
+    ✓ severity=CRITICAL in {WARNING, CRITICAL}
+    ✓ namespace=production in {} (all namespaces)
+    ✓ teams: {backend} ∩ {backend, platform-ops} ≠ ∅
+    ✓ MATCH!
+
+    Dashboard B (bob@example.com):
+    ✓ severity=CRITICAL in {INFO, WARNING, CRITICAL}
+    ✓ namespace=production in {production} ✓
+    ✗ teams: {backend-dev} ∩ {backend, platform-ops} = ∅
+    ✗ NO MATCH
+end note
+
+Registry --> Dispatcher: [ws_A]
+
+== 10. Event Delivery ==
+Dispatcher -[#red]> EventHistory: append(event_dict)
+note right of EventHistory
+    Store in in-memory deque
+    (keeps last 500 events)
+end note
+
+Dispatcher -[#red]> WSServer: send(ws_A, json_payload)
+WSServer -[#red]> DashA: {\n  "event_id": "evt-abc123-1705323045",\n  "severity": "CRITICAL",\n  "namespace": "production",\n  "resource_name": "pod-xyz",\n  "resource_kind": "Pod",\n  "reason": "CrashLoopBackOff",\n  "message": "Back-off restarting failed container",\n  "teams": ["backend", "platform-ops"],\n  "timestamp": "2024-01-15T10:30:45Z"\n}
+
+note right of DashA
+    Dashboard A receives
+    & displays alert:
+
+    🔴 [CRITICAL]
+    CrashLoopBackOff
+    production/pod-xyz
+    Back-off restarting...
+end note
+
+DashB -[#gray]> DashB: (no notification - not subscribed to backend team)
+
+== Alternative: Pod Lifecycle Watch ==
+K8s -[#blue]> Watcher: Pod MODIFIED event\nstatus.phase=CrashLoopBackOff
+Watcher -[#blue]> Processor: from_pod_object(pod, "MODIFIED")
+note right of Processor
+    Synthesize event from pod state
+    instead of Kubernetes Event
+    (useful for direct pod monitoring)
+end note
+
+== Periodic Namespace Cache Refresh ==
+par Every NS_CACHE_TTL_SECONDS (default: 120s)
+    TeamResolver -[#teal]> K8s: list_namespaces()
+    K8s --> TeamResolver: [namespace_objects]
+    note right of TeamResolver
+        Update cached mapping:
+        production → [backend, platform-ops]
+        staging → [backend]
+        dev → [ops-team] (fallback)
+    end note
+end
+
+@enduml

@@ -1,0 +1,117 @@
+@startuml K8sAIOps-Team-Resolution
+!theme plain
+skinparam activity {
+    BackgroundColor<<decision>> #FFF4E6
+    BackgroundColor<<success>> #E8F5E9
+    BackgroundColor<<fallback>> #FFEBEE
+    BackgroundColor<<process>> #E3F2FD
+}
+
+title K8sAIOps Monitoring - Team Resolution Logic
+
+start
+
+:Event arrives from Kubernetes;
+:Extract event metadata:
+  - namespace
+  - resource name
+  - resource labels
+  - resource annotations;
+
+:Initialize empty teams set;
+
+:Loop through TEAM_LABEL_KEYS
+[team, owner, app.kubernetes.io/team, ...];
+
+  :Check resource labels
+  for each key;
+
+  if (label found?) then (yes)
+    :Extract value
+    (may be comma-separated);
+    :Split by comma and trim;
+    :Add each team to set;
+    :teams = {team1, team2, ...};
+  else (no)
+    :Continue to next key;
+  endif
+
+  :Check resource annotations
+  for each key;
+
+  if (annotation found?) then (yes)
+    :Extract value;
+    :Split by comma and trim;
+    :Add each team to set;
+    :teams ∪ {team1, team2, ...};
+  else (no)
+    :Continue to next key;
+  endif
+
+:end loop;
+
+if (teams found from resource?) then (yes)
+  :Sort and deduplicate;
+  :Return teams list;
+  :<<success>> RESOLVED FROM RESOURCE METADATA;
+  stop
+else (no)
+  :teams still empty;
+endif
+
+:Query NamespaceTeamCache
+for namespace teams;
+
+if (namespace in cache?) then (yes)
+  :Retrieve cached teams
+  for namespace;
+
+  if (cache has teams?) then (yes)
+    :teams = cached_teams;
+    :Sort and deduplicate;
+    :Return teams;
+    :<<success>> RESOLVED FROM NAMESPACE CACHE;
+    stop
+  else (no)
+  endif
+else (no)
+  :Namespace not yet cached;
+endif
+
+:Call tools.namespaces.get_namespace_teams(ns)
+if available;
+
+if (tools.namespaces available?) then (yes)
+  if (tools returns teams?) then (yes)
+    :teams = returned_teams;
+    :Sort and deduplicate;
+    :Return teams;
+    :<<success>> RESOLVED FROM TOOLS LAYER;
+    stop
+  else (no)
+    :tools returned empty list;
+  endif
+else (no)
+  :tools.namespaces not available
+  (import failed);
+endif
+
+:No teams resolved from any source;
+:Use FALLBACK_TEAM env var
+(default: "ops-team");
+
+:teams = [FALLBACK_TEAM];
+:<<fallback>> FALLBACK TEAM APPLIED;
+
+:Return teams list;
+
+stop
+
+legend right
+  |<#E3F2FD> Process (Checking/Extracting) |
+  |<#FFF4E6> Decision Point |
+  |<#E8F5E9> Success (Team Resolved) |
+  |<#FFEBEE> Fallback Applied |
+end legend
+
+@enduml

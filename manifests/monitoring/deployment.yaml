@@ -50,7 +50,7 @@ spec:
         fsGroup: 1000
       containers:
         - name: aiops-monitor
-          image: dou3a2/aiops-monitor:v2
+          image: dou3a2/aiops-monitor:v4
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8765
@@ -87,13 +87,13 @@ spec:
               memory: 512Mi
           livenessProbe:
             httpGet:
-              path: /health
+              path: /monitor/health
               port: 8080
             initialDelaySeconds: 10
             periodSeconds: 30
           readinessProbe:
             httpGet:
-              path: /ready
+              path: /monitor/ready
               port: 8080
             initialDelaySeconds: 5
             periodSeconds: 10

@@ -1,0 +1,119 @@
+@startuml K8sAIOps-Subscription-Filtering
+!theme plain
+skinparam activity {
+    BackgroundColor<<decision>> #FFF4E6
+    BackgroundColor<<match>> #E8F5E9
+    BackgroundColor<<nomatch>> #FFEBEE
+    BackgroundColor<<process>> #E3F2FD
+}
+
+title K8sAIOps Monitoring - Subscription Filtering Logic
+
+start
+
+:EnrichedEvent arrives:
+  namespace="production"
+  severity=CRITICAL
+  teams=[backend, platform-ops]
+  resource=pod-xyz;
+
+:Get all active subscriptions
+from SubscriptionRegistry;
+
+:For each WebSocket connection
+& its Subscription;
+
+:subscriber = {
+  user_id: "alice@example.com"
+  namespaces: {} (all)
+  teams: {backend}
+  severities: {WARNING, CRITICAL}
+};
+
+:<<process>> APPLY FILTER #1: Severity;
+
+if (event.severity in sub.severities?) then (yes)
+  :✓ Severity match
+  (CRITICAL in {WARNING, CRITICAL});
+else (no)
+  :✗ Severity mismatch
+  SKIP this subscriber;
+  :Back to next subscriber;
+  stop
+endif
+
+:<<process>> APPLY FILTER #2: Namespace;
+
+if (sub.namespaces is empty?) then (yes)
+  :✓ Subscriber wants ALL namespaces;
+  :ns_match = true;
+else (no)
+  if (event.namespace in sub.namespaces?) then (yes)
+    :✓ Namespace match
+    (production in {production});
+    :ns_match = true;
+  else (no)
+    :✗ Namespace mismatch
+    SKIP this subscriber;
+    :Back to next subscriber;
+    stop
+  endif
+endif
+
+:<<process>> APPLY FILTER #3: Teams;
+
+if (sub.teams is empty?) then (yes)
+  :✓ Subscriber wants ALL teams;
+  :team_match = true;
+else (no)
+  :Compute team intersection:
+  event.teams ∩ sub.teams;
+
+  if (intersection not empty?) then (yes)
+    :✓ Team match
+    ({backend} ∩ {backend, platform-ops} = {backend});
+    :team_match = true;
+  else (no)
+    :✗ No team overlap
+    SKIP this subscriber;
+    :Back to next subscriber;
+    stop
+  endif
+endif
+
+:<<match>> ALL FILTERS PASSED!;
+:Add subscriber's WebSocket to targets list;
+:Continue to next subscriber;
+
+if (more subscribers?) then (yes)
+  :Back to next subscriber;
+else (no)
+  :Filtering complete;
+endif
+
+:Return targets: [ws_1, ws_2, ...]
+(WebSockets to notify);
+
+stop
+
+legend right
+  |<#E3F2FD> Filter Check (Process) |
+  |<#FFF4E6> Decision/Condition |
+  |<#E8F5E9> Match (Include in targets) |
+  |<#FFEBEE> No Match (Skip) |
+end legend
+
+note bottom
+  Example Subscribers & Matching:
+
+  |< Sub > | Namespace | Teams | Severity | Match? |
+  | Alice | {} (all) | {backend} | {WARNING,CRITICAL} | ✓ YES |
+  | Bob | {production} | {} (all) | {INFO,WARNING,CRITICAL} | ✓ YES |
+  | Charlie | {staging} | {frontend} | {INFO,WARNING,CRITICAL} | ✗ NO |
+  | Diana | {} (all) | {} (all) | {INFO} only | ✗ NO (severity) |
+
+  Event: production, backend team, CRITICAL severity
+  Targets: [Alice_ws, Bob_ws]
+end note
+
+@enduml

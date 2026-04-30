@@ -1,0 +1,297 @@
+@startuml K8sAIOps-Monitoring-System
+!theme plain
+skinparam backgroundColor #f9f9f9
+skinparam defaultFontSize 11
+skinparam classBackgroundColor #e8f4f8
+skinparam classAttributeIconSize 0
+
+title K8sAIOps Agent - Monitoring System Architecture
+
+package "Kubernetes Cluster" {
+    component "Events API" as K8sEvents
+    component "Pod Objects\n(lifecycle)" as K8sPods
+    component "Namespace\nObjects" as K8sNamespaces
+    component "Resource\nLabels/Annotations" as K8sMetadata
+}
+
+package "Monitoring System" {
+    ' === Watchers ===
+    component "KubernetesWatcher" as Watcher {
+        note right
+            Watches cluster-wide:
+            - Events (all namespaces)
+            - Pods (ADDED/MODIFIED)
+            - Namespaces (phase changes)
+
+            Auto-recovery on error (retry after 5s)
+        end note
+    }
+
+    ' === Core Processing ===
+    package "Event Processing Pipeline" {
+        component "EventProcessor" as Processor {
+            note bottom
+                Normalizes raw K8s objects
+                into EnrichedEvents
+
+                Methods:
+                - from_k8s_event()
+                - from_pod_object()
+                - synthetic_namespace_event()
+            end note
+        }
+
+        component "Severity\nClassifier" as Classifier {
+            note right
+                Maps K8s type + reason
+                to severity level:
+                - INFO
+                - WARNING
+                - CRITICAL
+            end note
+        }
+
+        component "Team Resolver" as TeamResolver {
+            note bottom
+                Multi-level team resolution:
+                1. Resource labels/annotations
+                2. Namespace metadata
+                3. tools.namespaces module
+                4. FALLBACK_TEAM fallback
+            end note
+        }
+
+        component "Dedup Cache" as DedupCache {
+            note right
+                Rolling fingerprint cache
+                Window: DEDUP_WINDOW_SECONDS
+                (default: 60s)
+            end note
+        }
+    }
+
+    ' === Team Resolution ===
+    package "Namespace & Team Discovery" {
+        component "NamespaceTeamCache" as NSCache {
+            note bottom
+                Maintains namespace → [teams] mapping
+                Auto-refreshes every NS_CACHE_TTL_SECONDS
+                (default: 120s)
+
+                Sources:
+                - tools.namespaces.get_namespace_teams()
+                - Kubernetes API (fallback)
+            end note
+        }
+
+        database "Team Metadata DB" as TeamMetadata {
+            note bottom
+                In-memory cache:
+                ns_name → [team1, team2, ...]
+
+                Data source:
+                - NS labels: team, owner, app.kubernetes.io/team
+                - NS annotations (same keys)
+            end note
+        }
+    }
+
+    ' === Data Model ===
+    component "EnrichedEvent" as EnrichedEvent {
+        note bottom
+            @dataclass
+            event_id: str
+            severity: Severity (INFO|WARNING|CRITICAL)
+            namespace: str
+            resource_name: str
+            resource_kind: str
+            reason: str (Kubernetes-native)
+            message: str
+            timestamp: str
+            node: Optional[str]
+            labels: dict
+            annotations: dict
+            teams: list[str]    <-- team routing key
+            raw_count: int
+            first_seen: Optional[str]
+            last_seen: Optional[str]
+        end note
+    }
+
+    ' === Subscription & Filtering ===
+    package "Subscription & Filtering" {
+        database "SubscriptionRegistry" as Registry {
+            note bottom
+                Maps WebSocket connections
+                to Subscriptions:
+                {
+                  user_id: str
+                  namespaces: set[str]  (empty = all)
+                  teams: set[str]       (empty = all)
+                  severities: set[str]
+                  role: str (viewer|operator|admin)
+                }
+
+                Filtering logic:
+                - Severity must match
+                - Namespace must match (or empty)
+                - At least one team must match (or empty)
+            end note
+        }
+
+        component "Event Matcher" as Matcher {
+            note right
+                For each event:
+                Query registry
+                → Filter subscribers
+                → Return matching list
+            end note
+        }
+    }
+
+    ' === Delivery ===
+    package "Notification Delivery" {
+        component "NotificationDispatcher" as Dispatcher {
+            note bottom
+                Routes enriched events
+                to matching WebSocket subscribers
+
+                Methods:
+                - dispatch(event): async
+                - recent_events(limit): history
+            end note
+        }
+
+        database "Event History" as EventHistory {
+            note right
+                In-memory deque
+                Max size: MAX_EVENT_HISTORY
+                (default: 500 events)
+
+                Stores all events
+                (even if no live subscribers)
+            end note
+        }
+    }
+
+    ' === WebSocket ===
+    component "WebSocket\nServer" as WSServer {
+        note right
+            Port: WS_PORT (default: 8765)
+
+            Per-connection lifecycle:
+            - accept()
+            - register subscription
+            - receive message loop
+            - on disconnect: unregister
+        end note
+    }
+}
+
+package "Frontend/Clients" {
+    component "Dashboard\nComponent A" as DashA {
+        note bottom
+            User: alice@example.com
+            Teams: {platform-ops}
+            Namespaces: {} (all)
+            Severities: {WARNING, CRITICAL}
+        end note
+    }
+
+    component "Dashboard\nComponent B" as DashB {
+        note bottom
+            User: bob@example.com
+            Teams: {} (all)
+            Namespaces: {production}
+            Severities: {INFO, WARNING, CRITICAL}
+        end note
+    }
+
+    component "Admin\nComponent" as DashC {
+        note bottom
+            User: charlie@example.com
+            Teams: {} (all)
+            Namespaces: {} (all)
+            Severities: {INFO, WARNING, CRITICAL}
+        end note
+    }
+}
+
+package "External Tools Integration" {
+    component "tools.namespaces" as ToolsNamespaces {
+        note right
+            list_namespaces()
+            → list[dict]
+
+            get_namespace_teams(name)
+            → list[str]
+        end note
+    }
+
+    component "Prometheus\n(Metrics)" as Prometheus {
+        note bottom
+            Optional: metrics collection
+            Functions:
+            - query_prometheus()
+            - query_prometheus_range()
+            - get_pod_metric_history()
+        end note
+    }
+}
+
+' === Connections ===
+
+' Kubernetes Cluster sources
+K8sEvents --> Watcher: watch stream
+K8sPods --> Watcher: watch stream
+K8sNamespaces --> Watcher: watch stream
+K8sMetadata --> TeamResolver: extract labels/annotations
+
+' Watcher → Processing
+Watcher --> Processor: raw objects
+Processor --> Classifier: K8s type + reason
+Processor --> TeamResolver: namespace + labels/annotations
+Processor --> DedupCache: fingerprint
+DedupCache --> Processor: is_duplicate?
+
+' Team Resolution
+TeamResolver --> NSCache: teams_for(namespace)
+NSCache --> TeamMetadata: lookup
+ToolsNamespaces --> NSCache: get_namespace_teams()
+K8sNamespaces -.-> NSCache: refresh from cluster
+
+' Event Enrichment
+Processor --> EnrichedEvent: create
+Classifier --> EnrichedEvent: severity
+TeamResolver --> EnrichedEvent: teams[]
+
+' Subscription Routing
+EnrichedEvent --> Dispatcher: dispatch()
+Dispatcher --> Registry: get_subscribers(event)
+Registry --> Matcher: filter by severity/namespace/teams
+Matcher --> Dispatcher: matching subscriptions
+Dispatcher --> EventHistory: append event
+
+' WebSocket Delivery
+Dispatcher --> WSServer: send JSON
+WSServer --> DashA: notify
+WSServer --> DashB: notify
+WSServer --> DashC: notify
+
+' Frontend → WebSocket
+DashA -.-> WSServer: WebSocket connect + subscribe
+DashB -.-> WSServer: WebSocket connect + subscribe
+DashC -.-> WSServer: WebSocket connect + subscribe
+
+' Optional Metrics
+Prometheus -.-> Dispatcher: (optional) metrics alerts
+
+' === Legend ===
+note right of Prometheus
+    LEGEND:
+    ───→  Synchronous call/data flow
+    ····→  Asynchronous or optional flow
+    ▼    Component input/output
+end note
+
+@enduml
