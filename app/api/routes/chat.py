@@ -5,7 +5,7 @@ from cmath import log
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from app.auth.dependencies import get_current_user
+from app.auth.dependencies import require_permission
 from app.database.database import get_db, SessionLocal
 from app.database.models import ChatHistory, Conversation, User
 from app.schemas.api import ChatMessageRequest, ChatSessionCreateRequest
@@ -84,13 +84,13 @@ def _serialize_session(row: Conversation, include_messages: bool = False) -> dic
 @router.get("/sessions")
 def list_chat_sessions(
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    user: User = Depends(require_permission("dashboard:read")),
 ) -> list[dict]:
     """List chat sessions for the current user."""
-    _ensure_mock_conversations(db, current_user)
+    _ensure_mock_conversations(db, user)
     rows = (
         db.query(Conversation)
-        .filter(Conversation.user_id == current_user.id)
+        .filter(Conversation.user_id == user.id)
         .order_by(Conversation.created_at.desc())
         .all()
     )
@@ -101,14 +101,14 @@ def list_chat_sessions(
 def create_chat_session(
     payload: ChatSessionCreateRequest | None = None,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    user: User = Depends(require_permission("dashboard:read")),
 ) -> dict:
     """Create a new DB-backed chat session for the current user."""
     title = "New Conversation"
     if payload and payload.title and payload.title.strip():
         title = payload.title.strip()
 
-    row = Conversation(user_id=current_user.id, title=title)
+    row = Conversation(user_id=user.id, title=title)
     db.add(row)
     db.commit()
     db.refresh(row)
@@ -119,12 +119,12 @@ def create_chat_session(
 def get_chat_session(
     session_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    user: User = Depends(require_permission("dashboard:read")),
 ) -> dict:
     """Return chat history for a DB session owned by the current user."""
     row = (
         db.query(Conversation)
-        .filter(Conversation.id == session_id, Conversation.user_id == current_user.id)
+        .filter(Conversation.id == session_id, Conversation.user_id == user.id)
         .first()
     )
     if row is None:
@@ -137,12 +137,12 @@ def post_chat_message(
     session_id: int,
     payload: ChatMessageRequest,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    user: User = Depends(require_permission("dashboard:read")),
 ) -> dict:
     """Append a user message to a DB session and return template assistant reply."""
     session = (
         db.query(Conversation)
-        .filter(Conversation.id == session_id, Conversation.user_id == current_user.id)
+        .filter(Conversation.id == session_id, Conversation.user_id == user.id)
         .first()
     )
     if session is None:
@@ -154,7 +154,7 @@ def post_chat_message(
 
     user_message = ChatHistory(
         conversation_id=session.id,
-        sender=current_user.username,
+        sender=user.username,
         message=content,
     )
     db.add(user_message)
@@ -173,7 +173,7 @@ def post_chat_message(
 
     session_refreshed = (
         db.query(Conversation)
-        .filter(Conversation.id == session.id, Conversation.user_id == current_user.id)
+        .filter(Conversation.id == session.id, Conversation.user_id == user.id)
         .first()
     )
 

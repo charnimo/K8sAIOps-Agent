@@ -2,9 +2,11 @@
 
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from Tools import diagnostics
+from app.auth.dependencies import require_permission
+from app.database.models import User
 from app.schemas.api import (
     DeploymentDiagnosisRequest,
     ServiceTargetRequest,
@@ -16,7 +18,10 @@ router = APIRouter()
 
 
 @router.post("/pods")
-def diagnose_pod(payload: ResourceTargetRequest) -> dict:
+def diagnose_pod(
+    payload: ResourceTargetRequest,
+    user: User = Depends(require_permission("diagnostics:run")),
+) -> dict:
     """Run a pod diagnosis bundle."""
     try:
         return diagnostics.diagnose_pod(name=payload.name, namespace=payload.namespace)
@@ -28,6 +33,7 @@ def diagnose_pod(payload: ResourceTargetRequest) -> dict:
 def diagnose_pod_from_query(
     name: str = Query(..., min_length=1),
     namespace: str = Query(default="default", min_length=1),
+    user: User = Depends(require_permission("diagnostics:run")),
 ) -> dict:
     """Run a pod diagnosis bundle from query parameters for browser testing."""
     try:
@@ -37,7 +43,10 @@ def diagnose_pod_from_query(
 
 
 @router.post("/deployments")
-def diagnose_deployment(payload: DeploymentDiagnosisRequest) -> dict:
+def diagnose_deployment(
+    payload: DeploymentDiagnosisRequest,
+    user: User = Depends(require_permission("diagnostics:run")),
+) -> dict:
     """Run a deployment diagnosis bundle."""
     try:
         return diagnostics.diagnose_deployment(
@@ -56,6 +65,7 @@ def diagnose_deployment_from_query(
     namespace: str = Query(default="default", min_length=1),
     include_pod_details: bool = Query(default=False),
     include_resource_pressure: bool = Query(default=False),
+    user: User = Depends(require_permission("diagnostics:run")),
 ) -> dict:
     """Run a deployment diagnosis bundle from query parameters for browser testing."""
     try:
@@ -70,7 +80,10 @@ def diagnose_deployment_from_query(
 
 
 @router.post("/services")
-def diagnose_service(payload: ServiceTargetRequest) -> dict:
+def diagnose_service(
+    payload: ServiceTargetRequest,
+    user: User = Depends(require_permission("diagnostics:run")),
+) -> dict:
     """Run a service diagnosis bundle."""
     try:
         return diagnostics.diagnose_service(name=payload.name, namespace=payload.namespace)
@@ -82,6 +95,7 @@ def diagnose_service(payload: ServiceTargetRequest) -> dict:
 def diagnose_service_from_query(
     name: str = Query(..., min_length=1),
     namespace: str = Query(default="default", min_length=1),
+    user: User = Depends(require_permission("diagnostics:run")),
 ) -> dict:
     """Run a service diagnosis bundle from query parameters for browser testing."""
     try:
@@ -91,7 +105,10 @@ def diagnose_service_from_query(
 
 
 @router.get("/cluster")
-def cluster_health(namespace: Optional[str] = Query(default=None)) -> dict:
+def cluster_health(
+    namespace: Optional[str] = Query(default=None),
+    user: User = Depends(require_permission("diagnostics:run")),
+) -> dict:
     """Return a cluster-wide health snapshot."""
     try:
         return diagnostics.cluster_health_snapshot(namespace=namespace)

@@ -2,7 +2,7 @@
 
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Depends
 from kubernetes.client.exceptions import ApiException
 
 from Tools import deployments, pods, services
@@ -16,6 +16,9 @@ from app.schemas.mutations import (
     PodExecRequest,
     ScaleRequest,
 )
+
+from app.auth.dependencies import require_permission
+from app.database.models import User
 
 
 router = APIRouter()
@@ -36,9 +39,12 @@ def list_pods(
     namespace: str = Query(default="default"),
     label_selector: Optional[str] = Query(default=None),
     all_namespaces: bool = Query(default=False),
+    user: User = Depends(require_permission("pods:read")),
 ) -> list[dict]:
     """List pods in a namespace."""
     try:
+        if all_namespaces and not user.is_god_mode:
+            raise HTTPException(status_code=403, detail="all_namespaces requires god-mode")
         if all_namespaces:
             return pods.list_all_pods(label_selector=label_selector)
         return pods.list_pods(namespace=namespace, label_selector=label_selector)
@@ -52,6 +58,7 @@ def get_pod(
     namespace: str = Query(default="default"),
     include_metrics: bool = Query(default=False),
     include_details: bool = Query(default=False),
+    user: User = Depends(require_permission("pods:read")),
 ) -> dict:
     """Fetch a pod status view suitable for the UI."""
     try:
@@ -73,6 +80,7 @@ def get_pod_logs(
     container: Optional[str] = Query(default=None),
     previous: bool = Query(default=False),
     tail_lines: int = Query(default=100, ge=1, le=1000),
+    user: User = Depends(require_permission("pods:logs")),
 ) -> dict:
     """Return pod logs for a container."""
     try:
@@ -94,7 +102,11 @@ def get_pod_logs(
 
 
 @router.get("/pods/{name}/events")
-def get_pod_events(name: str, namespace: str = Query(default="default")) -> list[dict]:
+def get_pod_events(
+    name: str,
+    namespace: str = Query(default="default"),
+    user: User = Depends(require_permission("pods:read")),
+) -> list[dict]:
     """Return pod events."""
     try:
         return pods.get_pod_events(name=name, namespace=namespace)
@@ -103,7 +115,11 @@ def get_pod_events(name: str, namespace: str = Query(default="default")) -> list
 
 
 @router.get("/pods/{name}/issues")
-def get_pod_issues(name: str, namespace: str = Query(default="default")) -> dict:
+def get_pod_issues(
+    name: str,
+    namespace: str = Query(default="default"),
+    user: User = Depends(require_permission("pods:read")),
+) -> dict:
     """Return pod issue classification."""
     try:
         return pods.detect_pod_issues(name=name, namespace=namespace)
@@ -112,13 +128,22 @@ def get_pod_issues(name: str, namespace: str = Query(default="default")) -> dict
 
 
 @router.delete("/pods/{name}")
-def delete_pod(name: str, namespace: str = Query(default="default")) -> dict:
+def delete_pod(
+    name: str,
+    namespace: str = Query(default="default"),
+    user: User = Depends(require_permission("pods:delete")),
+) -> dict:
     """Delete a pod directly."""
     return run_direct_action("delete_pod", name=name, namespace=namespace)
 
 
 @router.post("/pods/{name}/exec")
-def exec_pod(name: str, payload: PodExecRequest, namespace: str = Query(default="default")) -> dict:
+def exec_pod(
+    name: str,
+    payload: PodExecRequest,
+    namespace: str = Query(default="default"),
+    user: User = Depends(require_permission("pods:exec")),
+) -> dict:
     """Execute a command in a pod."""
     return run_direct_action(
         "exec_pod",
@@ -133,9 +158,12 @@ def list_deployments(
     namespace: str = Query(default="default"),
     label_selector: Optional[str] = Query(default=None),
     all_namespaces: bool = Query(default=False),
+    user: User = Depends(require_permission("deployments:read")),
 ) -> list[dict]:
     """List deployments in a namespace."""
     try:
+        if all_namespaces and not user.is_god_mode:
+            raise HTTPException(status_code=403, detail="all_namespaces requires god-mode")
         if all_namespaces:
             return deployments.list_all_deployments(label_selector=label_selector)
         return deployments.list_deployments(namespace=namespace, label_selector=label_selector)
@@ -144,7 +172,11 @@ def list_deployments(
 
 
 @router.get("/deployments/{name}")
-def get_deployment(name: str, namespace: str = Query(default="default")) -> dict:
+def get_deployment(
+    name: str,
+    namespace: str = Query(default="default"),
+    user: User = Depends(require_permission("deployments:read")),
+) -> dict:
     """Fetch a deployment summary."""
     try:
         return deployments.get_deployment(name=name, namespace=namespace)
@@ -153,7 +185,11 @@ def get_deployment(name: str, namespace: str = Query(default="default")) -> dict
 
 
 @router.get("/deployments/{name}/events")
-def get_deployment_events(name: str, namespace: str = Query(default="default")) -> list[dict]:
+def get_deployment_events(
+    name: str,
+    namespace: str = Query(default="default"),
+    user: User = Depends(require_permission("deployments:read")),
+) -> list[dict]:
     """Return deployment events."""
     try:
         return deployments.get_deployment_events(name=name, namespace=namespace)
@@ -162,7 +198,11 @@ def get_deployment_events(name: str, namespace: str = Query(default="default")) 
 
 
 @router.get("/deployments/{name}/revisions")
-def get_deployment_revisions(name: str, namespace: str = Query(default="default")) -> dict:
+def get_deployment_revisions(
+    name: str,
+    namespace: str = Query(default="default"),
+    user: User = Depends(require_permission("deployments:read")),
+) -> dict:
     """Return deployment revisions."""
     try:
         return deployments.get_deployment_revisions(name=name, namespace=namespace)
@@ -171,7 +211,11 @@ def get_deployment_revisions(name: str, namespace: str = Query(default="default"
 
 
 @router.get("/deployments/{name}/rollout-status")
-def get_rollout_status(name: str, namespace: str = Query(default="default")) -> dict:
+def get_rollout_status(
+    name: str,
+    namespace: str = Query(default="default"),
+    user: User = Depends(require_permission("deployments:read")),
+) -> dict:
     """Return deployment rollout status."""
     try:
         return deployments.rollout_status(name=name, namespace=namespace)
@@ -180,7 +224,11 @@ def get_rollout_status(name: str, namespace: str = Query(default="default")) -> 
 
 
 @router.get("/deployments/{name}/rollout-history")
-def get_rollout_history(name: str, namespace: str = Query(default="default")) -> dict:
+def get_rollout_history(
+    name: str,
+    namespace: str = Query(default="default"),
+    user: User = Depends(require_permission("deployments:read")),
+) -> dict:
     """Return deployment rollout history."""
     try:
         return deployments.rollout_history(name=name, namespace=namespace)
@@ -189,7 +237,12 @@ def get_rollout_history(name: str, namespace: str = Query(default="default")) ->
 
 
 @router.patch("/deployments/{name}/scale")
-def scale_deployment(name: str, payload: ScaleRequest, namespace: str = Query(default="default")) -> dict:
+def scale_deployment(
+    name: str,
+    payload: ScaleRequest,
+    namespace: str = Query(default="default"),
+    user: User = Depends(require_permission("deployments:scale")),
+) -> dict:
     """Scale a deployment directly."""
     return run_direct_action(
         "scale_deployment",
@@ -200,13 +253,21 @@ def scale_deployment(name: str, payload: ScaleRequest, namespace: str = Query(de
 
 
 @router.post("/deployments/{name}/restart")
-def restart_deployment(name: str, namespace: str = Query(default="default")) -> dict:
+def restart_deployment(
+    name: str,
+    namespace: str = Query(default="default"),
+    user: User = Depends(require_permission("deployments:restart")),
+) -> dict:
     """Restart a deployment directly."""
     return run_direct_action("restart_deployment", name=name, namespace=namespace)
 
 
 @router.post("/deployments/{name}/rollback")
-def rollback_deployment(name: str, payload: DeploymentRollbackRequest) -> dict:
+def rollback_deployment(
+    name: str,
+    payload: DeploymentRollbackRequest,
+    user: User = Depends(require_permission("deployments:rollback")),
+) -> dict:
     """Rollback a deployment directly."""
     return run_direct_action(
         "rollback_deployment",
@@ -217,7 +278,11 @@ def rollback_deployment(name: str, payload: DeploymentRollbackRequest) -> dict:
 
 
 @router.patch("/deployments/{name}/resource-limits")
-def patch_deployment_resource_limits(name: str, payload: DeploymentResourceLimitsPatchRequest) -> dict:
+def patch_deployment_resource_limits(
+    name: str,
+    payload: DeploymentResourceLimitsPatchRequest,
+    user: User = Depends(require_permission("deployments:patch")),
+) -> dict:
     """Patch deployment resource limits directly."""
     params = payload.model_dump()
     namespace = params.pop("namespace")
@@ -230,7 +295,11 @@ def patch_deployment_resource_limits(name: str, payload: DeploymentResourceLimit
 
 
 @router.patch("/deployments/{name}/env")
-def patch_deployment_env(name: str, payload: DeploymentEnvPatchRequest) -> dict:
+def patch_deployment_env(
+    name: str,
+    payload: DeploymentEnvPatchRequest,
+    user: User = Depends(require_permission("deployments:patch")),
+) -> dict:
     """Patch deployment environment variables directly."""
     params = payload.model_dump()
     namespace = params.pop("namespace")
@@ -247,9 +316,12 @@ def list_services(
     namespace: str = Query(default="default"),
     label_selector: Optional[str] = Query(default=None),
     all_namespaces: bool = Query(default=False),
+    user: User = Depends(require_permission("services:read")),
 ) -> list[dict]:
     """List services in a namespace."""
     try:
+        if all_namespaces and not user.is_god_mode:
+            raise HTTPException(status_code=403, detail="all_namespaces requires god-mode")
         if all_namespaces:
             return services.list_all_services(label_selector=label_selector)
         return services.list_services(namespace=namespace, label_selector=label_selector)
@@ -258,7 +330,11 @@ def list_services(
 
 
 @router.get("/services/{name}")
-def get_service(name: str, namespace: str = Query(default="default")) -> dict:
+def get_service(
+    name: str,
+    namespace: str = Query(default="default"),
+    user: User = Depends(require_permission("services:read")),
+) -> dict:
     """Fetch a service summary."""
     try:
         return services.get_service(name=name, namespace=namespace)
@@ -267,7 +343,10 @@ def get_service(name: str, namespace: str = Query(default="default")) -> dict:
 
 
 @router.post("/services")
-def create_service(payload: CreateServiceRequest) -> dict:
+def create_service(
+    payload: CreateServiceRequest,
+    user: User = Depends(require_permission("services:create")),
+) -> dict:
     """Create a service directly."""
     params = payload.model_dump()
     name = params.pop("name")
@@ -276,7 +355,11 @@ def create_service(payload: CreateServiceRequest) -> dict:
 
 
 @router.patch("/services/{name}")
-def patch_service(name: str, payload: PatchServiceRequest) -> dict:
+def patch_service(
+    name: str,
+    payload: PatchServiceRequest,
+    user: User = Depends(require_permission("services:patch")),
+) -> dict:
     """Patch a service directly."""
     params = payload.model_dump()
     namespace = params.pop("namespace")
@@ -284,12 +367,23 @@ def patch_service(name: str, payload: PatchServiceRequest) -> dict:
 
 
 @router.delete("/services/{name}")
-def delete_service(name: str, namespace: str = Query(default="default")) -> dict:
+def delete_service(
+    name: str,
+    namespace: str = Query(default="default"),
+    user: User = Depends(require_permission("services:delete")),
+) -> dict:
     """Delete a service directly."""
     return run_direct_action("delete_service", name=name, namespace=namespace)
 
 @router.get("/pods/{namespace}/{pod_name}/metrics/history")
-def get_pod_metric_history_route(namespace: str, pod_name: str, metric: str = "cpu", duration_mins: int = 60, step: str = "1m"):
+def get_pod_metric_history_route(
+    namespace: str,
+    pod_name: str,
+    metric: str = "cpu",
+    duration_mins: int = 60,
+    step: str = "1m",
+    user: User = Depends(require_permission("observability:read")),
+):
     """Fetch structured timeseries data from Prometheus for a specific pod."""
     from Tools.metrics import get_pod_metric_history
     data = get_pod_metric_history(pod_name, namespace, metric_type=metric, duration_mins=duration_mins, step=step)

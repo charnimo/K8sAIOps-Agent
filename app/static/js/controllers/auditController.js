@@ -1,3 +1,5 @@
+import { guardActionElement } from '../permissions.js';
+
 export class AuditController {
     constructor(api, sidePanel) {
         this.api = api;
@@ -26,7 +28,9 @@ export class AuditController {
         const limitInput = document.getElementById('auditLimitFilter');
 
         if (refreshBtn) refreshBtn.addEventListener('click', () => this.loadAuditLogs());
-        if (cleanupBtn) cleanupBtn.addEventListener('click', () => this.cleanupOldLogs());
+        if (cleanupBtn && guardActionElement(cleanupBtn, window.k8sPermissionManager, 'audit:cleanup', null, 'cluster')) {
+            cleanupBtn.addEventListener('click', () => this.cleanupOldLogs());
+        }
         if (actionInput) actionInput.addEventListener('input', () => this.loadAuditLogs());
         if (successSelect) successSelect.addEventListener('change', () => this.loadAuditLogs());
         if (limitInput) limitInput.addEventListener('change', () => this.loadAuditLogs());

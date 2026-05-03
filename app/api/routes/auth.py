@@ -1,6 +1,6 @@
 import os
 import json
-from fastapi import APIRouter, Depends, HTTPException, status, File, UploadFile, Form
+from fastapi import APIRouter, Depends, HTTPException, status, File, UploadFile, Form, Query
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 from datetime import timedelta
@@ -11,13 +11,41 @@ import uuid
 
 from app.database.database import get_db
 from app.database.models import PermissionCatalog, User
-from app.auth.dependencies import get_current_user
+from app.auth.dependencies import require_permission, get_current_user
 from app.auth.security import verify_password, get_password_hash, create_access_token, ACCESS_TOKEN_EXPIRE_MINUTES
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
 # Define upload directory
 UPLOAD_DIR = "app/static/images/profiles"
+DEFAULT_PERMISSION_NAMESPACE = "default"
+
+DEFAULT_SIGNUP_PERMISSION_KEYS = [
+    "dashboard:read",
+    "cluster:nodes:read",
+    "cluster:namespaces:read",
+    "storage:pvs:read",
+    "storage:classes:read",
+    "observability:read",
+    "terminal:kubectl:readonly",
+    "pods:read",
+    "pods:logs",
+    "deployments:read",
+    "events:read",
+    "services:read",
+    "configmaps:read",
+    "ingresses:read",
+    "storage:pvcs:read",
+    "hpa:read",
+    "resource_quotas:read",
+    "workloads:statefulsets:read",
+    "workloads:daemonsets:read",
+    "workloads:cronjobs:read",
+    "workloads:jobs:read",
+    "network_policies:read",
+    "rbac:read",
+]
+
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 class Token(BaseModel):
@@ -25,22 +53,85 @@ class Token(BaseModel):
     token_type: str
 
 
-def _parse_permissions(raw: Optional[str]) -> list[str]:
+def _parse_permissions(raw: Optional[str]) -> dict:
+    def _normalize(value: object) -> dict:
+        default_perms = {"global": [], "namespaces": {}}
+        if isinstance(value, list):
+            return {
+                "global": sorted({str(item) for item in value if isinstance(item, str)}),
+                "namespaces": {},
+            }
+
+        if not isinstance(value, dict):
+            return default_perms
+
+        raw_global = value.get("global", [])
+        raw_namespaces = value.get("namespaces", {})
+
+        global_perms = sorted({str(item) for item in raw_global if isinstance(item, str)}) if isinstance(raw_global, list) else []
+
+        namespaces = {}
+        if isinstance(raw_namespaces, dict):
+            for ns, perms in raw_namespaces.items():
+                if not isinstance(ns, str):
+                    continue
+                if not isinstance(perms, list):
+                    continue
+                clean = sorted({str(item) for item in perms if isinstance(item, str)})
+                if clean:
+                    namespaces[ns] = clean
+
+        return {
+            "global": global_perms,
+            "namespaces": namespaces,
+        }
+
+    default_perms = {"global": [], "namespaces": {}}
     if not raw:
-        return []
+        return default_perms
     try:
         value = json.loads(raw)
+        return _normalize(value)
     except json.JSONDecodeError:
-        return []
-    if not isinstance(value, list):
-        return []
-    return [str(item) for item in value if isinstance(item, str)]
+        return default_perms
 
-
-def _effective_permissions(user: User) -> list[str]:
+def _effective_permissions(user: User) -> dict:
     if user.is_god_mode:
-        return ["*"]
-    return sorted(set(_parse_permissions(user.permissions)))
+        return {"is_god_mode": True}
+    return _parse_permissions(user.permissions)
+
+
+def _build_default_signup_permissions(db: Session) -> dict:
+    rows = (
+        db.query(PermissionCatalog)
+        .filter(
+            PermissionCatalog.permission_key.in_(DEFAULT_SIGNUP_PERMISSION_KEYS),
+            PermissionCatalog.enabled == True,
+        )
+        .all()
+    )
+
+    by_key = {row.permission_key: row for row in rows}
+    global_permissions: list[str] = []
+    namespace_permissions: list[str] = []
+
+    for key in DEFAULT_SIGNUP_PERMISSION_KEYS:
+        row = by_key.get(key)
+        if not row:
+            continue
+        if (row.scope or "namespace") == "cluster":
+            global_permissions.append(key)
+        else:
+            namespace_permissions.append(key)
+
+    payload = {
+        "global": global_permissions,
+        "namespaces": {},
+    }
+    if namespace_permissions:
+        payload["namespaces"][DEFAULT_PERMISSION_NAMESPACE] = namespace_permissions
+
+    return payload
 
 @router.post("/signup", response_model=dict, summary="Create a new user account")
 def create_user(
@@ -78,13 +169,15 @@ def create_user(
         profile_picture_path = f"/static/images/profiles/{unique_filename}"
     
     # Save to SQLite
+    default_permissions = _build_default_signup_permissions(db)
     new_user = User(
         first_name=first_name,
         last_name=last_name,
         username=username,
         email=email,
         hashed_password=hashed_pwd,
-        profile_picture=profile_picture_path
+        profile_picture=profile_picture_path,
+        permissions=json.dumps(default_permissions, sort_keys=True),
     )
     
     db.add(new_user)
@@ -118,26 +211,28 @@ def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(), db:
 
 
 @router.get("/me", response_model=dict, summary="Get current user profile")
-def get_me(current_user: User = Depends(get_current_user)):
+def get_me(user: User = Depends(get_current_user)):
+    """Get current user profile. Users can always read their own profile and permissions."""
     return {
-        "id": current_user.id,
-        "username": current_user.username,
-        "is_god_mode": bool(current_user.is_god_mode),
-        "permissions": _parse_permissions(current_user.permissions),
-        "effective_permissions": _effective_permissions(current_user),
-        "first_name": current_user.first_name,
-        "last_name": current_user.last_name,
-        "email": current_user.email,
-        "profile_picture": current_user.profile_picture,
+        "id": user.id,
+        "username": user.username,
+        "is_god_mode": bool(user.is_god_mode),
+        "permissions": _parse_permissions(user.permissions),
+        "effective_permissions": _effective_permissions(user),
+        "first_name": user.first_name,
+        "last_name": user.last_name,
+        "email": user.email,
+        "profile_picture": user.profile_picture,
     }
 
 
 @router.get("/permissions/catalog", response_model=list[dict], summary="Get permission catalog")
 def get_permission_catalog(
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ):
-    _ = current_user
+    """Get permission catalog. This is needed for all users to understand available permissions."""
+    _ = user
     rows = (
         db.query(PermissionCatalog)
         .filter(PermissionCatalog.enabled == True)
@@ -150,6 +245,7 @@ def get_permission_catalog(
             "label": row.label,
             "description": row.description,
             "is_dangerous": bool(row.is_dangerous),
+            "scope": row.scope,
         }
         for row in rows
     ]
@@ -158,9 +254,10 @@ def get_permission_catalog(
 @router.get("/users", response_model=list[dict], summary="List users (god-mode only)")
 def list_users(
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ):
-    if not current_user.is_god_mode:
+    """List all users. Only accessible to god-mode administrators."""
+    if not user.is_god_mode:
         raise HTTPException(status_code=403, detail="Only god-mode admins can list users.")
 
     rows = db.query(User).order_by(User.username.asc()).all()
@@ -182,10 +279,12 @@ def list_users(
 def toggle_user_permission(
     user_id: int,
     permission_key: str,
+    namespace: Optional[str] = Query(default=None),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ):
-    if not current_user.is_god_mode:
+    """Toggle a permission for a user. Only accessible to god-mode administrators."""
+    if not user.is_god_mode:
         raise HTTPException(status_code=403, detail="Only god-mode admins can change permissions.")
 
     target = db.query(User).filter(User.id == user_id).first()
@@ -201,16 +300,36 @@ def toggle_user_permission(
     if not catalog:
         raise HTTPException(status_code=400, detail="Unknown or disabled permission key.")
 
-    existing = set(_parse_permissions(target.permissions))
-    if permission_key in existing:
-        existing.remove(permission_key)
-        enabled = False
-    else:
-        existing.add(permission_key)
-        enabled = True
+    namespace = namespace.strip() if isinstance(namespace, str) else None
+    if catalog.scope == "namespace" and not namespace:
+        raise HTTPException(status_code=400, detail="A namespace is required for this permission.")
+    if catalog.scope == "cluster" and namespace:
+        raise HTTPException(status_code=400, detail="This permission is cluster-scoped and cannot be assigned to a namespace.")
 
-    updated_permissions = sorted(existing)
-    target.permissions = json.dumps(updated_permissions)
+    existing_perms = _parse_permissions(target.permissions)
+
+    enabled = False
+    if catalog.scope == "cluster":
+        if permission_key in existing_perms["global"]:
+            existing_perms["global"].remove(permission_key)
+        else:
+            existing_perms["global"].append(permission_key)
+            existing_perms["global"] = sorted(set(existing_perms["global"]))
+            enabled = True
+    else:  # namespace scope
+        if namespace not in existing_perms["namespaces"]:
+            existing_perms["namespaces"][namespace] = []
+
+        if permission_key in existing_perms["namespaces"][namespace]:
+            existing_perms["namespaces"][namespace].remove(permission_key)
+            if not existing_perms["namespaces"][namespace]:
+                existing_perms["namespaces"].pop(namespace, None)
+        else:
+            existing_perms["namespaces"][namespace].append(permission_key)
+            existing_perms["namespaces"][namespace] = sorted(set(existing_perms["namespaces"][namespace]))
+            enabled = True
+
+    target.permissions = json.dumps(existing_perms, sort_keys=True)
     db.add(target)
     db.commit()
     db.refresh(target)
@@ -218,7 +337,8 @@ def toggle_user_permission(
     return {
         "user_id": target.id,
         "permission_key": permission_key,
+        "namespace": namespace,
         "enabled": enabled,
         "is_dangerous": bool(catalog.is_dangerous),
-        "permissions": updated_permissions,
+        "permissions": existing_perms,
     }

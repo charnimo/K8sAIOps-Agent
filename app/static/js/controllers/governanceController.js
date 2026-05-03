@@ -1,4 +1,5 @@
 import { showConfirmModal } from '../confirm.js';
+import { guardActionElement, isPermissionDeniedError, renderPermissionDeniedBlock, renderPermissionDeniedTable } from '../permissions.js';
 
 export class GovernanceController {
     constructor(api, sidePanel) {
@@ -41,7 +42,9 @@ export class GovernanceController {
         }
 
         if (refreshBtn) refreshBtn.addEventListener('click', () => this.loadAll());
-        if (createHpaBtn) createHpaBtn.addEventListener('click', () => this.openCreateHpaPanel());
+        if (createHpaBtn && guardActionElement(createHpaBtn, window.k8sPermissionManager, 'hpa:create')) {
+            createHpaBtn.addEventListener('click', () => this.openCreateHpaPanel());
+        }
     }
 
     async loadAll() {
@@ -125,6 +128,11 @@ export class GovernanceController {
             this.hpas = Array.isArray(list) ? list : [];
             this.renderHPAs();
         } catch (err) {
+            this.hpas = [];
+            if (isPermissionDeniedError(err)) {
+                renderPermissionDeniedTable('hpasTableBody', 7);
+                return;
+            }
             console.error('Failed to load HPAs:', err);
         }
     }
@@ -156,14 +164,26 @@ export class GovernanceController {
             </tr>
         `).join('');
 
-        tbody.querySelectorAll('.hpa-details-btn').forEach((btn) => btn.addEventListener('click', () => this.openHpaDetails(btn.getAttribute('data-name'), btn.getAttribute('data-namespace'))));
-        tbody.querySelectorAll('.hpa-edit-btn').forEach((btn) => btn.addEventListener('click', () => this.openPatchHpaPanel(
-            btn.getAttribute('data-name'),
-            btn.getAttribute('data-namespace'),
-            btn.getAttribute('data-min'),
-            btn.getAttribute('data-max')
-        )));
-        tbody.querySelectorAll('.hpa-delete-btn').forEach((btn) => btn.addEventListener('click', () => this.deleteHpa(btn.getAttribute('data-name'), btn.getAttribute('data-namespace'))));
+        tbody.querySelectorAll('.hpa-details-btn').forEach((btn) => {
+            if (guardActionElement(btn, window.k8sPermissionManager, 'hpa:read', btn.getAttribute('data-namespace'))) {
+                btn.addEventListener('click', () => this.openHpaDetails(btn.getAttribute('data-name'), btn.getAttribute('data-namespace')));
+            }
+        });
+        tbody.querySelectorAll('.hpa-edit-btn').forEach((btn) => {
+            if (guardActionElement(btn, window.k8sPermissionManager, 'hpa:patch', btn.getAttribute('data-namespace'))) {
+                btn.addEventListener('click', () => this.openPatchHpaPanel(
+                    btn.getAttribute('data-name'),
+                    btn.getAttribute('data-namespace'),
+                    btn.getAttribute('data-min'),
+                    btn.getAttribute('data-max')
+                ));
+            }
+        });
+        tbody.querySelectorAll('.hpa-delete-btn').forEach((btn) => {
+            if (guardActionElement(btn, window.k8sPermissionManager, 'hpa:delete', btn.getAttribute('data-namespace'))) {
+                btn.addEventListener('click', () => this.deleteHpa(btn.getAttribute('data-name'), btn.getAttribute('data-namespace')));
+            }
+        });
     }
 
     async openHpaDetails(name, namespace) {
@@ -372,6 +392,11 @@ export class GovernanceController {
             this.resourceQuotas = Array.isArray(list) ? list : [];
             this.renderResourceQuotas();
         } catch (err) {
+            this.resourceQuotas = [];
+            if (isPermissionDeniedError(err)) {
+                renderPermissionDeniedTable('resourceQuotasTableBody', 5);
+                return;
+            }
             console.error('Failed to load resource quotas:', err);
         }
     }
@@ -436,6 +461,11 @@ export class GovernanceController {
             this.limitRanges = Array.isArray(list) ? list : [];
             this.renderLimitRanges();
         } catch (err) {
+            this.limitRanges = [];
+            if (isPermissionDeniedError(err)) {
+                renderPermissionDeniedTable('limitRangesTableBody', 4);
+                return;
+            }
             console.error('Failed to load limit ranges:', err);
         }
     }
@@ -494,6 +524,11 @@ export class GovernanceController {
             this.quotaPressure = await this.api.getQuotaPressure();
             this.renderQuotaPressure();
         } catch (err) {
+            this.quotaPressure = null;
+            if (isPermissionDeniedError(err)) {
+                renderPermissionDeniedBlock('quotaPressureContainer');
+                return;
+            }
             console.error('Failed to load quota pressure:', err);
         }
     }

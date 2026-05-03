@@ -1,3 +1,15 @@
+import { guardActionElement } from './permissions.js';
+
+function permissionManager() {
+    return window.k8sPermissionManager || null;
+}
+
+function bindPermissionedClick(button, permission, handler, namespace = null, scope = null) {
+    if (!button) return;
+    if (!guardActionElement(button, permissionManager(), permission, namespace, scope)) return;
+    button.addEventListener('click', handler);
+}
+
 export class PodTableManager {
     constructor(tbodyId, onLogsClick, onEventsClick, onExecClick, onDeleteClick, onMonitorClick, onDetailsClick) {
         this.tbody = document.getElementById(tbodyId);
@@ -216,8 +228,7 @@ export class PodTableManager {
         const logBtns = this.tbody.querySelectorAll(".action-btn-logs");
 
         logBtns.forEach(btn => {
-
-            btn.addEventListener("click", (e) => {
+            bindPermissionedClick(btn, 'pods:logs', (e) => {
 
                 const podName = e.currentTarget.getAttribute("data-pod");
 
@@ -231,15 +242,15 @@ export class PodTableManager {
 
         const monitorBtns = this.tbody.querySelectorAll(".action-btn-monitor");
         monitorBtns.forEach(btn => {
-            btn.addEventListener("click", (e) => {
+            bindPermissionedClick(btn, 'observability:read', (e) => {
                 const podName = e.currentTarget.getAttribute("data-pod");
                 if (this.onMonitorClick) this.onMonitorClick(podName);
-            });
+            }, null, 'cluster');
         });
 
         const detailsBtns = this.tbody.querySelectorAll(".action-btn-details");
         detailsBtns.forEach(btn => {
-            btn.addEventListener("click", (e) => {
+            bindPermissionedClick(btn, 'pods:read', (e) => {
                 const podName = e.currentTarget.getAttribute("data-pod");
                 if (this.onDetailsClick) this.onDetailsClick(podName);
             });
@@ -247,7 +258,7 @@ export class PodTableManager {
 
         const eventBtns = this.tbody.querySelectorAll(".action-btn-events");
         eventBtns.forEach(btn => {
-            btn.addEventListener("click", (e) => {
+            bindPermissionedClick(btn, 'pods:read', (e) => {
                 const podName = e.currentTarget.getAttribute("data-pod");
                 if (this.onEventsClick) this.onEventsClick(podName);
             });
@@ -255,7 +266,7 @@ export class PodTableManager {
 
         const execBtns = this.tbody.querySelectorAll(".action-btn-exec");
         execBtns.forEach(btn => {
-            btn.addEventListener("click", (e) => {
+            bindPermissionedClick(btn, 'pods:exec', (e) => {
                 const podName = e.currentTarget.getAttribute("data-pod");
                 if (this.onExecClick) this.onExecClick(podName);
             });
@@ -263,7 +274,7 @@ export class PodTableManager {
 
         const deleteBtns = this.tbody.querySelectorAll(".action-btn-delete");
         deleteBtns.forEach(btn => {
-            btn.addEventListener("click", (e) => {
+            bindPermissionedClick(btn, 'pods:delete', (e) => {
                 const podName = e.currentTarget.getAttribute("data-pod");
                 if (this.onDeleteClick) this.onDeleteClick(podName);
             });
@@ -476,7 +487,7 @@ export class DeploymentTableManager {
     setupActionListeners() {
         const scaleBtns = this.tbody.querySelectorAll(".action-btn-scale");
         scaleBtns.forEach(btn => {
-            btn.addEventListener("click", (e) => {
+            bindPermissionedClick(btn, 'deployments:scale', (e) => {
                 const depName = e.currentTarget.getAttribute("data-dep");
                 const currentRep = e.currentTarget.getAttribute("data-rep");
                 if (this.onScaleClick) this.onScaleClick(depName, currentRep);
@@ -485,35 +496,35 @@ export class DeploymentTableManager {
 
         const restartBtns = this.tbody.querySelectorAll(".action-btn-restart");
         restartBtns.forEach(btn => {
-            btn.addEventListener("click", (e) => {
+            bindPermissionedClick(btn, 'deployments:restart', (e) => {
                 const depName = e.currentTarget.getAttribute("data-dep");
                 if (this.onRestartClick) this.onRestartClick(depName);
             });
         });
 
         this.tbody.querySelectorAll(".action-btn-events").forEach(btn => {
-            btn.addEventListener("click", (e) => {
+            bindPermissionedClick(btn, 'deployments:read', (e) => {
                 const depName = e.currentTarget.getAttribute("data-dep");
                 if (this.onEventsClick) this.onEventsClick(depName);
             });
         });
 
         this.tbody.querySelectorAll(".action-btn-history").forEach(btn => {
-            btn.addEventListener("click", (e) => {
+            bindPermissionedClick(btn, 'deployments:read', (e) => {
                 const depName = e.currentTarget.getAttribute("data-dep");
                 if (this.onHistoryClick) this.onHistoryClick(depName);
             });
         });
 
         this.tbody.querySelectorAll(".action-btn-resources").forEach(btn => {
-            btn.addEventListener("click", (e) => {
+            bindPermissionedClick(btn, 'deployments:patch', (e) => {
                 const depName = e.currentTarget.getAttribute("data-dep");
                 if (this.onResourcesClick) this.onResourcesClick(depName);
             });
         });
 
         this.tbody.querySelectorAll(".action-btn-env").forEach(btn => {
-            btn.addEventListener("click", (e) => {
+            bindPermissionedClick(btn, 'deployments:patch', (e) => {
                 const depName = e.currentTarget.getAttribute("data-dep");
                 if (this.onEnvClick) this.onEnvClick(depName);
             });
@@ -709,21 +720,21 @@ export class ServiceTableManager {
 
     setupActionListeners() {
         this.tbody.querySelectorAll('.action-btn-details').forEach((btn) => {
-            btn.addEventListener('click', (e) => {
+            bindPermissionedClick(btn, 'services:read', (e) => {
                 const name = e.currentTarget.getAttribute('data-svc');
                 if (this.onDetailsClick) this.onDetailsClick(name);
             });
         });
 
         this.tbody.querySelectorAll('.action-btn-edit').forEach((btn) => {
-            btn.addEventListener('click', (e) => {
+            bindPermissionedClick(btn, 'services:patch', (e) => {
                 const name = e.currentTarget.getAttribute('data-svc');
                 if (this.onEditClick) this.onEditClick(name);
             });
         });
 
         this.tbody.querySelectorAll('.action-btn-delete').forEach((btn) => {
-            btn.addEventListener('click', (e) => {
+            bindPermissionedClick(btn, 'services:delete', (e) => {
                 const name = e.currentTarget.getAttribute('data-svc');
                 if (this.onDeleteClick) this.onDeleteClick(name);
             });

@@ -1,10 +1,12 @@
 from datetime import datetime, timedelta
 import base64
 import hashlib
+import logging
 import bcrypt
 from jose import jwt
 import os
 from pathlib import Path
+import secrets
 from dotenv import load_dotenv
 
 # Base directory
@@ -12,7 +14,22 @@ env_path = Path(__file__).resolve().parent.parent.parent / '.env'
 load_dotenv(dotenv_path=env_path)
 
 # Secret key to encode the JWT token
-SECRET_KEY = os.getenv("SECRET_KEY", "fallback_secret")
+logger = logging.getLogger(__name__)
+
+
+def _load_secret_key() -> str:
+    configured_secret = os.getenv("SECRET_KEY")
+    if configured_secret:
+        return configured_secret
+
+    logger.warning(
+        "SECRET_KEY is not set; using an ephemeral development JWT secret. "
+        "Set SECRET_KEY in production so tokens remain stable across restarts."
+    )
+    return secrets.token_urlsafe(32)
+
+
+SECRET_KEY = _load_secret_key()
 ALGORITHM = os.getenv("ALGORITHM", "HS256")
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "60"))
 

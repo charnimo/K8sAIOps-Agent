@@ -1,4 +1,5 @@
 import { showConfirmModal } from '../confirm.js';
+import { guardActionElement, isPermissionDeniedError, renderPermissionDeniedTable } from '../permissions.js';
 
 export class ClusterController {
     constructor(api, sidePanel) {
@@ -60,14 +61,18 @@ export class ClusterController {
         if (createPvcBtn) {
             const clone = createPvcBtn.cloneNode(true);
             createPvcBtn.parentNode.replaceChild(clone, createPvcBtn);
-            clone.addEventListener('click', () => this.openCreatePvcPanel());
+            if (guardActionElement(clone, window.k8sPermissionManager, 'storage:pvcs:create', this.currentPvcNamespace || 'default')) {
+                clone.addEventListener('click', () => this.openCreatePvcPanel());
+            }
         }
 
         const createNamespaceBtn = document.getElementById('createNamespaceBtn');
         if (createNamespaceBtn) {
             const clone = createNamespaceBtn.cloneNode(true);
             createNamespaceBtn.parentNode.replaceChild(clone, createNamespaceBtn);
-            clone.addEventListener('click', () => this.openCreateNamespacePanel());
+            if (guardActionElement(clone, window.k8sPermissionManager, 'cluster:namespaces:create', null, 'cluster')) {
+                clone.addEventListener('click', () => this.openCreateNamespacePanel());
+            }
         }
     }
 
@@ -272,6 +277,11 @@ export class ClusterController {
             this.nodes = Array.isArray(result) ? result : [];
             this.renderNodesTable();
         } catch (err) {
+            this.nodes = [];
+            if (isPermissionDeniedError(err)) {
+                renderPermissionDeniedTable('nodesTableBody', 6);
+                return;
+            }
             console.error('Failed to load nodes:', err);
         }
     }
@@ -283,6 +293,12 @@ export class ClusterController {
             this.renderNamespacesTable();
             this.populateNamespaceSelect();
         } catch (err) {
+            this.namespaces = [];
+            this.populateNamespaceSelect();
+            if (isPermissionDeniedError(err)) {
+                renderPermissionDeniedTable('namespacesTableBody', 4);
+                return;
+            }
             console.error('Failed to load namespaces:', err);
         }
     }
@@ -293,6 +309,11 @@ export class ClusterController {
             this.pvs = Array.isArray(result) ? result : [];
             this.renderPVsTable();
         } catch (err) {
+            this.pvs = [];
+            if (isPermissionDeniedError(err)) {
+                renderPermissionDeniedTable('pvsTableBody', 6);
+                return;
+            }
             console.error('Failed to load PVs:', err);
         }
     }
@@ -303,6 +324,11 @@ export class ClusterController {
             this.pvcs = Array.isArray(result) ? result : [];
             this.renderPVCsTable();
         } catch (err) {
+            this.pvcs = [];
+            if (isPermissionDeniedError(err)) {
+                renderPermissionDeniedTable('pvcsTableBody', 7);
+                return;
+            }
             console.error('Failed to load PVCs:', err);
         }
     }
@@ -313,6 +339,11 @@ export class ClusterController {
             this.storageClasses = Array.isArray(result) ? result : [];
             this.renderStorageClassesTable();
         } catch (err) {
+            this.storageClasses = [];
+            if (isPermissionDeniedError(err)) {
+                renderPermissionDeniedTable('scTableBody', 6);
+                return;
+            }
             console.error('Failed to load storage classes:', err);
         }
     }
@@ -322,12 +353,13 @@ export class ClusterController {
         if (!select) return;
 
         const selected = this.currentPvcNamespace || 'default';
+        const fallbackNamespace = selected || this.api.getNamespace() || 'default';
         const options = this.namespaces.length
             ? this.namespaces.map((ns) => `<option value="${ns.name}">${ns.name}</option>`).join('')
-            : '<option value="default">default</option>';
+            : `<option value="${fallbackNamespace}">${fallbackNamespace}</option>`;
         select.innerHTML = options;
 
-        const available = this.namespaces.map((n) => n.name);
+        const available = this.namespaces.length ? this.namespaces.map((n) => n.name) : [fallbackNamespace];
         if (!available.includes(selected)) {
             this.currentPvcNamespace = available.includes('default') ? 'default' : (available[0] || 'default');
         }
@@ -389,9 +421,11 @@ export class ClusterController {
             btn.addEventListener('click', () => this.openNodeDetails(btn.getAttribute('data-node')));
         });
         tbody.querySelectorAll('.node-toggle-schedule-btn').forEach((btn) => {
+            const action = btn.getAttribute('data-action');
+            const permission = action === 'uncordon' ? 'cluster:nodes:uncordon' : 'cluster:nodes:cordon';
+            if (!guardActionElement(btn, window.k8sPermissionManager, permission, null, 'cluster')) return;
             btn.addEventListener('click', () => {
                 const nodeName = btn.getAttribute('data-node');
-                const action = btn.getAttribute('data-action');
                 if (action === 'uncordon') {
                     this.uncordonNode(nodeName);
                 } else {
@@ -400,7 +434,9 @@ export class ClusterController {
             });
         });
         tbody.querySelectorAll('.node-drain-btn').forEach((btn) => {
-            btn.addEventListener('click', () => this.openDrainPanel(btn.getAttribute('data-node')));
+            if (guardActionElement(btn, window.k8sPermissionManager, 'cluster:nodes:drain', null, 'cluster')) {
+                btn.addEventListener('click', () => this.openDrainPanel(btn.getAttribute('data-node')));
+            }
         });
     }
 
@@ -437,7 +473,9 @@ export class ClusterController {
             btn.addEventListener('click', () => this.openNamespaceDetails(btn.getAttribute('data-ns')));
         });
         tbody.querySelectorAll('.ns-delete-btn').forEach((btn) => {
-            btn.addEventListener('click', () => this.deleteNamespace(btn.getAttribute('data-ns')));
+            if (guardActionElement(btn, window.k8sPermissionManager, 'cluster:namespaces:delete', null, 'cluster')) {
+                btn.addEventListener('click', () => this.deleteNamespace(btn.getAttribute('data-ns')));
+            }
         });
     }
 
@@ -478,10 +516,14 @@ export class ClusterController {
             btn.addEventListener('click', () => this.openPVCDetails(btn.getAttribute('data-pvc')));
         });
         tbody.querySelectorAll('.pvc-edit-btn').forEach((btn) => {
-            btn.addEventListener('click', () => this.openPatchPVCPanel(btn.getAttribute('data-pvc')));
+            if (guardActionElement(btn, window.k8sPermissionManager, 'storage:pvcs:patch', this.currentPvcNamespace || 'default')) {
+                btn.addEventListener('click', () => this.openPatchPVCPanel(btn.getAttribute('data-pvc')));
+            }
         });
         tbody.querySelectorAll('.pvc-delete-btn').forEach((btn) => {
-            btn.addEventListener('click', () => this.deletePVC(btn.getAttribute('data-pvc')));
+            if (guardActionElement(btn, window.k8sPermissionManager, 'storage:pvcs:delete', this.currentPvcNamespace || 'default')) {
+                btn.addEventListener('click', () => this.deletePVC(btn.getAttribute('data-pvc')));
+            }
         });
     }
 

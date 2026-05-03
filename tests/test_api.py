@@ -2,6 +2,7 @@
 
 from types import SimpleNamespace
 
+import pytest
 from kubernetes.client.exceptions import ApiException
 
 from app.api import mutations as mutation_helpers
@@ -11,6 +12,9 @@ from app.api.routes import diagnostics as diagnostics_routes
 from app.api.routes import governance as governance_routes
 from app.api.routes import resources as resources_routes
 from app.api.routes import workloads as workloads_routes
+from app.auth.dependencies import get_current_user
+from app.database.database import SessionLocal
+from app.database.models import Conversation
 from fastapi.testclient import TestClient
 
 from app.main import app
@@ -18,16 +22,48 @@ from app.state.store import get_action_request, mark_action_request_executed
 
 
 client = TestClient(app)
+TEST_USER_ID = -10001
+TEST_USERNAME = "api-test-user"
 
 
-def test_root_endpoint_points_to_docs():
-    """Root endpoint should provide a friendly API entrypoint."""
+def _delete_test_conversations() -> None:
+    db = SessionLocal()
+    try:
+        rows = db.query(Conversation).filter(Conversation.user_id == TEST_USER_ID).all()
+        for row in rows:
+            db.delete(row)
+        db.commit()
+    finally:
+        db.close()
+
+
+@pytest.fixture(autouse=True)
+def authenticated_test_user():
+    """Run API tests as a god-mode user while route auth is tested elsewhere."""
+
+    def current_user():
+        return SimpleNamespace(
+            id=TEST_USER_ID,
+            username=TEST_USERNAME,
+            is_god_mode=True,
+            permissions='{"global": [], "namespaces": {}}',
+        )
+
+    _delete_test_conversations()
+    app.dependency_overrides[get_current_user] = current_user
+    yield
+    app.dependency_overrides.pop(get_current_user, None)
+    _delete_test_conversations()
+
+
+def test_root_endpoint_serves_dashboard_ui():
+    """Root endpoint should serve the dashboard shell."""
     response = client.get("/")
     assert response.status_code == 200
 
-    payload = response.json()
-    assert payload["docs_url"] == "/docs"
-    assert payload["health_url"] == "/health"
+    assert "text/html" in response.headers["content-type"]
+    assert "Dashboard | K8s AIOps" in response.text
+    assert "dashboard.js" in response.text
 
 
 def test_favicon_endpoint_returns_no_content():
@@ -63,7 +99,7 @@ def test_create_and_fetch_chat_session():
 
 
 def test_post_chat_message_leaves_assistant_empty():
-    """Posting a chat message should not invent an assistant reply."""
+    """Posting a chat message should persist user and template assistant entries."""
     session_id = client.post("/chat/sessions").json()["id"]
 
     response = client.post(
@@ -73,9 +109,11 @@ def test_post_chat_message_leaves_assistant_empty():
     assert response.status_code == 200
 
     payload = response.json()
-    assert payload["user_message"]["role"] == "user"
-    assert payload["assistant_message"] is None
-    assert len(payload["session"]["messages"]) == 1
+    assert payload["user_message"]["sender"] == TEST_USERNAME
+    assert payload["user_message"]["message"] == "Why is my pod crashing?"
+    assert payload["assistant_message"]["sender"] == "agent"
+    assert "Template response" in payload["assistant_message"]["message"]
+    assert len(payload["session"]["messages"]) == 2
 
 
 def test_create_action_request_defaults_to_pending():

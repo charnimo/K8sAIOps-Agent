@@ -2,9 +2,11 @@
 
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from Tools import events as cluster_events
+from app.auth.dependencies import require_permission
+from app.database.models import User
 
 
 router = APIRouter()
@@ -15,6 +17,7 @@ def list_events(
     namespace: Optional[str] = Query(default="default"),
     severity: str = Query(default="warning"),
     limit: int = Query(default=20, ge=1, le=500),
+    user: User = Depends(require_permission("events:read")),
 ) -> list[dict]:
     """Return recent cluster or namespace events."""
     try:
@@ -31,6 +34,7 @@ def list_events(
 def get_warning_summary(
     namespace: Optional[str] = Query(default=None),
     limit: int = Query(default=20, ge=1, le=500),
+    user: User = Depends(require_permission("events:read")),
 ) -> list[dict]:
     """Return a compact warning summary for UI and agent context."""
     try:
@@ -44,6 +48,7 @@ def get_resource_events(
     kind: str,
     name: str,
     namespace: str = Query(default="default"),
+    user: User = Depends(require_permission("events:read")),
 ) -> list[dict]:
     """Return events for a specific resource."""
     try:

@@ -3,6 +3,7 @@ import { LogsController } from './logsController.js';
 import { EventsController } from './eventsController.js';
 import { ChartManager } from '../chart.js';
 import { showConfirmModal } from '../confirm.js';
+import { isPermissionDeniedError, renderPermissionDeniedTable } from '../permissions.js';
 
 export class PodsController {
     constructor(api, sidePanel) {
@@ -394,6 +395,10 @@ export class PodsController {
             }
         } catch (err) {
             console.error("Failed to load pods table:", err);
+            if (isPermissionDeniedError(err)) {
+                renderPermissionDeniedTable('podsTableBody', 6);
+                return;
+            }
             if (this.podTable.renderError) this.podTable.renderError(err);
         }
     }
