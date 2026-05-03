@@ -137,17 +137,12 @@ init() {
           console.error('[NAV] Error executing view script:', e);
         }
       });
-      console.log("[NAV] View scripts re-executed (sync via eval)");
 
       // Trigger the dashboard script to re-bind elements that just got injected
       if (this.routerCallback) {
-        console.log("[NAV] Calling router callback with targetId:", targetId);
         this.routerCallback(targetId);
-      } else {
-        console.log("[NAV] No router callback available");
       }
     } catch (err) {
-      console.error("[NAV] Failed to load view:", err);
       this.viewContainer.innerHTML = `<div class="p-6 bg-red-900/20 text-red-400 border border-red-800 rounded-lg">Failed to load view components: ${err.message}</div>`;
     }
   }
