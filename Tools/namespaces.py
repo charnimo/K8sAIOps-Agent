@@ -15,6 +15,7 @@ WRITE:
 """
 
 import logging
+import os
 from datetime import datetime, timezone
 
 from kubernetes import client
@@ -109,7 +110,6 @@ def get_namespace_resource_count(namespace: str) -> dict:
 
     return counts
 
-
 # ─────────────────────────────────────────────
 # HELPERS
 # ─────────────────────────────────────────────
@@ -129,7 +129,6 @@ def _summarize_namespace(ns) -> dict:
         "age":    age,
         "labels": ns.metadata.labels or {},
     }
-
 
 def get_namespace_events(name: str, limit: int = 100) -> list[dict]:
     """Get recent events in the given namespace."""

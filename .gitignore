@@ -9,3 +9,4 @@ __pycache__/
 app.db
 **/images/profiles/
 audit.jsonl
+.vs/

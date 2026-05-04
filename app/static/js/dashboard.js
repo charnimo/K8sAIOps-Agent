@@ -1,8 +1,83 @@
-import { NavigationManager } from "./nav.js?v=1776271200";
+import { NavigationManager } from "./nav.js";
 import { AuthManager } from './auth.js';
-import { ApiClient } from './api.js?v=1776271200';
-import { ChatDrawer } from './chatDrawer.js?v=1776099800';
+import { ApiClient } from './api.js';
+import { ChatDrawer } from './chatDrawer.js';
 import { PermissionManager, normalizePermissions } from './permissions.js';
+
+/**
+ * GlobalEventMonitor
+ * ------------------
+ * Maintains a persistent WebSocket connection for the lifetime of the dashboard
+ * and fires toast notifications for CRITICAL / WARNING events on every page.
+ * Completely independent from EventsController — they share the same WS endpoint
+ * but have separate connections, so the events page UI is unaffected.
+ */
+class GlobalEventMonitor {
+    constructor(token) {
+        this.token = token;
+        this.ws    = null;
+        this.seenIds = new Set(); // deduplicate with events page history replay
+        this._connect();
+    }
+
+    _connect() {
+        const protocol = location.protocol === 'https:' ? 'wss' : 'ws';
+        const url = `${protocol}://${location.host}/ws/events`;
+
+        try {
+            this.ws = new WebSocket(url);
+        } catch (e) {
+            console.warn('[GlobalEventMonitor] WebSocket creation failed:', e);
+            setTimeout(() => this._connect(), 5000);
+            return;
+        }
+
+        this.ws.onopen = () => {
+            this.ws.send(JSON.stringify({
+                type:       'AUTH',
+                token:      this.token,
+                user_id:    'global-monitor',
+                severities: ['CRITICAL', 'WARNING'],
+            }));
+        };
+
+        this.ws.onmessage = (raw) => {
+            try {
+                const msg = JSON.parse(raw.data);
+                // Skip history replay on connect — we only want live events
+                if (msg.type === 'SUBSCRIBED' || msg.type === 'HISTORY' || msg.type === 'PONG') return;
+                this._handleEvent(msg);
+            } catch (_) {}
+        };
+
+        window._globalWs = this.ws;
+
+        this.ws.onclose = () => setTimeout(() => this._connect(), 4000);
+        this.ws.onerror = () => {}; // onclose fires after onerror, reconnect there
+    }
+
+    _handleEvent(evt) {
+        if (typeof window.showToast !== 'function') return;
+
+        if (evt.severity === 'CRITICAL') {
+            window.showToast(`🔴 ${evt.reason || 'Critical'} · ${evt.resource_name}`, 'error');
+            const prev = document.title;
+            document.title = '🔴 ' + (evt.reason || 'Critical Event');
+            setTimeout(() => { document.title = prev; }, 5000);
+        } else if (evt.severity === 'WARNING') {
+            window.showToast(`⚠️ ${evt.reason || 'Warning'} · ${evt.resource_name}`, 'warning');
+        }
+    }
+
+    destroy() {
+        if (this.ws) {
+            this.ws.onclose = null;
+            this.ws.close();
+            this.ws = null;
+            window._globalWs = null;
+        }
+    }
+}
 import { OverviewController } from './controllers/overviewController.js';
 import { PodsController } from './controllers/podsController.js';
 import { DeploymentsController } from './controllers/deploymentsController.js';
@@ -17,6 +92,7 @@ import { TerminalController } from './controllers/terminalController.js';
 import { EventsController } from './controllers/eventsController.js';
 import { LogsController } from './controllers/logsController.js';
 import { SidePanel } from './panel.js';
+// import { NotificationManager }  from './notificationManager.js';
 
 class Dashboard {
     constructor() {
@@ -25,6 +101,9 @@ class Dashboard {
 
         this.api = new ApiClient(this.auth.getToken());
         this.sidePanel = new SidePanel();
+
+        // Start global toast monitor — persists across all view navigations
+        this.eventMonitor = new GlobalEventMonitor(this.auth.getToken());
         this.currentUser = null;
         this.permissionManager = new PermissionManager(null, this.api);
         this.api.setPermissionManager(this.permissionManager);
@@ -62,7 +141,8 @@ class Dashboard {
         };
 
         this.chatDrawer = new ChatDrawer(this.api, this.auth);
-
+        // this.notifManager = new NotificationManager();
+        // this.notifManager.mount();
         this.nav = new NavigationManager(
             (viewId, options) => this.handleViewLoad(viewId, options),
             { permissionManager: this.permissionManager }

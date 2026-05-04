@@ -2,6 +2,7 @@ import { installApiPermissionGuards } from './permissions.js';
 
 export class ApiClient {
     constructor(token) {
+        this.token = token;
         this.headers = { 'Authorization': `Bearer ${token}` };
         this.currentNamespace = localStorage.getItem('active_namespace') || 'default';
         this.permissionManager = null;
@@ -23,6 +24,10 @@ export class ApiClient {
 
     getNamespace() {
         return this.currentNamespace || 'default';
+    }
+
+    getToken() {
+        return this.token;
     }
 
     async getCurrentUser() {

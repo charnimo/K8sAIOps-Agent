@@ -1,101 +1,116 @@
 import { PAGE_PERMISSION_DENIED_MESSAGE, VIEW_PERMISSION_RULES, renderPermissionDeniedPage } from './permissions.js';
 
 export class NavigationManager {
-    constructor(routerCallback, options = {}) {
-        this.navLinks = document.querySelectorAll('.nav-link');
-        this.groupToggles = document.querySelectorAll('.nav-group-toggle');
-        this.pageTitle = document.getElementById('topPageTitle');
-        this.viewContainer = document.getElementById('viewContainer');
-        this.routerCallback = routerCallback; // Function to call after loading a view
+  constructor(routerCallback, options = {}) {
+    this.navLinks = document.querySelectorAll(".nav-link");
+    this.groupToggles = document.querySelectorAll(".nav-group-toggle");
+    this.pageTitle = document.getElementById("topPageTitle");
+    this.viewContainer = document.getElementById("viewContainer");
+    this.routerCallback = routerCallback; // Function to call after loading a view
         this.permissionManager = options.permissionManager || window.k8sPermissionManager || null;
         this.viewRules = options.viewRules || VIEW_PERMISSION_RULES;
         this.currentViewName = null;
         this.currentTargetId = null;
 
-        // Create a cache for loaded HTML views
-        this.viewCache = {};
+    // Create a cache for loaded HTML views
+    this.viewCache = {};
 
-        this.init();
-    }
+    
+    this.init();
+}
 
-    init() {
-        this.initGroupToggles();
+init() {
+    this.initGroupToggles();
 
-        this.navLinks.forEach(link => {
-            link.addEventListener('click', async (e) => {
-                e.preventDefault();
-                const targetId = link.getAttribute('data-target'); // e.g. "view-overview"
-                
-                // Map the data-target to a filename
-                const viewMap = {
-                    'view-overview': 'overview.html',
-                    'view-pods': 'pods.html',
-                    'view-deployments': 'deployments.html',
-                    'view-services': 'services.html',
-                    'view-cluster': 'cluster.html',
-                    'view-workloads': 'workloads.html',
-                    'view-workloads-statefulsets': 'workloads-statefulsets.html',
-                    'view-workloads-daemonsets': 'workloads-daemonsets.html',
-                    'view-workloads-jobs': 'workloads-jobs.html',
-                    'view-workloads-cronjobs': 'workloads-cronjobs.html',
-                    'view-configuration': 'configuration.html',
-                    'view-observability': 'observability.html',
-                    'view-governance': 'governance.html',
-                    'view-audit': 'audit.html',
-                    'view-terminal': 'terminal.html',
-                };
-                
-                const viewName = viewMap[targetId];
-                if (!viewName) return;
+    this.navLinks.forEach((link) => {
+      link.addEventListener("click", async (e) => {
+        e.preventDefault();
+        const targetId = link.getAttribute("data-target"); // e.g. "view-overview"
+        console.log("[NAV] Link clicked:", targetId);
 
-                // Update styling
-                this.navLinks.forEach(nav => {
-                    nav.classList.remove('text-white', 'border-blue-500', 'bg-gray-800/50');
-                    nav.classList.add('text-gray-400', 'border-transparent');
-                });
-                
-                link.classList.remove('text-gray-400', 'border-transparent');
-                link.classList.add('text-white', 'border-blue-500', 'bg-gray-800/50');
-                
-                // Update Title
-                this.pageTitle.textContent = link.textContent.trim();
+        // Map the data-target to a filename
+        const viewMap = {
+          "view-overview": "overview.html",
+          "view-pods": "pods.html",
+          "view-deployments": "deployments.html",
+          "view-services": "services.html",
+          "view-cluster": "cluster.html",
+          "view-workloads": "workloads.html",
+          "view-workloads-statefulsets": "workloads-statefulsets.html",
+          "view-workloads-daemonsets": "workloads-daemonsets.html",
+          "view-workloads-jobs": "workloads-jobs.html",
+          "view-workloads-cronjobs": "workloads-cronjobs.html",
+          "view-configuration": "configuration.html",
+          "view-observability": "observability.html",
+          "view-governance": "governance.html",
+          "view-audit": "audit.html",
+          "view-terminal": "terminal.html",
+          "view-events": "events.html",
+        };
 
-                // Fetch and Inject
-                await this.loadView(viewName, targetId);
-            });
+        const viewName = viewMap[targetId];
+        console.log("[NAV] Mapped to view:", viewName);
+        if (!viewName) {
+          console.error("[NAV] View not found in map for target:", targetId);
+          return;
+        }
+
+        // Update styling
+        this.navLinks.forEach((nav) => {
+          nav.classList.remove(
+            "text-white",
+            "border-blue-500",
+            "bg-gray-800/50",
+          );
+          nav.classList.add("text-gray-400", "border-transparent");
         });
 
-        // Load default view (Overview)
-        const defaultLink = document.querySelector('[data-target="view-overview"]');
-        if (defaultLink) defaultLink.click();
-    }
+        link.classList.remove("text-gray-400", "border-transparent");
+        link.classList.add("text-white", "border-blue-500", "bg-gray-800/50");
 
-    initGroupToggles() {
-        this.groupToggles.forEach((toggle) => {
-            toggle.addEventListener('click', () => {
-                const group = toggle.getAttribute('data-group');
-                if (!group) return;
+        // Update Title
+        this.pageTitle.textContent = link.textContent.trim();
+        console.log("[NAV] Page title set to:", this.pageTitle.textContent);
 
-                const submenu = document.getElementById(`${group}-submenu`);
-                const chevron = toggle.querySelector('.nav-group-chevron');
-                if (!submenu) return;
+        // Fetch and Inject
+        await this.loadView(viewName, targetId);
+      });
+    });
 
-                const willOpen = submenu.classList.contains('hidden');
-                submenu.classList.toggle('hidden', !willOpen);
-                if (chevron) {
-                    chevron.classList.toggle('rotate-90', willOpen);
-                }
-            });
-        });
-    }
+    console.log("[NAV] NavigationManager initialized with", this.navLinks.length, "links");
 
-    async loadView(viewName, targetId) {
-        try {
+    // Load default view (Overview)
+    const defaultLink = document.querySelector('[data-target="view-overview"]');
+    if (defaultLink) defaultLink.click();
+  }
+
+  initGroupToggles() {
+    this.groupToggles.forEach((toggle) => {
+      toggle.addEventListener("click", () => {
+        const group = toggle.getAttribute("data-group");
+        if (!group) return;
+
+        const submenu = document.getElementById(`${group}-submenu`);
+        const chevron = toggle.querySelector(".nav-group-chevron");
+        if (!submenu) return;
+
+        const willOpen = submenu.classList.contains("hidden");
+        submenu.classList.toggle("hidden", !willOpen);
+        if (chevron) {
+          chevron.classList.toggle("rotate-90", willOpen);
+        }
+      });
+    });
+  }
+
+  async loadView(viewName, targetId) {
+    try {
             this.currentViewName = viewName;
             this.currentTargetId = targetId;
 
-            // Optional: Show loading state or skeleton here
-            this.viewContainer.innerHTML = '<div class="flex justify-center p-10"><div class="animate-spin w-8 h-8 rounded-full border-4 border-blue-500 border-t-transparent"></div></div>';
+      // Optional: Show loading state or skeleton here
+      this.viewContainer.innerHTML =
+        '<div class="flex justify-center p-10"><div class="animate-spin w-8 h-8 rounded-full border-4 border-blue-500 border-t-transparent"></div></div>';
 
             if (!this.canAccessTarget(targetId)) {
                 renderPermissionDeniedPage(this.viewContainer, PAGE_PERMISSION_DENIED_MESSAGE);
@@ -105,16 +120,39 @@ export class NavigationManager {
                 return;
             }
 
-            let html = this.viewCache[viewName];
-            
-            if (!html) {
-                const response = await fetch(`/static/views/${viewName}?v=10000000000`);
-                if (!response.ok) throw new Error(`HTTP error! Status: ${response.status}`);
-                html = await response.text();
-                this.viewCache[viewName] = html; // cache it
-            }
+      let html = this.viewCache[viewName];
 
-            this.viewContainer.innerHTML = html;
+      if (!html) {
+        console.log("[NAV] Fetching view from server:", `/static/views/${viewName}`);
+        const response = await fetch(`/static/views/${viewName}?v=10000000000`);
+        if (!response.ok) {
+          throw new Error(`HTTP error! Status: ${response.status}`);
+        }
+        html = await response.text();
+        console.log("[NAV] View fetched successfully, size:", html.length, "bytes");
+        this.viewCache[viewName] = html; // cache it
+      } else {
+        console.log("[NAV] View loaded from cache");
+      }
+
+      // Clear any stale global controllers before injecting new view
+      if (window.evntCtrl?.disconnect) window.evntCtrl.disconnect();
+      window.evntCtrl = undefined;
+
+      this.viewContainer.innerHTML = html;
+      console.log("[NAV] View injected into DOM");
+
+      // innerHTML does NOT execute <script> tags.
+      // Use eval() so execution is synchronous — window.evntCtrl is guaranteed
+      // to be set before routerCallback() is called below.
+      this.viewContainer.querySelectorAll('script').forEach(script => {
+        if (script.src) return; // skip external src scripts
+        try {
+          eval(script.textContent);
+        } catch (e) {
+          console.error('[NAV] Error executing view script:', e);
+        }
+      });
 
             // Trigger the dashboard script to re-bind elements that just got injected
             if (this.routerCallback) {

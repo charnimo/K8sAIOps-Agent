@@ -1,10 +1,12 @@
 """Chat session endpoints."""
 
+from cmath import log
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.auth.dependencies import require_permission
-from app.database.database import get_db
+from app.database.database import get_db, SessionLocal
 from app.database.models import ChatHistory, Conversation, User
 from app.schemas.api import ChatMessageRequest, ChatSessionCreateRequest
 
@@ -181,3 +183,47 @@ def post_chat_message(
         "assistant_message": _serialize_message(assistant_message),
         "session": _serialize_session(session_refreshed, include_messages=True),
     }
+
+
+# ── Monitor-push entry point ───────────────────────────────────────────────────
+
+AGENT_ALERT_CONVERSATION_TITLE = "Auto-Alerts"
+
+async def handle_agent_event(prompt: str, event_dict: dict, app_state) -> None:
+    """
+    Called by AgentNotifier when a WARNING/CRITICAL event fires.
+    Persists the alert into a dedicated system conversation so it
+    appears in the dashboard chat history automatically.
+    No user interaction required.
+    """
+    import asyncio
+    loop = asyncio.get_event_loop()
+    await loop.run_in_executor(None, _persist_alert_sync, prompt, event_dict)
+
+
+def _persist_alert_sync(prompt: str, event_dict: dict) -> None:
+    """Sync DB write — runs in executor so it doesn't block the event loop."""
+    db: Session = SessionLocal()
+    try:
+        # Find or create the shared alert conversation (not user-scoped)
+        convo = (
+            db.query(Conversation)
+            .filter(Conversation.title == AGENT_ALERT_CONVERSATION_TITLE)
+            .first()
+        )
+        if convo is None:
+            convo = Conversation(user_id=None, title=AGENT_ALERT_CONVERSATION_TITLE)
+            db.add(convo)
+            db.flush()
+
+        db.add(ChatHistory(
+            conversation_id=convo.id,
+            sender="monitor",
+            message=prompt,
+        ))
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        log.error("Failed to persist agent alert: %s", exc)
+    finally:
+        db.close()
