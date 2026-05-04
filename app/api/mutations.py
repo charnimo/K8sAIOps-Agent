@@ -2,7 +2,7 @@
 
 from typing import Any, Optional
 
-from fastapi import HTTPException
+from fastapi import HTTPException, Request
 
 from app.core.settings import get_settings
 from app.services.actions import execute_action
@@ -27,14 +27,25 @@ def run_direct_action(
     name: str,
     namespace: Optional[str] = None,
     params: Optional[dict[str, Any]] = None,
+    user_id: str = "unknown",
+    triggered_by: str = "dashboard",
+    request: Optional[Request] = None,
 ) -> dict:
     """Execute a direct action route through the shared action handlers."""
     ensure_mutations_enabled()
     try:
+        if request is not None:
+            triggered_by = request.headers.get("X-Triggered-By", triggered_by)
         target = {"name": name}
         if namespace is not None:
             target["namespace"] = namespace
-        res = execute_action(action_type=action_type, target=target, params=params or {})
+        res = execute_action(
+            action_type=action_type,
+            target=target,
+            params=params or {},
+            user_id=user_id,
+            triggered_by=triggered_by,
+        )
         if res.get("success") is False:
             raise HTTPException(status_code=400, detail=res.get("message", "Action failed"))
         return res

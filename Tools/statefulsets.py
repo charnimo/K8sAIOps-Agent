@@ -178,7 +178,7 @@ def scale_statefulset(
         return {"success": False, "message": str(e)}
 
 
-def restart_statefulset(name: str, namespace: str = "default") -> dict:
+def restart_statefulset(name: str, namespace: str = "default", audit: bool = True) -> dict:
     """
     Trigger a rolling restart of all pods in a StatefulSet.
 
@@ -208,25 +208,27 @@ def restart_statefulset(name: str, namespace: str = "default") -> dict:
     try:
         apps.patch_namespaced_stateful_set(name=name, namespace=namespace, body=patch_body)
         logger.info(f"[ACTION] Rolling restart triggered for StatefulSet {namespace}/{name}")
-        log_action(
-            "statefulset_restart",
-            name,
-            namespace,
-            success=True,
-        )
+        if audit:
+            log_action(
+                "statefulset_restart",
+                name,
+                namespace,
+                success=True,
+            )
         return {
             "success": True,
             "message": f"Rolling restart triggered for StatefulSet {namespace}/{name}.",
         }
     except ApiException as e:
         logger.error(f"Failed to restart {namespace}/{name}: {e}")
-        log_action(
-            "statefulset_restart",
-            name,
-            namespace,
-            success=False,
-            error_message=str(e),
-        )
+        if audit:
+            log_action(
+                "statefulset_restart",
+                name,
+                namespace,
+                success=False,
+                error_message=str(e),
+            )
         return {"success": False, "message": str(e)}
 
 

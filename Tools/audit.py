@@ -7,9 +7,9 @@ All agent actions (delete pod, scale deployment, patch config, etc.) must be log
 for audit, compliance, and debugging purposes.
 
 Functions:
-  - log_action(action_type, resource, namespace, success, details, user_id)
-  - get_action_history(limit, filter_by)
-  - clear_old_logs(days)
+    - log_action(action_type, resource, namespace, success, details, user_id, triggered_by)
+    - get_action_history(limit, filter_by)
+    - clear_old_logs(days)
 """
 
 import logging
@@ -30,6 +30,7 @@ def log_action(
     success: bool = True,
     details: Optional[dict] = None,
     user_id: Optional[str] = None,
+    triggered_by: Optional[str] = None,
     error_message: Optional[str] = None,
 ) -> dict:
     """
@@ -42,6 +43,7 @@ def log_action(
         success:        Whether the action succeeded
         details:        Additional context (parameters passed, result, etc.)
         user_id:        Who triggered this (agent, admin, etc.)
+        triggered_by:   Source interface (dashboard, ai-agent, etc.)
         error_message:  If failed, the error message
 
     Returns:
@@ -53,7 +55,8 @@ def log_action(
         "resource":       resource,
         "namespace":      namespace,
         "success":        success,
-        "user_id":        user_id or "ai-agent",
+        "user_id":        user_id or "unknown",
+        "triggered_by":   triggered_by or "dashboard",
         "details":        details or {},
         "error_message":  error_message,
     }
@@ -151,7 +154,14 @@ def clear_old_logs(days: int = 30) -> int:
 # CONVENIENCE WRAPPERS (call these from tools)
 # ─────────────────────────────────────────────
 
-def audit_pod_delete(pod_name: str, namespace: str, success: bool, error: Optional[str] = None):
+def audit_pod_delete(
+    pod_name: str,
+    namespace: str,
+    success: bool,
+    error: Optional[str] = None,
+    user_id: Optional[str] = None,
+    triggered_by: Optional[str] = None,
+):
     """Log a pod deletion."""
     return log_action(
         "pod_delete",
@@ -159,6 +169,8 @@ def audit_pod_delete(pod_name: str, namespace: str, success: bool, error: Option
         namespace,
         success,
         error_message=error,
+        user_id=user_id,
+        triggered_by=triggered_by,
     )
 
 
@@ -168,6 +180,8 @@ def audit_deployment_scale(
     target_replicas: int,
     success: bool,
     error: Optional[str] = None,
+    user_id: Optional[str] = None,
+    triggered_by: Optional[str] = None,
 ):
     """Log a deployment scaling operation."""
     return log_action(
@@ -177,6 +191,8 @@ def audit_deployment_scale(
         success,
         details={"target_replicas": target_replicas},
         error_message=error,
+        user_id=user_id,
+        triggered_by=triggered_by,
     )
 
 
@@ -186,6 +202,8 @@ def audit_config_patch(
     config_type: str,  # "configmap" or "secret"
     success: bool,
     error: Optional[str] = None,
+    user_id: Optional[str] = None,
+    triggered_by: Optional[str] = None,
 ):
     """Log a ConfigMap or Secret patch."""
     return log_action(
@@ -194,6 +212,8 @@ def audit_config_patch(
         namespace,
         success,
         error_message=error,
+        user_id=user_id,
+        triggered_by=triggered_by,
     )
 
 
@@ -202,6 +222,8 @@ def audit_node_action(
     node_name: str,
     success: bool,
     error: Optional[str] = None,
+    user_id: Optional[str] = None,
+    triggered_by: Optional[str] = None,
 ):
     """Log a node-level action."""
     return log_action(
@@ -210,6 +232,8 @@ def audit_node_action(
         "cluster-wide",
         success,
         error_message=error,
+        user_id=user_id,
+        triggered_by=triggered_by,
     )
 
 
@@ -217,48 +241,197 @@ def audit_node_action(
 # EXTENDED CONVENIENCE WRAPPERS
 # ─────────────────────────────────────────────
 
-def audit_rollout_restart(resource_name: str, namespace: str, kind: str, success: bool, error: Optional[str] = None):
+def audit_rollout_restart(
+    resource_name: str,
+    namespace: str,
+    kind: str,
+    success: bool,
+    error: Optional[str] = None,
+    user_id: Optional[str] = None,
+    triggered_by: Optional[str] = None,
+):
     """Log a rollout restart (Deployment, StatefulSet, DaemonSet)."""
-    return log_action(f"{kind.lower()}_restart", resource_name, namespace, success, error_message=error)
+    return log_action(
+        f"{kind.lower()}_restart",
+        resource_name,
+        namespace,
+        success,
+        error_message=error,
+        user_id=user_id,
+        triggered_by=triggered_by,
+    )
 
 
-def audit_statefulset_scale(name: str, namespace: str, target_replicas: int, success: bool, error: Optional[str] = None):
-    return log_action("statefulset_scale", name, namespace, success,
-                      details={"target_replicas": target_replicas}, error_message=error)
+def audit_statefulset_scale(
+    name: str,
+    namespace: str,
+    target_replicas: int,
+    success: bool,
+    error: Optional[str] = None,
+    user_id: Optional[str] = None,
+    triggered_by: Optional[str] = None,
+):
+    return log_action(
+        "statefulset_scale",
+        name,
+        namespace,
+        success,
+        details={"target_replicas": target_replicas},
+        error_message=error,
+        user_id=user_id,
+        triggered_by=triggered_by,
+    )
 
 
-def audit_daemonset_image_update(name: str, namespace: str, container: str, image: str, success: bool, error: Optional[str] = None):
-    return log_action("daemonset_image_update", name, namespace, success,
-                      details={"container": container, "image": image}, error_message=error)
+def audit_daemonset_image_update(
+    name: str,
+    namespace: str,
+    container: str,
+    image: str,
+    success: bool,
+    error: Optional[str] = None,
+    user_id: Optional[str] = None,
+    triggered_by: Optional[str] = None,
+):
+    return log_action(
+        "daemonset_image_update",
+        name,
+        namespace,
+        success,
+        details={"container": container, "image": image},
+        error_message=error,
+        user_id=user_id,
+        triggered_by=triggered_by,
+    )
 
 
-def audit_job_action(action: str, name: str, namespace: str, success: bool, error: Optional[str] = None):
+def audit_job_action(
+    action: str,
+    name: str,
+    namespace: str,
+    success: bool,
+    error: Optional[str] = None,
+    user_id: Optional[str] = None,
+    triggered_by: Optional[str] = None,
+):
     """Log a job/cronjob action: delete, suspend, resume."""
-    return log_action(f"job_{action}", name, namespace, success, error_message=error)
+    return log_action(
+        f"job_{action}",
+        name,
+        namespace,
+        success,
+        error_message=error,
+        user_id=user_id,
+        triggered_by=triggered_by,
+    )
 
 
-def audit_configmap_action(action: str, name: str, namespace: str, success: bool, keys: Optional[list] = None, error: Optional[str] = None):
+def audit_configmap_action(
+    action: str,
+    name: str,
+    namespace: str,
+    success: bool,
+    keys: Optional[list] = None,
+    error: Optional[str] = None,
+    user_id: Optional[str] = None,
+    triggered_by: Optional[str] = None,
+):
     """Log a ConfigMap action: create, patch, delete."""
-    return log_action(f"configmap_{action}", name, namespace, success,
-                      details={"keys": keys or []}, error_message=error)
+    return log_action(
+        f"configmap_{action}",
+        name,
+        namespace,
+        success,
+        details={"keys": keys or []},
+        error_message=error,
+        user_id=user_id,
+        triggered_by=triggered_by,
+    )
 
 
-def audit_secret_action(action: str, name: str, namespace: str, success: bool, keys: Optional[list] = None, error: Optional[str] = None):
+def audit_secret_action(
+    action: str,
+    name: str,
+    namespace: str,
+    success: bool,
+    keys: Optional[list] = None,
+    error: Optional[str] = None,
+    user_id: Optional[str] = None,
+    triggered_by: Optional[str] = None,
+):
     """Log a Secret action: create, update, delete."""
-    return log_action(f"secret_{action}", name, namespace, success,
-                      details={"keys": keys or []}, error_message=error)
+    return log_action(
+        f"secret_{action}",
+        name,
+        namespace,
+        success,
+        details={"keys": keys or []},
+        error_message=error,
+        user_id=user_id,
+        triggered_by=triggered_by,
+    )
 
 
-def audit_service_action(action: str, name: str, namespace: str, success: bool, error: Optional[str] = None):
+def audit_service_action(
+    action: str,
+    name: str,
+    namespace: str,
+    success: bool,
+    error: Optional[str] = None,
+    user_id: Optional[str] = None,
+    triggered_by: Optional[str] = None,
+):
     """Log a Service action: create, patch, delete."""
-    return log_action(f"service_{action}", name, namespace, success, error_message=error)
+    return log_action(
+        f"service_{action}",
+        name,
+        namespace,
+        success,
+        error_message=error,
+        user_id=user_id,
+        triggered_by=triggered_by,
+    )
 
 
-def audit_patch_resource_limits(name: str, namespace: str, container: str, changes: dict, success: bool, error: Optional[str] = None):
-    return log_action("deployment_patch_limits", name, namespace, success,
-                      details={"container": container, "changes": changes}, error_message=error)
+def audit_patch_resource_limits(
+    name: str,
+    namespace: str,
+    container: str,
+    changes: dict,
+    success: bool,
+    error: Optional[str] = None,
+    user_id: Optional[str] = None,
+    triggered_by: Optional[str] = None,
+):
+    return log_action(
+        "deployment_patch_limits",
+        name,
+        namespace,
+        success,
+        details={"container": container, "changes": changes},
+        error_message=error,
+        user_id=user_id,
+        triggered_by=triggered_by,
+    )
 
 
-def audit_patch_env_var(name: str, namespace: str, container: str, key: str, success: bool, error: Optional[str] = None):
-    return log_action("deployment_patch_env", name, namespace, success,
-                      details={"container": container, "key": key}, error_message=error)
+def audit_patch_env_var(
+    name: str,
+    namespace: str,
+    container: str,
+    key: str,
+    success: bool,
+    error: Optional[str] = None,
+    user_id: Optional[str] = None,
+    triggered_by: Optional[str] = None,
+):
+    return log_action(
+        "deployment_patch_env",
+        name,
+        namespace,
+        success,
+        details={"container": container, "key": key},
+        error_message=error,
+        user_id=user_id,
+        triggered_by=triggered_by,
+    )

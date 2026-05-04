@@ -106,7 +106,7 @@ def secret_exists(name: str, namespace: str = "default") -> bool:
 
 
 @retry_on_transient(max_attempts=3, backoff_base=1.0)
-def get_secret_values(name: str, namespace: str = "default") -> dict:
+def get_secret_values(name: str, namespace: str = "default", audit: bool = True) -> dict:
     """
     Get secret key-value pairs with proper base64 decoding.
 
@@ -158,7 +158,8 @@ def get_secret_values(name: str, namespace: str = "default") -> dict:
                     decoded_data[key] = ""
         
         # AUDIT: Log access to secret values (but not the actual values)
-        log_action(
+        if audit:
+            log_action(
             "get_secret_values",
             name,
             namespace,
@@ -176,7 +177,8 @@ def get_secret_values(name: str, namespace: str = "default") -> dict:
         }
     except ApiException as e:
         if e.status == 404:
-            log_action(
+            if audit:
+                log_action(
                 "get_secret_values",
                 name,
                 namespace,
@@ -192,7 +194,8 @@ def get_secret_values(name: str, namespace: str = "default") -> dict:
                 "error": f"Secret '{name}' not found in namespace '{namespace}'.",
             }
         
-        log_action(
+        if audit:
+            log_action(
             "get_secret_values",
             name,
             namespace,
@@ -211,7 +214,7 @@ def create_secret(
     namespace: str = "default",
     data: Optional[dict] = None,
     secret_type: str = "Opaque",
-) -> dict:
+    audit: bool = True) -> dict:
     """
     Create a new Kubernetes Secret.
 
@@ -242,7 +245,8 @@ def create_secret(
     try:
         core.create_namespaced_secret(namespace=namespace, body=secret_body)
         logger.info(f"[ACTION] Created secret {namespace}/{name} with keys: {list(data.keys())}")
-        audit_secret_action("create", name, namespace, success=True, keys=list(data.keys()))
+        if audit:
+            audit_secret_action("create", name, namespace, success=True, keys=list(data.keys()))
         return {
             "success":      True,
             "message":      f"Secret '{name}' created in namespace '{namespace}'.",
@@ -250,10 +254,12 @@ def create_secret(
         }
     except ApiException as e:
         if e.status == 409:
-            audit_secret_action("create", name, namespace, success=False, error="Secret already exists")
+            if audit:
+                audit_secret_action("create", name, namespace, success=False, error="Secret already exists")
             return {"success": False, "message": f"Secret '{name}' already exists. Use update_secret instead."}
         logger.error(f"Failed to create secret {namespace}/{name}: {e}")
-        audit_secret_action("create", name, namespace, success=False, error=str(e))
+        if audit:
+            audit_secret_action("create", name, namespace, success=False, error=str(e))
         return {"success": False, "message": str(e)}
 
 
@@ -261,7 +267,7 @@ def update_secret(
     name: str,
     namespace: str = "default",
     data: Optional[dict] = None,
-) -> dict:
+    audit: bool = True) -> dict:
     """
     Add or update keys in an existing Kubernetes Secret.
 
@@ -292,7 +298,8 @@ def update_secret(
     try:
         core.patch_namespaced_secret(name=name, namespace=namespace, body=secret)
         logger.info(f"[ACTION] Updated secret {namespace}/{name}: keys={list(data.keys())}")
-        audit_secret_action("update", name, namespace, success=True, keys=list(data.keys()))
+        if audit:
+            audit_secret_action("update", name, namespace, success=True, keys=list(data.keys()))
         return {
             "success":      True,
             "message":      f"Secret '{name}' updated in namespace '{namespace}'.",
@@ -300,11 +307,12 @@ def update_secret(
         }
     except ApiException as e:
         logger.error(f"Failed to update secret {namespace}/{name}: {e}")
-        audit_secret_action("update", name, namespace, success=False, error=str(e))
+        if audit:
+            audit_secret_action("update", name, namespace, success=False, error=str(e))
         return {"success": False, "message": str(e)}
 
 
-def delete_secret(name: str, namespace: str = "default") -> dict:
+def delete_secret(name: str, namespace: str = "default", audit: bool = True) -> dict:
     """
     Delete a Kubernetes Secret.
 
@@ -337,14 +345,16 @@ def delete_secret(name: str, namespace: str = "default") -> dict:
     try:
         core.delete_namespaced_secret(name=name, namespace=namespace)
         logger.info(f"[ACTION] Deleted secret {namespace}/{name}")
-        audit_secret_action("delete", name, namespace, success=True)
+        if audit:
+            audit_secret_action("delete", name, namespace, success=True)
         return {
             "success": True,
             "message": f"Secret '{name}' deleted from namespace '{namespace}'.",
         }
     except ApiException as e:
         logger.error(f"Failed to delete secret {namespace}/{name}: {e}")
-        audit_secret_action("delete", name, namespace, success=False, error=str(e))
+        if audit:
+            audit_secret_action("delete", name, namespace, success=False, error=str(e))
         return {"success": False, "message": str(e)}
 
     

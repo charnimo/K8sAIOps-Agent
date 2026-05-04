@@ -2,7 +2,7 @@
 
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Query, Depends
+from fastapi import APIRouter, HTTPException, Query, Depends, Request
 from kubernetes.client.exceptions import ApiException
 
 from Tools import deployments, pods, services
@@ -130,17 +130,25 @@ def get_pod_issues(
 @router.delete("/pods/{name}")
 def delete_pod(
     name: str,
+    request: Request,
     namespace: str = Query(default="default"),
     user: User = Depends(require_permission("pods:delete")),
 ) -> dict:
     """Delete a pod directly."""
-    return run_direct_action("delete_pod", name=name, namespace=namespace)
+    return run_direct_action(
+        "delete_pod",
+        name=name,
+        namespace=namespace,
+        user_id=user.username,
+        request=request,
+    )
 
 
 @router.post("/pods/{name}/exec")
 def exec_pod(
     name: str,
     payload: PodExecRequest,
+    request: Request,
     namespace: str = Query(default="default"),
     user: User = Depends(require_permission("pods:exec")),
 ) -> dict:
@@ -150,6 +158,8 @@ def exec_pod(
         name=name,
         namespace=namespace,
         params=payload.model_dump(),
+        user_id=user.username,
+        request=request,
     )
 
 
@@ -240,6 +250,7 @@ def get_rollout_history(
 def scale_deployment(
     name: str,
     payload: ScaleRequest,
+    request: Request,
     namespace: str = Query(default="default"),
     user: User = Depends(require_permission("deployments:scale")),
 ) -> dict:
@@ -249,23 +260,33 @@ def scale_deployment(
         name=name,
         namespace=namespace,
         params=payload.model_dump(),
+        user_id=user.username,
+        request=request,
     )
 
 
 @router.post("/deployments/{name}/restart")
 def restart_deployment(
     name: str,
+    request: Request,
     namespace: str = Query(default="default"),
     user: User = Depends(require_permission("deployments:restart")),
 ) -> dict:
     """Restart a deployment directly."""
-    return run_direct_action("restart_deployment", name=name, namespace=namespace)
+    return run_direct_action(
+        "restart_deployment",
+        name=name,
+        namespace=namespace,
+        user_id=user.username,
+        request=request,
+    )
 
 
 @router.post("/deployments/{name}/rollback")
 def rollback_deployment(
     name: str,
     payload: DeploymentRollbackRequest,
+    request: Request,
     user: User = Depends(require_permission("deployments:rollback")),
 ) -> dict:
     """Rollback a deployment directly."""
@@ -274,6 +295,8 @@ def rollback_deployment(
         name=name,
         namespace=payload.namespace,
         params={"revision": payload.revision},
+        user_id=user.username,
+        request=request,
     )
 
 
@@ -281,6 +304,7 @@ def rollback_deployment(
 def patch_deployment_resource_limits(
     name: str,
     payload: DeploymentResourceLimitsPatchRequest,
+    request: Request,
     user: User = Depends(require_permission("deployments:patch")),
 ) -> dict:
     """Patch deployment resource limits directly."""
@@ -291,6 +315,8 @@ def patch_deployment_resource_limits(
         name=name,
         namespace=namespace,
         params=params,
+        user_id=user.username,
+        request=request,
     )
 
 
@@ -298,6 +324,7 @@ def patch_deployment_resource_limits(
 def patch_deployment_env(
     name: str,
     payload: DeploymentEnvPatchRequest,
+    request: Request,
     user: User = Depends(require_permission("deployments:patch")),
 ) -> dict:
     """Patch deployment environment variables directly."""
@@ -308,6 +335,8 @@ def patch_deployment_env(
         name=name,
         namespace=namespace,
         params=params,
+        user_id=user.username,
+        request=request,
     )
 
 
@@ -345,35 +374,58 @@ def get_service(
 @router.post("/services")
 def create_service(
     payload: CreateServiceRequest,
+    request: Request,
     user: User = Depends(require_permission("services:create")),
 ) -> dict:
     """Create a service directly."""
     params = payload.model_dump()
     name = params.pop("name")
     namespace = params.pop("namespace")
-    return run_direct_action("create_service", name=name, namespace=namespace, params=params)
+    return run_direct_action(
+        "create_service",
+        name=name,
+        namespace=namespace,
+        params=params,
+        user_id=user.username,
+        request=request,
+    )
 
 
 @router.patch("/services/{name}")
 def patch_service(
     name: str,
     payload: PatchServiceRequest,
+    request: Request,
     user: User = Depends(require_permission("services:patch")),
 ) -> dict:
     """Patch a service directly."""
     params = payload.model_dump()
     namespace = params.pop("namespace")
-    return run_direct_action("patch_service", name=name, namespace=namespace, params=params)
+    return run_direct_action(
+        "patch_service",
+        name=name,
+        namespace=namespace,
+        params=params,
+        user_id=user.username,
+        request=request,
+    )
 
 
 @router.delete("/services/{name}")
 def delete_service(
     name: str,
+    request: Request,
     namespace: str = Query(default="default"),
     user: User = Depends(require_permission("services:delete")),
 ) -> dict:
     """Delete a service directly."""
-    return run_direct_action("delete_service", name=name, namespace=namespace)
+    return run_direct_action(
+        "delete_service",
+        name=name,
+        namespace=namespace,
+        user_id=user.username,
+        request=request,
+    )
 
 @router.get("/pods/{namespace}/{pod_name}/metrics/history")
 def get_pod_metric_history_route(

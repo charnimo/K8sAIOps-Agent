@@ -107,7 +107,7 @@ def create_service(
     selector: Optional[dict] = None,
     ports: Optional[list[dict]] = None,
     labels: Optional[dict] = None,
-) -> dict:
+    audit: bool = True) -> dict:
     """
     Create a new Kubernetes Service.
 
@@ -156,7 +156,8 @@ def create_service(
     try:
         core.create_namespaced_service(namespace=namespace, body=service_body)
         logger.info(f"[ACTION] Created service {namespace}/{name} (type={service_type})")
-        audit_service_action("create", name, namespace, success=True)
+        if audit:
+            audit_service_action("create", name, namespace, success=True)
         return {
             "success":       True,
             "message":       f"Service '{name}' created in namespace '{namespace}'.",
@@ -164,7 +165,8 @@ def create_service(
         }
     except ApiException as e:
         logger.error(f"Failed to create service {namespace}/{name}: {e}")
-        audit_service_action("create", name, namespace, success=False, error=str(e))
+        if audit:
+            audit_service_action("create", name, namespace, success=False, error=str(e))
         return {"success": False, "message": str(e)}
 
 
@@ -174,7 +176,7 @@ def patch_service(
     selector: Optional[dict] = None,
     labels: Optional[dict] = None,
     ports: Optional[list[dict]] = None,
-) -> dict:
+    audit: bool = True) -> dict:
     """
     Update a Service's selector, labels, or ports.
 
@@ -222,18 +224,20 @@ def patch_service(
     try:
         core.patch_namespaced_service(name=name, namespace=namespace, body=patch_body)
         logger.info(f"[ACTION] Patched service {namespace}/{name}")
-        audit_service_action("patch", name, namespace, success=True)
+        if audit:
+            audit_service_action("patch", name, namespace, success=True)
         return {
             "success": True,
             "message": f"Service '{name}' in namespace '{namespace}' updated.",
         }
     except ApiException as e:
         logger.error(f"Failed to patch service {namespace}/{name}: {e}")
-        audit_service_action("patch", name, namespace, success=False, error=str(e))
+        if audit:
+            audit_service_action("patch", name, namespace, success=False, error=str(e))
         return {"success": False, "message": str(e)}
 
 
-def delete_service(name: str, namespace: str = "default") -> dict:
+def delete_service(name: str, namespace: str = "default", audit: bool = True) -> dict:
     """
     Delete a Service.
 
@@ -266,14 +270,16 @@ def delete_service(name: str, namespace: str = "default") -> dict:
     try:
         core.delete_namespaced_service(name=name, namespace=namespace)
         logger.info(f"[ACTION] Deleted service {namespace}/{name}")
-        audit_service_action("delete", name, namespace, success=True)
+        if audit:
+            audit_service_action("delete", name, namespace, success=True)
         return {
             "success": True,
             "message": f"Service '{name}' deleted from namespace '{namespace}'.",
         }
     except ApiException as e:
         logger.error(f"Failed to delete service {namespace}/{name}: {e}")
-        audit_service_action("delete", name, namespace, success=False, error=str(e))
+        if audit:
+            audit_service_action("delete", name, namespace, success=False, error=str(e))
         return {"success": False, "message": str(e)}
 
 

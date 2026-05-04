@@ -66,7 +66,10 @@ export class AuditController {
                     const haystack = [
                         row.action_type,
                         row.target_name,
+                        row.resource,
                         row.namespace,
+                        row.user_id,
+                        row.triggered_by,
                         row.error_message,
                         row.timestamp,
                     ].map((part) => this.normalize(part)).join(' ');
@@ -75,19 +78,24 @@ export class AuditController {
                 : allRows;
 
             if (!list.length) {
-                tbody.innerHTML = '<tr><td colspan="6" class="px-6 py-6 text-center text-gray-500">No audit logs found.</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="8" class="px-6 py-6 text-center text-gray-500">No audit logs found.</td></tr>';
                 return;
             }
 
             tbody.innerHTML = list.map((row) => {
                 const isSuccess = row.success === true;
+                const targetName = row.target_name || row.resource || '-';
+                const userId = row.user_id || '-';
+                const source = row.triggered_by || '-';
                 const detailPayload = encodeURIComponent(JSON.stringify(row));
                 return `
                     <tr class="hover:bg-gray-700/60 transition-colors">
                         <td class="px-6 py-4 text-xs text-gray-400">${this.escapeHtml(row.timestamp || '-')}</td>
                         <td class="px-6 py-4 font-mono text-gray-200">${this.escapeHtml(row.action_type || '-')}</td>
-                        <td class="px-6 py-4 text-gray-300">${this.escapeHtml(row.target_name || '-')}</td>
+                        <td class="px-6 py-4 text-gray-300">${this.escapeHtml(targetName)}</td>
                         <td class="px-6 py-4 text-gray-400">${this.escapeHtml(row.namespace || '-')}</td>
+                        <td class="px-6 py-4 text-gray-200">${this.escapeHtml(userId)}</td>
+                        <td class="px-6 py-4 text-gray-300">${this.escapeHtml(source)}</td>
                         <td class="px-6 py-4 ${isSuccess ? 'text-emerald-400' : 'text-rose-400'}">${isSuccess ? 'Success' : 'Failed'}</td>
                         <td class="px-6 py-4 text-right">
                             <button class="audit-details-btn px-2.5 py-1.5 rounded border border-sky-800/50 bg-sky-900/30 text-sky-300 hover:bg-sky-900/50 text-xs" data-row="${detailPayload}">View</button>
@@ -107,7 +115,7 @@ export class AuditController {
                 });
             });
         } catch (err) {
-            tbody.innerHTML = `<tr><td colspan="6" class="px-6 py-6 text-center text-rose-400">Failed to load audit logs: ${this.escapeHtml(err.message)}</td></tr>`;
+            tbody.innerHTML = `<tr><td colspan="8" class="px-6 py-6 text-center text-rose-400">Failed to load audit logs: ${this.escapeHtml(err.message)}</td></tr>`;
         }
     }
 
@@ -118,6 +126,9 @@ export class AuditController {
         }
 
         const safeMessage = this.escapeHtml(row.error_message || 'No message');
+        const targetName = row.target_name || row.resource || '-';
+        const userId = row.user_id || '-';
+        const source = row.triggered_by || '-';
         const pretty = this.escapeHtml(JSON.stringify(row, null, 2));
         const title = `Audit: ${row.action_type || 'event'}`;
 
@@ -131,7 +142,9 @@ export class AuditController {
                         <div><div class="text-xs text-gray-500">Status</div><div class="${row.success ? 'text-emerald-400' : 'text-rose-400'}">${row.success ? 'Success' : 'Failed'}</div></div>
                         <div><div class="text-xs text-gray-500">Action</div><div class="font-mono text-gray-200">${this.escapeHtml(row.action_type || '-')}</div></div>
                         <div><div class="text-xs text-gray-500">Namespace</div><div class="text-gray-200">${this.escapeHtml(row.namespace || '-')}</div></div>
-                        <div class="col-span-2"><div class="text-xs text-gray-500">Target</div><div class="text-gray-200">${this.escapeHtml(row.target_name || '-')}</div></div>
+                        <div><div class="text-xs text-gray-500">User</div><div class="text-gray-200">${this.escapeHtml(userId)}</div></div>
+                        <div><div class="text-xs text-gray-500">Source</div><div class="text-gray-200">${this.escapeHtml(source)}</div></div>
+                        <div class="col-span-2"><div class="text-xs text-gray-500">Target</div><div class="text-gray-200">${this.escapeHtml(targetName)}</div></div>
                     </div>
                 </section>
                 <section class="bg-gray-950 border border-gray-800 rounded-lg p-4">

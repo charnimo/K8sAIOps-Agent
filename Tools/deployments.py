@@ -116,6 +116,7 @@ def scale_deployment(
     name: str,
     namespace: str = "default",
     replicas: int = 1,
+    audit: bool = True,
 ) -> dict:
     """
     Scale a deployment to the given replica count.
@@ -155,7 +156,8 @@ def scale_deployment(
         apps.patch_namespaced_deployment(name=name, namespace=namespace, body=dep)
 
         logger.info(f"[ACTION] Scaled {namespace}/{name}: {previous} → {replicas} replicas")
-        audit_deployment_scale(name, namespace, replicas, success=True)
+        if audit:
+            audit_deployment_scale(name, namespace, replicas, success=True)
         return {
             "success":           True,
             "message":           f"Deployment {namespace}/{name} scaled from {previous} to {replicas} replicas.",
@@ -164,11 +166,12 @@ def scale_deployment(
         }
     except ApiException as e:
         logger.error(f"Failed to scale {namespace}/{name}: {e}")
-        audit_deployment_scale(name, namespace, replicas, success=False, error=str(e))
+        if audit:
+            audit_deployment_scale(name, namespace, replicas, success=False, error=str(e))
         return {"success": False, "message": str(e)}
 
 
-def rollout_restart(name: str, namespace: str = "default") -> dict:
+def rollout_restart(name: str, namespace: str = "default", audit: bool = True) -> dict:
     """
     Trigger a rolling restart of all pods in a deployment.
 
@@ -197,14 +200,16 @@ def rollout_restart(name: str, namespace: str = "default") -> dict:
     try:
         apps.patch_namespaced_deployment(name=name, namespace=namespace, body=patch_body)
         logger.info(f"[ACTION] Rolling restart triggered for {namespace}/{name}")
-        audit_rollout_restart(name, namespace, "Deployment", success=True)
+        if audit:
+            audit_rollout_restart(name, namespace, "Deployment", success=True)
         return {
             "success": True,
             "message": f"Rolling restart triggered for deployment {namespace}/{name}.",
         }
     except ApiException as e:
         logger.error(f"Failed to restart {namespace}/{name}: {e}")
-        audit_rollout_restart(name, namespace, "Deployment", success=False, error=str(e))
+        if audit:
+            audit_rollout_restart(name, namespace, "Deployment", success=False, error=str(e))
         return {"success": False, "message": str(e)}
 
 def get_deployment_revisions(name: str, namespace: str = "default") -> dict:
@@ -281,6 +286,7 @@ def patch_resource_limits(
     cpu_limit: Optional[str] = None,
     memory_request: Optional[str] = None,
     memory_limit: Optional[str] = None,
+    audit: bool = True,
 ) -> dict:
     """
     Patch CPU and/or memory requests/limits for a container in a deployment.
@@ -355,7 +361,8 @@ def patch_resource_limits(
     try:
         apps.patch_namespaced_deployment(name=name, namespace=namespace, body=dep)
         logger.info(f"[ACTION] Patched resources for {namespace}/{name}/{target.name}: {changes}")
-        audit_patch_resource_limits(name, namespace, target.name, changes, success=True)
+        if audit:
+            audit_patch_resource_limits(name, namespace, target.name, changes, success=True)
         return {
             "success": True,
             "message": f"Resource limits updated for container '{target.name}' in {namespace}/{name}.",
@@ -377,6 +384,7 @@ def patch_env_var(
     container_name: Optional[str] = None,
     key: str = "",
     value: str = "",
+    audit: bool = True,
 ) -> dict:
     """
     Add or update an environment variable in a deployment's container spec.
@@ -431,7 +439,8 @@ def patch_env_var(
     try:
         apps.patch_namespaced_deployment(name=name, namespace=namespace, body=dep)
         logger.info(f"[ACTION] {action.capitalize()} env var {key} in {namespace}/{name}/{target.name}")
-        audit_patch_env_var(name, namespace, target.name, key, success=True)
+        if audit:
+            audit_patch_env_var(name, namespace, target.name, key, success=True)
         return {
             "success": True,
             "message": f"Environment variable '{key}' {action} in container '{target.name}' of {namespace}/{name}.",
@@ -439,7 +448,8 @@ def patch_env_var(
         }
     except ApiException as e:
         logger.error(f"Failed to patch env var in {namespace}/{name}: {e}")
-        audit_patch_env_var(name, namespace, target.name, key, success=False, error=str(e))
+        if audit:
+            audit_patch_env_var(name, namespace, target.name, key, success=False, error=str(e))
         return {"success": False, "message": str(e)}
 
 
@@ -568,7 +578,12 @@ def rollout_history(name: str, namespace: str = "default") -> dict:
         return {"error": str(e)}
 
 
-def rollback_deployment(name: str, namespace: str = "default", revision: Optional[int] = None) -> dict:
+def rollback_deployment(
+    name: str,
+    namespace: str = "default",
+    revision: Optional[int] = None,
+    audit: bool = True,
+) -> dict:
     """
     Rollback a Deployment to a previous revision.
 
@@ -627,13 +642,14 @@ def rollback_deployment(name: str, namespace: str = "default", revision: Optiona
         apps.patch_namespaced_deployment(name=name, namespace=namespace, body=rollback_body)
 
         logger.info(f"[ACTION] Rolled back Deployment {namespace}/{name} from revision {current_revision} to {revision or 'previous'}")
-        log_action(
-            "deployment_rollback",
-            name,
-            namespace,
-            success=True,
-            details={"from_revision": current_revision, "to_revision": revision or "previous"},
-        )
+        if audit:
+            log_action(
+                "deployment_rollback",
+                name,
+                namespace,
+                success=True,
+                details={"from_revision": current_revision, "to_revision": revision or "previous"},
+            )
 
         return {
             "success": True,
@@ -643,13 +659,14 @@ def rollback_deployment(name: str, namespace: str = "default", revision: Optiona
         }
     except ApiException as e:
         logger.error(f"Failed to rollback Deployment {namespace}/{name}: {e}")
-        log_action(
-            "deployment_rollback",
-            name,
-            namespace,
-            success=False,
-            error_message=str(e),
-        )
+        if audit:
+            log_action(
+                "deployment_rollback",
+                name,
+                namespace,
+                success=False,
+                error_message=str(e),
+            )
         return {"success": False, "message": str(e)}
 
 

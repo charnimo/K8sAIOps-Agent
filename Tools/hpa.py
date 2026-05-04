@@ -124,7 +124,7 @@ def create_hpa(
     target_cpu_percent: Optional[int] = None,
     target_memory_percent: Optional[int] = None,
     labels: Optional[dict] = None,
-) -> dict:
+    audit: bool = True) -> dict:
     """
     Create a new HorizontalPodAutoscaler.
 
@@ -242,15 +242,17 @@ def create_hpa(
         auto_api = get_autoscaling_v2()
         auto_api.create_namespaced_horizontal_pod_autoscaler(namespace, hpa_body)
         logger.info(f"[ACTION] Created HPA {namespace}/{name} for {target_kind}/{target_name}")
-        log_action("hpa_create", name, namespace, success=True, details={"target": f"{target_kind}/{target_name}"})
+        if audit:
+            log_action("hpa_create", name, namespace, success=True, details={"target": f"{target_kind}/{target_name}"})
         return {"success": True, "message": f"HPA {namespace}/{name} created successfully."}
     except ApiException as e:
         logger.error(f"Failed to create HPA {namespace}/{name}: {e}")
-        log_action("hpa_create", name, namespace, success=False, error_message=str(e))
+        if audit:
+            log_action("hpa_create", name, namespace, success=False, error_message=str(e))
         return {"success": False, "message": str(e)}
 
 
-def delete_hpa(name: str, namespace: str = "default") -> dict:
+def delete_hpa(name: str, namespace: str = "default", audit: bool = True) -> dict:
     """
     Delete a HorizontalPodAutoscaler.
 
@@ -268,11 +270,13 @@ def delete_hpa(name: str, namespace: str = "default") -> dict:
         auto_api = get_autoscaling_v2()
         auto_api.delete_namespaced_horizontal_pod_autoscaler(name, namespace)
         logger.info(f"[ACTION] Deleted HPA {namespace}/{name}")
-        log_action("hpa_delete", name, namespace, success=True)
+        if audit:
+            log_action("hpa_delete", name, namespace, success=True)
         return {"success": True, "message": f"HPA {namespace}/{name} deleted."}
     except ApiException as e:
         logger.error(f"Failed to delete HPA {namespace}/{name}: {e}")
-        log_action("hpa_delete", name, namespace, success=False, error_message=str(e))
+        if audit:
+            log_action("hpa_delete", name, namespace, success=False, error_message=str(e))
         return {"success": False, "message": str(e)}
 
 
@@ -282,7 +286,7 @@ def patch_hpa(
     min_replicas: Optional[int] = None,
     max_replicas: Optional[int] = None,
     labels: Optional[dict] = None,
-) -> dict:
+    audit: bool = True) -> dict:
     """
     Patch an HPA (update scaling limits or labels).
 
@@ -321,11 +325,13 @@ def patch_hpa(
         auto_api = get_autoscaling_v2()
         auto_api.patch_namespaced_horizontal_pod_autoscaler(name, namespace, patch_body)
         logger.info(f"[ACTION] Patched HPA {namespace}/{name}")
-        log_action("hpa_patch", name, namespace, success=True)
+        if audit:
+            log_action("hpa_patch", name, namespace, success=True)
         return {"success": True, "message": f"HPA {namespace}/{name} patched."}
     except ApiException as e:
         logger.error(f"Failed to patch HPA {namespace}/{name}: {e}")
-        log_action("hpa_patch", name, namespace, success=False, error_message=str(e))
+        if audit:
+            log_action("hpa_patch", name, namespace, success=False, error_message=str(e))
         return {"success": False, "message": str(e)}
 
 

@@ -153,7 +153,7 @@ def create_pvc(
     access_modes: Optional[list[str]] = None,
     storage_class: Optional[str] = None,
     labels: Optional[dict] = None,
-) -> dict:
+    audit: bool = True) -> dict:
     """
     Create a new PersistentVolumeClaim.
 
@@ -195,15 +195,17 @@ def create_pvc(
         v1 = get_core_v1()
         v1.create_namespaced_persistent_volume_claim(namespace, pvc_body)
         logger.info(f"[ACTION] Created PVC {namespace}/{name} ({size})")
-        log_action("pvc_create", name, namespace, success=True, details={"size": size})
+        if audit:
+            log_action("pvc_create", name, namespace, success=True, details={"size": size})
         return {"success": True, "message": f"PVC {namespace}/{name} created successfully."}
     except ApiException as e:
         logger.error(f"Failed to create PVC {namespace}/{name}: {e}")
-        log_action("pvc_create", name, namespace, success=False, error_message=str(e))
+        if audit:
+            log_action("pvc_create", name, namespace, success=False, error_message=str(e))
         return {"success": False, "message": str(e)}
 
 
-def delete_pvc(name: str, namespace: str = "default") -> dict:
+def delete_pvc(name: str, namespace: str = "default", audit: bool = True) -> dict:
     """
     Delete a PersistentVolumeClaim.
 
@@ -221,15 +223,17 @@ def delete_pvc(name: str, namespace: str = "default") -> dict:
         v1 = get_core_v1()
         v1.delete_namespaced_persistent_volume_claim(name, namespace)
         logger.info(f"[ACTION] Deleted PVC {namespace}/{name}")
-        log_action("pvc_delete", name, namespace, success=True)
+        if audit:
+            log_action("pvc_delete", name, namespace, success=True)
         return {"success": True, "message": f"PVC {namespace}/{name} deleted."}
     except ApiException as e:
         logger.error(f"Failed to delete PVC {namespace}/{name}: {e}")
-        log_action("pvc_delete", name, namespace, success=False, error_message=str(e))
+        if audit:
+            log_action("pvc_delete", name, namespace, success=False, error_message=str(e))
         return {"success": False, "message": str(e)}
 
 
-def patch_pvc(name: str, namespace: str = "default", labels: Optional[dict] = None) -> dict:
+def patch_pvc(name: str, namespace: str = "default", labels: Optional[dict] = None, audit: bool = True) -> dict:
     """
     Patch a PVC (add/update labels).
 
@@ -253,11 +257,13 @@ def patch_pvc(name: str, namespace: str = "default", labels: Optional[dict] = No
         v1 = get_core_v1()
         v1.patch_namespaced_persistent_volume_claim(name, namespace, patch_body)
         logger.info(f"[ACTION] Patched PVC {namespace}/{name}")
-        log_action("pvc_patch", name, namespace, success=True)
+        if audit:
+            log_action("pvc_patch", name, namespace, success=True)
         return {"success": True, "message": f"PVC {namespace}/{name} patched."}
     except ApiException as e:
         logger.error(f"Failed to patch PVC {namespace}/{name}: {e}")
-        log_action("pvc_patch", name, namespace, success=False, error_message=str(e))
+        if audit:
+            log_action("pvc_patch", name, namespace, success=False, error_message=str(e))
         return {"success": False, "message": str(e)}
 
 

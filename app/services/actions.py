@@ -21,7 +21,7 @@ from Tools import (
 from app.state.store import get_action_request, mark_action_request_executed
 
 
-ActionHandler = Callable[[dict, dict, str, str], dict]
+ActionHandler = Callable[[dict, dict, str, str, str, str], dict]
 
 
 def _audit_error(result: dict) -> Optional[str]:
@@ -55,28 +55,53 @@ def _keys_for_audit(data: Any) -> list[str]:
     return []
 
 
-def _handle_delete_pod(record: dict, params: dict, name: str, namespace: str) -> dict:
-    result = pods.delete_pod(name=name, namespace=namespace)
-    audit.audit_pod_delete(name, namespace, result.get("success", False), _audit_error(result))
+def _handle_delete_pod(record: dict, params: dict, name: str, namespace: str, user_id: str, triggered_by: str) -> dict:
+    result = pods.delete_pod(name=name, namespace=namespace, audit=False)
+    audit.audit_pod_delete(
+        name,
+        namespace,
+        result.get("success", False),
+        _audit_error(result),
+        user_id=user_id,
+        triggered_by=triggered_by,
+    )
     return result
 
 
-def _handle_scale_deployment(record: dict, params: dict, name: str, namespace: str) -> dict:
+def _handle_scale_deployment(record: dict, params: dict, name: str, namespace: str, user_id: str, triggered_by: str) -> dict:
     replicas = int(_require_param(params, "replicas"))
-    result = deployments.scale_deployment(name=name, namespace=namespace, replicas=replicas)
-    audit.audit_deployment_scale(name, namespace, replicas, result.get("success", False), _audit_error(result))
+    result = deployments.scale_deployment(name=name, namespace=namespace, replicas=replicas, audit=False)
+    audit.audit_deployment_scale(
+        name,
+        namespace,
+        replicas,
+        result.get("success", False),
+        _audit_error(result),
+        user_id=user_id,
+        triggered_by=triggered_by,
+    )
     return result
 
 
-def _handle_restart_deployment(record: dict, params: dict, name: str, namespace: str) -> dict:
-    result = deployments.rollout_restart(name=name, namespace=namespace)
-    audit.audit_rollout_restart(name, namespace, "deployment", result.get("success", False), _audit_error(result))
+def _handle_restart_deployment(record: dict, params: dict, name: str, namespace: str, user_id: str, triggered_by: str) -> dict:
+    result = deployments.rollout_restart(name=name, namespace=namespace, audit=False)
+    audit.audit_rollout_restart(
+        name,
+        namespace,
+        "deployment",
+        result.get("success", False),
+        _audit_error(result),
+        user_id=user_id,
+        triggered_by=triggered_by,
+    )
     return result
 
 
-def _handle_rollback_deployment(record: dict, params: dict, name: str, namespace: str) -> dict:
+def _handle_rollback_deployment(record: dict, params: dict, name: str, namespace: str, user_id: str, triggered_by: str) -> dict:
     revision = params.get("revision")
-    result = deployments.rollback_deployment(name=name, namespace=namespace, revision=revision)
+    result = deployments.rollback_deployment(name=name, namespace=namespace, revision=revision,
+    audit=False,
+)
     audit.log_action(
         "deployment_rollback",
         name,
@@ -84,11 +109,13 @@ def _handle_rollback_deployment(record: dict, params: dict, name: str, namespace
         result.get("success", False),
         details={"revision": revision},
         error_message=_audit_error(result),
+        user_id=user_id,
+        triggered_by=triggered_by,
     )
     return result
 
 
-def _handle_patch_resource_limits(record: dict, params: dict, name: str, namespace: str) -> dict:
+def _handle_patch_resource_limits(record: dict, params: dict, name: str, namespace: str, user_id: str, triggered_by: str) -> dict:
     container_name = params.get("container_name")
     changes = {
         "cpu_request": params.get("cpu_request"),
@@ -107,6 +134,7 @@ def _handle_patch_resource_limits(record: dict, params: dict, name: str, namespa
         cpu_limit=changes["cpu_limit"],
         memory_request=changes["memory_request"],
         memory_limit=changes["memory_limit"],
+        audit=False,
     )
     audit.audit_patch_resource_limits(
         name,
@@ -115,11 +143,13 @@ def _handle_patch_resource_limits(record: dict, params: dict, name: str, namespa
         changes,
         result.get("success", False),
         _audit_error(result),
+        user_id=user_id,
+        triggered_by=triggered_by,
     )
     return result
 
 
-def _handle_patch_env_var(record: dict, params: dict, name: str, namespace: str) -> dict:
+def _handle_patch_env_var(record: dict, params: dict, name: str, namespace: str, user_id: str, triggered_by: str) -> dict:
     key = str(_require_param(params, "key"))
     value = str(_require_param(params, "value"))
     container_name = params.get("container_name")
@@ -129,6 +159,7 @@ def _handle_patch_env_var(record: dict, params: dict, name: str, namespace: str)
         container_name=container_name,
         key=key,
         value=value,
+        audit=False,
     )
     audit.audit_patch_env_var(
         name,
@@ -137,30 +168,56 @@ def _handle_patch_env_var(record: dict, params: dict, name: str, namespace: str)
         key,
         result.get("success", False),
         _audit_error(result),
+        user_id=user_id,
+        triggered_by=triggered_by,
     )
     return result
 
 
-def _handle_scale_statefulset(record: dict, params: dict, name: str, namespace: str) -> dict:
+def _handle_scale_statefulset(record: dict, params: dict, name: str, namespace: str, user_id: str, triggered_by: str) -> dict:
     replicas = int(_require_param(params, "replicas"))
-    result = statefulsets.scale_statefulset(name=name, namespace=namespace, replicas=replicas)
-    audit.audit_statefulset_scale(name, namespace, replicas, result.get("success", False), _audit_error(result))
+    result = statefulsets.scale_statefulset(name=name, namespace=namespace, replicas=replicas, audit=False)
+    audit.audit_statefulset_scale(
+        name,
+        namespace,
+        replicas,
+        result.get("success", False),
+        _audit_error(result),
+        user_id=user_id,
+        triggered_by=triggered_by,
+    )
     return result
 
 
-def _handle_restart_statefulset(record: dict, params: dict, name: str, namespace: str) -> dict:
-    result = statefulsets.restart_statefulset(name=name, namespace=namespace)
-    audit.audit_rollout_restart(name, namespace, "statefulset", result.get("success", False), _audit_error(result))
+def _handle_restart_statefulset(record: dict, params: dict, name: str, namespace: str, user_id: str, triggered_by: str) -> dict:
+    result = statefulsets.restart_statefulset(name=name, namespace=namespace, audit=False)
+    audit.audit_rollout_restart(
+        name,
+        namespace,
+        "statefulset",
+        result.get("success", False),
+        _audit_error(result),
+        user_id=user_id,
+        triggered_by=triggered_by,
+    )
     return result
 
 
-def _handle_restart_daemonset(record: dict, params: dict, name: str, namespace: str) -> dict:
-    result = daemonsets.restart_daemonset(name=name, namespace=namespace)
-    audit.audit_rollout_restart(name, namespace, "daemonset", result.get("success", False), _audit_error(result))
+def _handle_restart_daemonset(record: dict, params: dict, name: str, namespace: str, user_id: str, triggered_by: str) -> dict:
+    result = daemonsets.restart_daemonset(name=name, namespace=namespace, audit=False)
+    audit.audit_rollout_restart(
+        name,
+        namespace,
+        "daemonset",
+        result.get("success", False),
+        _audit_error(result),
+        user_id=user_id,
+        triggered_by=triggered_by,
+    )
     return result
 
 
-def _handle_update_daemonset_image(record: dict, params: dict, name: str, namespace: str) -> dict:
+def _handle_update_daemonset_image(record: dict, params: dict, name: str, namespace: str, user_id: str, triggered_by: str) -> dict:
     container = str(_require_param(params, "container"))
     image = str(_require_param(params, "image"))
     result = daemonsets.update_daemonset_image(
@@ -168,6 +225,7 @@ def _handle_update_daemonset_image(record: dict, params: dict, name: str, namesp
         namespace=namespace,
         container=container,
         image=image,
+        audit=False,
     )
     audit.audit_daemonset_image_update(
         name,
@@ -176,13 +234,15 @@ def _handle_update_daemonset_image(record: dict, params: dict, name: str, namesp
         image,
         result.get("success", False),
         _audit_error(result),
+        user_id=user_id,
+        triggered_by=triggered_by,
     )
     return result
 
 
-def _handle_delete_job(record: dict, params: dict, name: str, namespace: str) -> dict:
+def _handle_delete_job(record: dict, params: dict, name: str, namespace: str, user_id: str, triggered_by: str) -> dict:
     propagation_policy = str(params.get("propagation_policy", "Foreground"))
-    result = jobs.delete_job(name=name, namespace=namespace, propagation_policy=propagation_policy)
+    result = jobs.delete_job(name=name, namespace=namespace, propagation_policy=propagation_policy, audit=False)
     audit.log_action(
         "job_delete",
         name,
@@ -190,47 +250,69 @@ def _handle_delete_job(record: dict, params: dict, name: str, namespace: str) ->
         result.get("success", False),
         details={"propagation_policy": propagation_policy},
         error_message=_audit_error(result),
+        user_id=user_id,
+        triggered_by=triggered_by,
     )
     return result
 
 
-def _handle_suspend_job(record: dict, params: dict, name: str, namespace: str) -> dict:
-    result = jobs.suspend_job(name=name, namespace=namespace)
-    audit.log_action("job_suspend", name, namespace, result.get("success", False), error_message=_audit_error(result))
+def _handle_suspend_job(record: dict, params: dict, name: str, namespace: str, user_id: str, triggered_by: str) -> dict:
+    result = jobs.suspend_job(name=name, namespace=namespace, audit=False)
+    audit.log_action(
+        "job_suspend",
+        name,
+        namespace,
+        result.get("success", False),
+        error_message=_audit_error(result),
+        user_id=user_id,
+        triggered_by=triggered_by,
+    )
     return result
 
 
-def _handle_resume_job(record: dict, params: dict, name: str, namespace: str) -> dict:
-    result = jobs.resume_job(name=name, namespace=namespace)
-    audit.log_action("job_resume", name, namespace, result.get("success", False), error_message=_audit_error(result))
+def _handle_resume_job(record: dict, params: dict, name: str, namespace: str, user_id: str, triggered_by: str) -> dict:
+    result = jobs.resume_job(name=name, namespace=namespace, audit=False)
+    audit.log_action(
+        "job_resume",
+        name,
+        namespace,
+        result.get("success", False),
+        error_message=_audit_error(result),
+        user_id=user_id,
+        triggered_by=triggered_by,
+    )
     return result
 
 
-def _handle_suspend_cronjob(record: dict, params: dict, name: str, namespace: str) -> dict:
-    result = jobs.suspend_cronjob(name=name, namespace=namespace)
+def _handle_suspend_cronjob(record: dict, params: dict, name: str, namespace: str, user_id: str, triggered_by: str) -> dict:
+    result = jobs.suspend_cronjob(name=name, namespace=namespace, audit=False)
     audit.log_action(
         "cronjob_suspend",
         name,
         namespace,
         result.get("success", False),
         error_message=_audit_error(result),
+        user_id=user_id,
+        triggered_by=triggered_by,
     )
     return result
 
 
-def _handle_resume_cronjob(record: dict, params: dict, name: str, namespace: str) -> dict:
-    result = jobs.resume_cronjob(name=name, namespace=namespace)
+def _handle_resume_cronjob(record: dict, params: dict, name: str, namespace: str, user_id: str, triggered_by: str) -> dict:
+    result = jobs.resume_cronjob(name=name, namespace=namespace, audit=False)
     audit.log_action(
         "cronjob_resume",
         name,
         namespace,
         result.get("success", False),
         error_message=_audit_error(result),
+        user_id=user_id,
+        triggered_by=triggered_by,
     )
     return result
 
 
-def _handle_create_service(record: dict, params: dict, name: str, namespace: str) -> dict:
+def _handle_create_service(record: dict, params: dict, name: str, namespace: str, user_id: str, triggered_by: str) -> dict:
     result = services.create_service(
         name=name,
         namespace=namespace,
@@ -238,36 +320,65 @@ def _handle_create_service(record: dict, params: dict, name: str, namespace: str
         selector=params.get("selector"),
         ports=params.get("ports"),
         labels=params.get("labels"),
+        audit=False,
     )
-    audit.audit_service_action("create", name, namespace, result.get("success", False), _audit_error(result))
+    audit.audit_service_action(
+        "create",
+        name,
+        namespace,
+        result.get("success", False),
+        _audit_error(result),
+        user_id=user_id,
+        triggered_by=triggered_by,
+    )
     return result
 
 
-def _handle_patch_service(record: dict, params: dict, name: str, namespace: str) -> dict:
+def _handle_patch_service(record: dict, params: dict, name: str, namespace: str, user_id: str, triggered_by: str) -> dict:
     result = services.patch_service(
         name=name,
         namespace=namespace,
         selector=params.get("selector"),
         labels=params.get("labels"),
         ports=params.get("ports"),
+        audit=False,
     )
-    audit.audit_service_action("patch", name, namespace, result.get("success", False), _audit_error(result))
+    audit.audit_service_action(
+        "patch",
+        name,
+        namespace,
+        result.get("success", False),
+        _audit_error(result),
+        user_id=user_id,
+        triggered_by=triggered_by,
+    )
     return result
 
 
-def _handle_delete_service(record: dict, params: dict, name: str, namespace: str) -> dict:
-    result = services.delete_service(name=name, namespace=namespace)
-    audit.audit_service_action("delete", name, namespace, result.get("success", False), _audit_error(result))
+def _handle_delete_service(record: dict, params: dict, name: str, namespace: str, user_id: str, triggered_by: str) -> dict:
+    result = services.delete_service(name=name, namespace=namespace,
+    audit=False,
+)
+    audit.audit_service_action(
+        "delete",
+        name,
+        namespace,
+        result.get("success", False),
+        _audit_error(result),
+        user_id=user_id,
+        triggered_by=triggered_by,
+    )
     return result
 
 
-def _handle_create_configmap(record: dict, params: dict, name: str, namespace: str) -> dict:
+def _handle_create_configmap(record: dict, params: dict, name: str, namespace: str, user_id: str, triggered_by: str) -> dict:
     data = _require_param(params, "data")
     result = configmaps.create_configmap(
         name=name,
         namespace=namespace,
         data=data,
         labels=params.get("labels"),
+        audit=False,
     )
     audit.audit_configmap_action(
         "create",
@@ -276,13 +387,15 @@ def _handle_create_configmap(record: dict, params: dict, name: str, namespace: s
         result.get("success", False),
         keys=_keys_for_audit(data),
         error=_audit_error(result),
+        user_id=user_id,
+        triggered_by=triggered_by,
     )
     return result
 
 
-def _handle_patch_configmap(record: dict, params: dict, name: str, namespace: str) -> dict:
+def _handle_patch_configmap(record: dict, params: dict, name: str, namespace: str, user_id: str, triggered_by: str) -> dict:
     data = _require_param(params, "data")
-    result = configmaps.patch_configmap(name=name, namespace=namespace, data=data)
+    result = configmaps.patch_configmap(name=name, namespace=namespace, data=data, audit=False)
     audit.audit_configmap_action(
         "patch",
         name,
@@ -290,23 +403,34 @@ def _handle_patch_configmap(record: dict, params: dict, name: str, namespace: st
         result.get("success", False),
         keys=_keys_for_audit(data),
         error=_audit_error(result),
+        user_id=user_id,
+        triggered_by=triggered_by,
     )
     return result
 
 
-def _handle_delete_configmap(record: dict, params: dict, name: str, namespace: str) -> dict:
-    result = configmaps.delete_configmap(name=name, namespace=namespace)
-    audit.audit_configmap_action("delete", name, namespace, result.get("success", False), error=_audit_error(result))
+def _handle_delete_configmap(record: dict, params: dict, name: str, namespace: str, user_id: str, triggered_by: str) -> dict:
+    result = configmaps.delete_configmap(name=name, namespace=namespace, audit=False)
+    audit.audit_configmap_action(
+        "delete",
+        name,
+        namespace,
+        result.get("success", False),
+        error=_audit_error(result),
+        user_id=user_id,
+        triggered_by=triggered_by,
+    )
     return result
 
 
-def _handle_create_secret(record: dict, params: dict, name: str, namespace: str) -> dict:
+def _handle_create_secret(record: dict, params: dict, name: str, namespace: str, user_id: str, triggered_by: str) -> dict:
     data = _require_param(params, "data")
     result = secrets.create_secret(
         name=name,
         namespace=namespace,
         data=data,
         secret_type=str(params.get("secret_type", "Opaque")),
+        audit=False,
     )
     audit.audit_secret_action(
         "create",
@@ -315,13 +439,17 @@ def _handle_create_secret(record: dict, params: dict, name: str, namespace: str)
         result.get("success", False),
         keys=_keys_for_audit(data),
         error=_audit_error(result),
+        user_id=user_id,
+        triggered_by=triggered_by,
     )
     return result
 
 
-def _handle_update_secret(record: dict, params: dict, name: str, namespace: str) -> dict:
+def _handle_update_secret(record: dict, params: dict, name: str, namespace: str, user_id: str, triggered_by: str) -> dict:
     data = _require_param(params, "data")
-    result = secrets.update_secret(name=name, namespace=namespace, data=data)
+    result = secrets.update_secret(name=name, namespace=namespace, data=data,
+    audit=False,
+)
     audit.audit_secret_action(
         "update",
         name,
@@ -329,39 +457,71 @@ def _handle_update_secret(record: dict, params: dict, name: str, namespace: str)
         result.get("success", False),
         keys=_keys_for_audit(data),
         error=_audit_error(result),
+        user_id=user_id,
+        triggered_by=triggered_by,
     )
     return result
 
 
-def _handle_delete_secret(record: dict, params: dict, name: str, namespace: str) -> dict:
-    result = secrets.delete_secret(name=name, namespace=namespace)
-    audit.audit_secret_action("delete", name, namespace, result.get("success", False), error=_audit_error(result))
+def _handle_delete_secret(record: dict, params: dict, name: str, namespace: str, user_id: str, triggered_by: str) -> dict:
+    result = secrets.delete_secret(name=name, namespace=namespace, audit=False)
+    audit.audit_secret_action(
+        "delete",
+        name,
+        namespace,
+        result.get("success", False),
+        error=_audit_error(result),
+        user_id=user_id,
+        triggered_by=triggered_by,
+    )
     return result
 
 
-def _handle_cordon_node(record: dict, params: dict, name: str, namespace: str) -> dict:
-    result = nodes.cordon_node(name=name)
-    audit.audit_node_action("cordon", name, result.get("success", False), _audit_error(result))
+def _handle_cordon_node(record: dict, params: dict, name: str, namespace: str, user_id: str, triggered_by: str) -> dict:
+    result = nodes.cordon_node(name=name, audit=False)
+    audit.audit_node_action(
+        "cordon",
+        name,
+        result.get("success", False),
+        _audit_error(result),
+        user_id=user_id,
+        triggered_by=triggered_by,
+    )
     return result
 
 
-def _handle_uncordon_node(record: dict, params: dict, name: str, namespace: str) -> dict:
-    result = nodes.uncordon_node(name=name)
-    audit.audit_node_action("uncordon", name, result.get("success", False), _audit_error(result))
+def _handle_uncordon_node(record: dict, params: dict, name: str, namespace: str, user_id: str, triggered_by: str) -> dict:
+    result = nodes.uncordon_node(name=name, audit=False)
+    audit.audit_node_action(
+        "uncordon",
+        name,
+        result.get("success", False),
+        _audit_error(result),
+        user_id=user_id,
+        triggered_by=triggered_by,
+    )
     return result
 
 
-def _handle_drain_node(record: dict, params: dict, name: str, namespace: str) -> dict:
+def _handle_drain_node(record: dict, params: dict, name: str, namespace: str, user_id: str, triggered_by: str) -> dict:
     result = nodes.drain_node(
         name=name,
         ignore_daemonsets=_bool_param(params, "ignore_daemonsets", True),
         grace_period_seconds=int(params.get("grace_period_seconds", 30)),
+        audit=False,
     )
-    audit.audit_node_action("drain", name, result.get("success", False), _audit_error(result))
+    audit.audit_node_action(
+        "drain",
+        name,
+        result.get("success", False),
+        _audit_error(result),
+        user_id=user_id,
+        triggered_by=triggered_by,
+    )
     return result
 
 
-def _handle_create_pvc(record: dict, params: dict, name: str, namespace: str) -> dict:
+def _handle_create_pvc(record: dict, params: dict, name: str, namespace: str, user_id: str, triggered_by: str) -> dict:
     result = storage.create_pvc(
         name=name,
         namespace=namespace,
@@ -369,6 +529,7 @@ def _handle_create_pvc(record: dict, params: dict, name: str, namespace: str) ->
         access_modes=params.get("access_modes"),
         storage_class=params.get("storage_class"),
         labels=params.get("labels"),
+        audit=False,
     )
     audit.log_action(
         "pvc_create",
@@ -377,13 +538,17 @@ def _handle_create_pvc(record: dict, params: dict, name: str, namespace: str) ->
         result.get("success", False),
         details=params,
         error_message=_audit_error(result),
+        user_id=user_id,
+        triggered_by=triggered_by,
     )
     return result
 
 
-def _handle_patch_pvc(record: dict, params: dict, name: str, namespace: str) -> dict:
+def _handle_patch_pvc(record: dict, params: dict, name: str, namespace: str, user_id: str, triggered_by: str) -> dict:
     labels = _require_param(params, "labels")
-    result = storage.patch_pvc(name=name, namespace=namespace, labels=labels)
+    result = storage.patch_pvc(name=name, namespace=namespace, labels=labels,
+    audit=False,
+)
     audit.log_action(
         "pvc_patch",
         name,
@@ -391,17 +556,27 @@ def _handle_patch_pvc(record: dict, params: dict, name: str, namespace: str) -> 
         result.get("success", False),
         details={"labels": labels},
         error_message=_audit_error(result),
+        user_id=user_id,
+        triggered_by=triggered_by,
     )
     return result
 
 
-def _handle_delete_pvc(record: dict, params: dict, name: str, namespace: str) -> dict:
-    result = storage.delete_pvc(name=name, namespace=namespace)
-    audit.log_action("pvc_delete", name, namespace, result.get("success", False), error_message=_audit_error(result))
+def _handle_delete_pvc(record: dict, params: dict, name: str, namespace: str, user_id: str, triggered_by: str) -> dict:
+    result = storage.delete_pvc(name=name, namespace=namespace, audit=False)
+    audit.log_action(
+        "pvc_delete",
+        name,
+        namespace,
+        result.get("success", False),
+        error_message=_audit_error(result),
+        user_id=user_id,
+        triggered_by=triggered_by,
+    )
     return result
 
 
-def _handle_create_ingress(record: dict, params: dict, name: str, namespace: str) -> dict:
+def _handle_create_ingress(record: dict, params: dict, name: str, namespace: str, user_id: str, triggered_by: str) -> dict:
     rules = _require_param(params, "rules")
     result = ingress.create_ingress(
         name=name,
@@ -410,6 +585,7 @@ def _handle_create_ingress(record: dict, params: dict, name: str, namespace: str
         tls=params.get("tls"),
         annotations=params.get("annotations"),
         labels=params.get("labels"),
+        audit=False,
     )
     audit.log_action(
         "ingress_create",
@@ -418,16 +594,19 @@ def _handle_create_ingress(record: dict, params: dict, name: str, namespace: str
         result.get("success", False),
         details={"rules": rules},
         error_message=_audit_error(result),
+        user_id=user_id,
+        triggered_by=triggered_by,
     )
     return result
 
 
-def _handle_patch_ingress(record: dict, params: dict, name: str, namespace: str) -> dict:
+def _handle_patch_ingress(record: dict, params: dict, name: str, namespace: str, user_id: str, triggered_by: str) -> dict:
     result = ingress.patch_ingress(
         name=name,
         namespace=namespace,
         labels=params.get("labels"),
         annotations=params.get("annotations"),
+        audit=False,
     )
     audit.log_action(
         "ingress_patch",
@@ -436,17 +615,27 @@ def _handle_patch_ingress(record: dict, params: dict, name: str, namespace: str)
         result.get("success", False),
         details={"labels": params.get("labels"), "annotations": params.get("annotations")},
         error_message=_audit_error(result),
+        user_id=user_id,
+        triggered_by=triggered_by,
     )
     return result
 
 
-def _handle_delete_ingress(record: dict, params: dict, name: str, namespace: str) -> dict:
-    result = ingress.delete_ingress(name=name, namespace=namespace)
-    audit.log_action("ingress_delete", name, namespace, result.get("success", False), error_message=_audit_error(result))
+def _handle_delete_ingress(record: dict, params: dict, name: str, namespace: str, user_id: str, triggered_by: str) -> dict:
+    result = ingress.delete_ingress(name=name, namespace=namespace, audit=False)
+    audit.log_action(
+        "ingress_delete",
+        name,
+        namespace,
+        result.get("success", False),
+        error_message=_audit_error(result),
+        user_id=user_id,
+        triggered_by=triggered_by,
+    )
     return result
 
 
-def _handle_create_hpa(record: dict, params: dict, name: str, namespace: str) -> dict:
+def _handle_create_hpa(record: dict, params: dict, name: str, namespace: str, user_id: str, triggered_by: str) -> dict:
     target_name = str(_require_param(params, "target_name"))
     result = hpa.create_hpa(
         name=name,
@@ -458,6 +647,7 @@ def _handle_create_hpa(record: dict, params: dict, name: str, namespace: str) ->
         target_cpu_percent=params.get("target_cpu_percent"),
         target_memory_percent=params.get("target_memory_percent"),
         labels=params.get("labels"),
+        audit=False,
     )
     audit.log_action(
         "hpa_create",
@@ -466,17 +656,20 @@ def _handle_create_hpa(record: dict, params: dict, name: str, namespace: str) ->
         result.get("success", False),
         details={"target_name": target_name},
         error_message=_audit_error(result),
+        user_id=user_id,
+        triggered_by=triggered_by,
     )
     return result
 
 
-def _handle_patch_hpa(record: dict, params: dict, name: str, namespace: str) -> dict:
+def _handle_patch_hpa(record: dict, params: dict, name: str, namespace: str, user_id: str, triggered_by: str) -> dict:
     result = hpa.patch_hpa(
         name=name,
         namespace=namespace,
         min_replicas=params.get("min_replicas"),
         max_replicas=params.get("max_replicas"),
         labels=params.get("labels"),
+        audit=False,
     )
     audit.log_action(
         "hpa_patch",
@@ -485,17 +678,27 @@ def _handle_patch_hpa(record: dict, params: dict, name: str, namespace: str) -> 
         result.get("success", False),
         details={"min_replicas": params.get("min_replicas"), "max_replicas": params.get("max_replicas")},
         error_message=_audit_error(result),
+        user_id=user_id,
+        triggered_by=triggered_by,
     )
     return result
 
 
-def _handle_delete_hpa(record: dict, params: dict, name: str, namespace: str) -> dict:
-    result = hpa.delete_hpa(name=name, namespace=namespace)
-    audit.log_action("hpa_delete", name, namespace, result.get("success", False), error_message=_audit_error(result))
+def _handle_delete_hpa(record: dict, params: dict, name: str, namespace: str, user_id: str, triggered_by: str) -> dict:
+    result = hpa.delete_hpa(name=name, namespace=namespace, audit=False)
+    audit.log_action(
+        "hpa_delete",
+        name,
+        namespace,
+        result.get("success", False),
+        error_message=_audit_error(result),
+        user_id=user_id,
+        triggered_by=triggered_by,
+    )
     return result
 
 
-def _handle_create_namespace(record: dict, params: dict, name: str, namespace: str) -> dict:
+def _handle_create_namespace(record: dict, params: dict, name: str, namespace: str, user_id: str, triggered_by: str) -> dict:
     result = namespaces.create_namespace(name=name, labels=params.get("labels"))
     audit.log_action(
         "namespace_create",
@@ -504,11 +707,13 @@ def _handle_create_namespace(record: dict, params: dict, name: str, namespace: s
         result.get("success", False),
         details={"labels": params.get("labels", {})},
         error_message=_audit_error(result),
+        user_id=user_id,
+        triggered_by=triggered_by,
     )
     return result
 
 
-def _handle_delete_namespace(record: dict, params: dict, name: str, namespace: str) -> dict:
+def _handle_delete_namespace(record: dict, params: dict, name: str, namespace: str, user_id: str, triggered_by: str) -> dict:
     result = namespaces.delete_namespace(name=name)
     audit.log_action(
         "namespace_delete",
@@ -516,11 +721,13 @@ def _handle_delete_namespace(record: dict, params: dict, name: str, namespace: s
         name,
         result.get("success", False),
         error_message=_audit_error(result),
+        user_id=user_id,
+        triggered_by=triggered_by,
     )
     return result
 
 
-def _handle_exec_pod(record: dict, params: dict, name: str, namespace: str) -> dict:
+def _handle_exec_pod(record: dict, params: dict, name: str, namespace: str, user_id: str, triggered_by: str) -> dict:
     command = _require_param(params, "command")
     result = pods.exec_pod(
         name=name,
@@ -530,6 +737,7 @@ def _handle_exec_pod(record: dict, params: dict, name: str, namespace: str) -> d
         stdout=_bool_param(params, "stdout", True),
         stderr=_bool_param(params, "stderr", True),
         tty=_bool_param(params, "tty", False),
+        audit=False,
     )
     audit.log_action(
         "pod_exec",
@@ -538,6 +746,8 @@ def _handle_exec_pod(record: dict, params: dict, name: str, namespace: str) -> d
         result.get("success", False),
         details={"command": command},
         error_message=_audit_error(result),
+        user_id=user_id,
+        triggered_by=triggered_by,
     )
     return result
 
@@ -585,7 +795,13 @@ ACTION_HANDLERS: dict[str, ActionHandler] = {
 }
 
 
-def execute_action(action_type: str, target: dict, params: Optional[dict] = None) -> dict:
+def execute_action(
+    action_type: str,
+    target: dict,
+    params: Optional[dict] = None,
+    user_id: str = "unknown",
+    triggered_by: str = "dashboard",
+) -> dict:
     """Execute a supported action immediately without persisting a request record."""
     handler = ACTION_HANDLERS.get(action_type)
     if handler is None:
@@ -594,10 +810,14 @@ def execute_action(action_type: str, target: dict, params: Optional[dict] = None
     params = params or {}
     name = target["name"]
     namespace = target.get("namespace", "default")
-    return handler({}, params, name, namespace)
+    return handler({}, params, name, namespace, user_id, triggered_by)
 
 
-def execute_action_request(action_id: str) -> dict:
+def execute_action_request(
+    action_id: str,
+    user_id: str = "unknown",
+    triggered_by: str = "dashboard",
+) -> dict:
     """Execute a supported pending action request and persist the outcome."""
     record = get_action_request(action_id)
     if record is None:
@@ -607,5 +827,7 @@ def execute_action_request(action_id: str) -> dict:
         action_type=record["type"],
         target=record["target"],
         params=record.get("params", {}),
+        user_id=user_id,
+        triggered_by=triggered_by,
     )
     return mark_action_request_executed(action_id, result)

@@ -2,7 +2,7 @@
 
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 from Tools import configmaps, ingress, network_policies, secrets
 from app.api.mutations import run_direct_action
@@ -50,35 +50,58 @@ def get_configmap(
 @router.post("/configmaps")
 def create_configmap(
     payload: CreateConfigMapRequest,
+    request: Request,
     user: User = Depends(require_permission("configmaps:create")),
 ) -> dict:
     """Create a ConfigMap directly."""
     params = payload.model_dump()
     name = params.pop("name")
     namespace = params.pop("namespace")
-    return run_direct_action("create_configmap", name=name, namespace=namespace, params=params)
+    return run_direct_action(
+        "create_configmap",
+        name=name,
+        namespace=namespace,
+        params=params,
+        user_id=user.username,
+        request=request,
+    )
 
 
 @router.patch("/configmaps/{name}")
 def patch_configmap(
     name: str,
     payload: PatchConfigMapRequest,
+    request: Request,
     user: User = Depends(require_permission("configmaps:patch")),
 ) -> dict:
     """Patch a ConfigMap directly."""
     params = payload.model_dump()
     namespace = params.pop("namespace")
-    return run_direct_action("patch_configmap", name=name, namespace=namespace, params=params)
+    return run_direct_action(
+        "patch_configmap",
+        name=name,
+        namespace=namespace,
+        params=params,
+        user_id=user.username,
+        request=request,
+    )
 
 
 @router.delete("/configmaps/{name}")
 def delete_configmap(
     name: str,
+    request: Request,
     namespace: str = Query(default="default"),
     user: User = Depends(require_permission("configmaps:delete")),
 ) -> dict:
     """Delete a ConfigMap directly."""
-    return run_direct_action("delete_configmap", name=name, namespace=namespace)
+    return run_direct_action(
+        "delete_configmap",
+        name=name,
+        namespace=namespace,
+        user_id=user.username,
+        request=request,
+    )
 
 
 @router.get("/secrets")
@@ -157,35 +180,58 @@ def get_secret_values(
 @router.post("/secrets")
 def create_secret(
     payload: CreateSecretRequest,
+    request: Request,
     user: User = Depends(require_permission("secrets:create")),
 ) -> dict:
     """Create a secret directly."""
     params = payload.model_dump()
     name = params.pop("name")
     namespace = params.pop("namespace")
-    return run_direct_action("create_secret", name=name, namespace=namespace, params=params)
+    return run_direct_action(
+        "create_secret",
+        name=name,
+        namespace=namespace,
+        params=params,
+        user_id=user.username,
+        request=request,
+    )
 
 
 @router.patch("/secrets/{name}")
 def update_secret(
     name: str,
     payload: UpdateSecretRequest,
+    request: Request,
     user: User = Depends(require_permission("secrets:update")),
 ) -> dict:
     """Update a secret directly."""
     params = payload.model_dump()
     namespace = params.pop("namespace")
-    return run_direct_action("update_secret", name=name, namespace=namespace, params=params)
+    return run_direct_action(
+        "update_secret",
+        name=name,
+        namespace=namespace,
+        params=params,
+        user_id=user.username,
+        request=request,
+    )
 
 
 @router.delete("/secrets/{name}")
 def delete_secret(
     name: str,
+    request: Request,
     namespace: str = Query(default="default"),
     user: User = Depends(require_permission("secrets:delete")),
 ) -> dict:
     """Delete a secret directly."""
-    return run_direct_action("delete_secret", name=name, namespace=namespace)
+    return run_direct_action(
+        "delete_secret",
+        name=name,
+        namespace=namespace,
+        user_id=user.username,
+        request=request,
+    )
 
 
 @router.get("/ingresses")
@@ -235,35 +281,58 @@ def get_ingress_issues(
 @router.post("/ingresses")
 def create_ingress(
     payload: CreateIngressRequest,
+    request: Request,
     user: User = Depends(require_permission("ingresses:create")),
 ) -> dict:
     """Create an ingress directly."""
     params = payload.model_dump()
     name = params.pop("name")
     namespace = params.pop("namespace")
-    return run_direct_action("create_ingress", name=name, namespace=namespace, params=params)
+    return run_direct_action(
+        "create_ingress",
+        name=name,
+        namespace=namespace,
+        params=params,
+        user_id=user.username,
+        request=request,
+    )
 
 
 @router.patch("/ingresses/{name}")
 def patch_ingress(
     name: str,
     payload: PatchIngressRequest,
+    request: Request,
     user: User = Depends(require_permission("ingresses:patch")),
 ) -> dict:
     """Patch an ingress directly."""
     params = payload.model_dump()
     namespace = params.pop("namespace")
-    return run_direct_action("patch_ingress", name=name, namespace=namespace, params=params)
+    return run_direct_action(
+        "patch_ingress",
+        name=name,
+        namespace=namespace,
+        params=params,
+        user_id=user.username,
+        request=request,
+    )
 
 
 @router.delete("/ingresses/{name}")
 def delete_ingress(
     name: str,
+    request: Request,
     namespace: str = Query(default="default"),
     user: User = Depends(require_permission("ingresses:delete")),
 ) -> dict:
     """Delete an ingress directly."""
-    return run_direct_action("delete_ingress", name=name, namespace=namespace)
+    return run_direct_action(
+        "delete_ingress",
+        name=name,
+        namespace=namespace,
+        user_id=user.username,
+        request=request,
+    )
 
 
 @router.get("/network-policies")

@@ -129,7 +129,7 @@ def get_node_events(name: str) -> list[dict]:
 # ACTION OPERATIONS
 # ─────────────────────────────────────────────
 
-def cordon_node(name: str) -> dict:
+def cordon_node(name: str, audit: bool = True) -> dict:
     """
     Mark a node as unschedulable (cordon).
 
@@ -146,18 +146,20 @@ def cordon_node(name: str) -> dict:
     try:
         core.patch_node(name=name, body=patch)
         logger.info(f"[ACTION] Cordoned node {name}")
-        audit_node_action("cordon", name, success=True)
+        if audit:
+            audit_node_action("cordon", name, success=True)
         return {
             "success": True,
             "message": f"Node {name} cordoned. No new pods will be scheduled on it.",
         }
     except ApiException as e:
         logger.error(f"Failed to cordon node {name}: {e}")
-        audit_node_action("cordon", name, success=False, error=str(e))
+        if audit:
+            audit_node_action("cordon", name, success=False, error=str(e))
         return {"success": False, "message": str(e)}
 
 
-def uncordon_node(name: str) -> dict:
+def uncordon_node(name: str, audit: bool = True) -> dict:
     """
     Re-enable scheduling on a previously cordoned node.
 
@@ -172,18 +174,20 @@ def uncordon_node(name: str) -> dict:
     try:
         core.patch_node(name=name, body=patch)
         logger.info(f"[ACTION] Uncordoned node {name}")
-        audit_node_action("uncordon", name, success=True)
+        if audit:
+            audit_node_action("uncordon", name, success=True)
         return {
             "success": True,
             "message": f"Node {name} uncordoned. Scheduling is re-enabled.",
         }
     except ApiException as e:
         logger.error(f"Failed to uncordon node {name}: {e}")
-        audit_node_action("uncordon", name, success=False, error=str(e))
+        if audit:
+            audit_node_action("uncordon", name, success=False, error=str(e))
         return {"success": False, "message": str(e)}
 
 
-def drain_node(name: str, ignore_daemonsets: bool = True, grace_period_seconds: int = 30) -> dict:
+def drain_node(name: str, ignore_daemonsets: bool = True, grace_period_seconds: int = 30, audit: bool = True) -> dict:
     """
     Cordon a node and gracefully evict all evictable pods from it.
 
@@ -204,7 +208,8 @@ def drain_node(name: str, ignore_daemonsets: bool = True, grace_period_seconds: 
     # Step 1: Cordon
     result = cordon_node(name)
     if not result["success"]:
-        audit_node_action("drain", name, success=False, error="Failed to cordon node")
+        if audit:
+            audit_node_action("drain", name, success=False, error="Failed to cordon node")
         return result
 
     core = get_core_v1()
@@ -255,11 +260,13 @@ def drain_node(name: str, ignore_daemonsets: bool = True, grace_period_seconds: 
                 skipped.append(f"{pod_ns}/{pod_name} (error: {e.reason})")
 
     except ApiException as e:
-        audit_node_action("drain", name, success=False, error=str(e))
+        if audit:
+            audit_node_action("drain", name, success=False, error=str(e))
         return {"success": False, "message": f"Failed to list pods on node {name}: {e}"}
 
     # Log successful drain operation
-    audit_node_action("drain", name, success=True)
+    if audit:
+        audit_node_action("drain", name, success=True)
 
     return {
         "success": True,

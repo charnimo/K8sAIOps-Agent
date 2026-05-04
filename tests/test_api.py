@@ -1,6 +1,7 @@
 """Basic API tests for the FastAPI scaffold."""
 
 from types import SimpleNamespace
+from unittest.mock import ANY
 
 import pytest
 from kubernetes.client.exceptions import ApiException
@@ -261,7 +262,12 @@ def test_delete_pod_direct_route_calls_action(monkeypatch):
     response = client.delete("/resources/pods/api-pod", params={"namespace": "ops"})
     assert response.status_code == 200
     assert response.json() == {"success": True}
-    assert calls == [("delete_pod", {"name": "api-pod", "namespace": "ops"})]
+    assert calls == [
+        (
+            "delete_pod",
+            {"name": "api-pod", "namespace": "ops", "user_id": TEST_USERNAME, "request": ANY},
+        )
+    ]
 
 
 def test_exec_pod_direct_route_passes_payload(monkeypatch):
@@ -291,6 +297,8 @@ def test_exec_pod_direct_route_passes_payload(monkeypatch):
                     "stderr": True,
                     "tty": False,
                 },
+                "user_id": TEST_USERNAME,
+                "request": ANY,
             },
         )
     ]
@@ -307,7 +315,18 @@ def test_scale_deployment_direct_route_calls_action(monkeypatch):
 
     response = client.patch("/resources/deployments/api/scale?namespace=ops", json={"replicas": 4})
     assert response.status_code == 200
-    assert calls == [("scale_deployment", {"name": "api", "namespace": "ops", "params": {"replicas": 4}})]
+    assert calls == [
+        (
+            "scale_deployment",
+            {
+                "name": "api",
+                "namespace": "ops",
+                "params": {"replicas": 4},
+                "user_id": TEST_USERNAME,
+                "request": ANY,
+            },
+        )
+    ]
 
 
 def test_create_service_direct_route_calls_action(monkeypatch):
@@ -343,6 +362,8 @@ def test_create_service_direct_route_calls_action(monkeypatch):
                     "ports": [{"port": 80, "target_port": 8080, "protocol": "TCP", "name": "http"}],
                     "labels": {"team": "platform"},
                 },
+                "user_id": TEST_USERNAME,
+                "request": ANY,
             },
         )
     ]
@@ -369,6 +390,8 @@ def test_create_configmap_direct_route_calls_action(monkeypatch):
                 "name": "app-config",
                 "namespace": "ops",
                 "params": {"data": {"LOG_LEVEL": "debug"}, "labels": {"app": "api"}},
+                "user_id": TEST_USERNAME,
+                "request": ANY,
             },
         )
     ]
@@ -395,6 +418,8 @@ def test_update_secret_direct_route_calls_action(monkeypatch):
                 "name": "api-secret",
                 "namespace": "ops",
                 "params": {"data": {"TOKEN": "new-value"}},
+                "user_id": TEST_USERNAME,
+                "request": ANY,
             },
         )
     ]
@@ -433,6 +458,8 @@ def test_create_ingress_direct_route_calls_action(monkeypatch):
                     "annotations": {"nginx.ingress.kubernetes.io/rewrite-target": "/"},
                     "labels": {"app": "api"},
                 },
+                "user_id": TEST_USERNAME,
+                "request": ANY,
             },
         )
     ]
@@ -462,7 +489,18 @@ def test_scale_statefulset_direct_route_calls_action(monkeypatch):
 
     response = client.patch("/workloads/statefulsets/db/scale?namespace=ops", json={"replicas": 2})
     assert response.status_code == 200
-    assert calls == [("scale_statefulset", {"name": "db", "namespace": "ops", "params": {"replicas": 2}})]
+    assert calls == [
+        (
+            "scale_statefulset",
+            {
+                "name": "db",
+                "namespace": "ops",
+                "params": {"replicas": 2},
+                "user_id": TEST_USERNAME,
+                "request": ANY,
+            },
+        )
+    ]
 
 
 def test_update_daemonset_image_direct_route_calls_action(monkeypatch):
@@ -486,6 +524,8 @@ def test_update_daemonset_image_direct_route_calls_action(monkeypatch):
                 "name": "agent",
                 "namespace": "ops",
                 "params": {"container": "agent", "image": "repo/agent:v2"},
+                "user_id": TEST_USERNAME,
+                "request": ANY,
             },
         )
     ]
@@ -512,6 +552,8 @@ def test_delete_job_direct_route_calls_action(monkeypatch):
                 "name": "data-backfill",
                 "namespace": "ops",
                 "params": {"propagation_policy": "Background"},
+                "user_id": TEST_USERNAME,
+                "request": ANY,
             },
         )
     ]
@@ -537,6 +579,8 @@ def test_drain_node_direct_route_calls_action(monkeypatch):
             {
                 "name": "worker-1",
                 "params": {"ignore_daemonsets": False, "grace_period_seconds": 15},
+                "user_id": TEST_USERNAME,
+                "request": ANY,
             },
         )
     ]
@@ -575,6 +619,8 @@ def test_create_pvc_direct_route_calls_action(monkeypatch):
                     "storage_class": "fast-ssd",
                     "labels": {"app": "db"},
                 },
+                "user_id": TEST_USERNAME,
+                "request": ANY,
             },
         )
     ]
@@ -601,6 +647,8 @@ def test_patch_hpa_direct_route_calls_action(monkeypatch):
                 "name": "api-hpa",
                 "namespace": "ops",
                 "params": {"min_replicas": 2, "max_replicas": 8, "labels": {"team": "platform"}},
+                "user_id": TEST_USERNAME,
+                "request": ANY,
             },
         )
     ]

@@ -2,7 +2,7 @@
 
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 from Tools import daemonsets, jobs, statefulsets
 from app.api.mutations import run_direct_action
@@ -61,6 +61,7 @@ def get_statefulset_issues(
 def scale_statefulset(
     name: str,
     payload: ScaleRequest,
+    request: Request,
     namespace: str = Query(default="default"),
     user: User = Depends(require_permission("workloads:statefulsets:scale")),
 ) -> dict:
@@ -70,17 +71,26 @@ def scale_statefulset(
         name=name,
         namespace=namespace,
         params=payload.model_dump(),
+        user_id=user.username,
+        request=request,
     )
 
 
 @router.post("/statefulsets/{name}/restart")
 def restart_statefulset(
     name: str,
+    request: Request,
     namespace: str = Query(default="default"),
     user: User = Depends(require_permission("workloads:statefulsets:restart")),
 ) -> dict:
     """Restart a StatefulSet directly."""
-    return run_direct_action("restart_statefulset", name=name, namespace=namespace)
+    return run_direct_action(
+        "restart_statefulset",
+        name=name,
+        namespace=namespace,
+        user_id=user.username,
+        request=request,
+    )
 
 
 @router.get("/daemonsets")
@@ -130,23 +140,38 @@ def get_daemonset_issues(
 @router.post("/daemonsets/{name}/restart")
 def restart_daemonset(
     name: str,
+    request: Request,
     namespace: str = Query(default="default"),
     user: User = Depends(require_permission("workloads:daemonsets:restart")),
 ) -> dict:
     """Restart a DaemonSet directly."""
-    return run_direct_action("restart_daemonset", name=name, namespace=namespace)
+    return run_direct_action(
+        "restart_daemonset",
+        name=name,
+        namespace=namespace,
+        user_id=user.username,
+        request=request,
+    )
 
 
 @router.patch("/daemonsets/{name}/image")
 def update_daemonset_image(
     name: str,
     payload: DaemonSetImageUpdateRequest,
+    request: Request,
     user: User = Depends(require_permission("workloads:daemonsets:update_image")),
 ) -> dict:
     """Update a DaemonSet container image directly."""
     params = payload.model_dump()
     namespace = params.pop("namespace")
-    return run_direct_action("update_daemonset_image", name=name, namespace=namespace, params=params)
+    return run_direct_action(
+        "update_daemonset_image",
+        name=name,
+        namespace=namespace,
+        params=params,
+        user_id=user.username,
+        request=request,
+    )
 
 
 @router.get("/jobs")
@@ -196,6 +221,7 @@ def get_job_issues(
 @router.delete("/jobs/{name}")
 def delete_job(
     name: str,
+    request: Request,
     namespace: str = Query(default="default"),
     propagation_policy: str = Query(default="Foreground"),
     user: User = Depends(require_permission("workloads:jobs:delete")),
@@ -206,27 +232,43 @@ def delete_job(
         name=name,
         namespace=namespace,
         params={"propagation_policy": propagation_policy},
+        user_id=user.username,
+        request=request,
     )
 
 
 @router.post("/jobs/{name}/suspend")
 def suspend_job(
     name: str,
+    request: Request,
     namespace: str = Query(default="default"),
     user: User = Depends(require_permission("workloads:jobs:suspend")),
 ) -> dict:
     """Suspend a Job directly."""
-    return run_direct_action("suspend_job", name=name, namespace=namespace)
+    return run_direct_action(
+        "suspend_job",
+        name=name,
+        namespace=namespace,
+        user_id=user.username,
+        request=request,
+    )
 
 
 @router.post("/jobs/{name}/resume")
 def resume_job(
     name: str,
+    request: Request,
     namespace: str = Query(default="default"),
     user: User = Depends(require_permission("workloads:jobs:resume")),
 ) -> dict:
     """Resume a Job directly."""
-    return run_direct_action("resume_job", name=name, namespace=namespace)
+    return run_direct_action(
+        "resume_job",
+        name=name,
+        namespace=namespace,
+        user_id=user.username,
+        request=request,
+    )
 
 
 @router.get("/cronjobs")
@@ -262,18 +304,32 @@ def get_cronjob(
 @router.post("/cronjobs/{name}/suspend")
 def suspend_cronjob(
     name: str,
+    request: Request,
     namespace: str = Query(default="default"),
     user: User = Depends(require_permission("workloads:cronjobs:suspend")),
 ) -> dict:
     """Suspend a CronJob directly."""
-    return run_direct_action("suspend_cronjob", name=name, namespace=namespace)
+    return run_direct_action(
+        "suspend_cronjob",
+        name=name,
+        namespace=namespace,
+        user_id=user.username,
+        request=request,
+    )
 
 
 @router.post("/cronjobs/{name}/resume")
 def resume_cronjob(
     name: str,
+    request: Request,
     namespace: str = Query(default="default"),
     user: User = Depends(require_permission("workloads:cronjobs:resume")),
 ) -> dict:
     """Resume a CronJob directly."""
-    return run_direct_action("resume_cronjob", name=name, namespace=namespace)
+    return run_direct_action(
+        "resume_cronjob",
+        name=name,
+        namespace=namespace,
+        user_id=user.username,
+        request=request,
+    )

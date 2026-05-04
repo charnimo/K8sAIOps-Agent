@@ -2,7 +2,7 @@
 
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 from Tools import hpa, rbac, resource_quotas
 from app.api.mutations import run_direct_action
@@ -191,35 +191,58 @@ def get_hpa_issues(
 @router.post("/hpas")
 def create_hpa(
     payload: CreateHpaRequest,
+    request: Request,
     user: User = Depends(require_permission("hpa:create")),
 ) -> dict:
     """Create an HPA directly."""
     params = payload.model_dump()
     name = params.pop("name")
     namespace = params.pop("namespace")
-    return run_direct_action("create_hpa", name=name, namespace=namespace, params=params)
+    return run_direct_action(
+        "create_hpa",
+        name=name,
+        namespace=namespace,
+        params=params,
+        user_id=user.username,
+        request=request,
+    )
 
 
 @router.patch("/hpas/{name}")
 def patch_hpa(
     name: str,
     payload: PatchHpaRequest,
+    request: Request,
     user: User = Depends(require_permission("hpa:patch")),
 ) -> dict:
     """Patch an HPA directly."""
     params = payload.model_dump()
     namespace = params.pop("namespace")
-    return run_direct_action("patch_hpa", name=name, namespace=namespace, params=params)
+    return run_direct_action(
+        "patch_hpa",
+        name=name,
+        namespace=namespace,
+        params=params,
+        user_id=user.username,
+        request=request,
+    )
 
 
 @router.delete("/hpas/{name}")
 def delete_hpa(
     name: str,
+    request: Request,
     namespace: str = Query(default="default"),
     user: User = Depends(require_permission("hpa:delete")),
 ) -> dict:
     """Delete an HPA directly."""
-    return run_direct_action("delete_hpa", name=name, namespace=namespace)
+    return run_direct_action(
+        "delete_hpa",
+        name=name,
+        namespace=namespace,
+        user_id=user.username,
+        request=request,
+    )
 
 
 @router.get("/resource-quotas")

@@ -10,7 +10,7 @@ import tempfile
 from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
 from jose import ExpiredSignatureError, JWTError, jwt
 from sqlalchemy.orm import Session
 
@@ -562,25 +562,50 @@ def get_node_events(name: str, user: User = Depends(require_permission("cluster:
 
 
 @router.post("/nodes/{name}/cordon")
-def cordon_node(name: str, user: User = Depends(require_permission("cluster:nodes:cordon"))) -> dict:
+def cordon_node(
+    name: str,
+    request: Request,
+    user: User = Depends(require_permission("cluster:nodes:cordon")),
+) -> dict:
     """Cordon a node directly."""
-    return run_direct_action("cordon_node", name=name)
+    return run_direct_action(
+        "cordon_node",
+        name=name,
+        user_id=user.username,
+        request=request,
+    )
 
 
 @router.post("/nodes/{name}/uncordon")
-def uncordon_node(name: str, user: User = Depends(require_permission("cluster:nodes:uncordon"))) -> dict:
+def uncordon_node(
+    name: str,
+    request: Request,
+    user: User = Depends(require_permission("cluster:nodes:uncordon")),
+) -> dict:
     """Uncordon a node directly."""
-    return run_direct_action("uncordon_node", name=name)
+    return run_direct_action(
+        "uncordon_node",
+        name=name,
+        user_id=user.username,
+        request=request,
+    )
 
 
 @router.post("/nodes/{name}/drain")
 def drain_node(
     name: str,
     payload: NodeDrainRequest,
+    request: Request,
     user: User = Depends(require_permission("cluster:nodes:drain")),
 ) -> dict:
     """Drain a node directly."""
-    return run_direct_action("drain_node", name=name, params=payload.model_dump())
+    return run_direct_action(
+        "drain_node",
+        name=name,
+        params=payload.model_dump(),
+        user_id=user.username,
+        request=request,
+    )
 
 
 @router.get("/namespaces")
@@ -629,21 +654,36 @@ def get_namespace_events(
 @router.post("/namespaces")
 def create_namespace(
     payload: CreateNamespaceRequest,
+    request: Request,
     user: User = Depends(require_permission("cluster:namespaces:create")),
 ) -> dict:
     """Create a namespace directly."""
     params = payload.model_dump()
     name = params.pop("name")
-    return run_direct_action("create_namespace", name=name, namespace=name, params=params)
+    return run_direct_action(
+        "create_namespace",
+        name=name,
+        namespace=name,
+        params=params,
+        user_id=user.username,
+        request=request,
+    )
 
 
 @router.delete("/namespaces/{name}")
 def delete_namespace(
     name: str,
+    request: Request,
     user: User = Depends(require_permission("cluster:namespaces:delete")),
 ) -> dict:
     """Delete a namespace directly."""
-    return run_direct_action("delete_namespace", name=name, namespace=name)
+    return run_direct_action(
+        "delete_namespace",
+        name=name,
+        namespace=name,
+        user_id=user.username,
+        request=request,
+    )
 
 
 @router.websocket("/terminal/ws")
@@ -767,35 +807,58 @@ def get_pvc_issues(
 @router.post("/storage/pvcs")
 def create_pvc(
     payload: CreatePvcRequest,
+    request: Request,
     user: User = Depends(require_permission("storage:pvcs:create")),
 ) -> dict:
     """Create a PVC directly."""
     params = payload.model_dump()
     name = params.pop("name")
     namespace = params.pop("namespace")
-    return run_direct_action("create_pvc", name=name, namespace=namespace, params=params)
+    return run_direct_action(
+        "create_pvc",
+        name=name,
+        namespace=namespace,
+        params=params,
+        user_id=user.username,
+        request=request,
+    )
 
 
 @router.patch("/storage/pvcs/{name}")
 def patch_pvc(
     name: str,
     payload: PatchPvcRequest,
+    request: Request,
     user: User = Depends(require_permission("storage:pvcs:patch")),
 ) -> dict:
     """Patch a PVC directly."""
     params = payload.model_dump()
     namespace = params.pop("namespace")
-    return run_direct_action("patch_pvc", name=name, namespace=namespace, params=params)
+    return run_direct_action(
+        "patch_pvc",
+        name=name,
+        namespace=namespace,
+        params=params,
+        user_id=user.username,
+        request=request,
+    )
 
 
 @router.delete("/storage/pvcs/{name}")
 def delete_pvc(
     name: str,
+    request: Request,
     namespace: str = Query(default="default"),
     user: User = Depends(require_permission("storage:pvcs:delete")),
 ) -> dict:
     """Delete a PVC directly."""
-    return run_direct_action("delete_pvc", name=name, namespace=namespace)
+    return run_direct_action(
+        "delete_pvc",
+        name=name,
+        namespace=namespace,
+        user_id=user.username,
+        request=request,
+    )
 
 
 @router.get("/storage/classes")

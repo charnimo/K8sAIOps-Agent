@@ -134,7 +134,7 @@ def detect_daemonset_issues(name: str, namespace: str = "default") -> dict:
 # ACTION OPERATIONS
 # ─────────────────────────────────────────────
 
-def restart_daemonset(name: str, namespace: str = "default") -> dict:
+def restart_daemonset(name: str, namespace: str = "default", audit: bool = True) -> dict:
     """
     Trigger a rolling restart of all pods in a DaemonSet.
 
@@ -171,25 +171,27 @@ def restart_daemonset(name: str, namespace: str = "default") -> dict:
     try:
         apps.patch_namespaced_daemon_set(name=name, namespace=namespace, body=patch_body)
         logger.info(f"[ACTION] Rolling restart triggered for DaemonSet {namespace}/{name}")
-        log_action(
-            "daemonset_restart",
-            name,
-            namespace,
-            success=True,
-        )
+        if audit:
+            log_action(
+                "daemonset_restart",
+                name,
+                namespace,
+                success=True,
+            )
         return {
             "success": True,
             "message": f"Rolling restart triggered for DaemonSet {namespace}/{name}.",
         }
     except ApiException as e:
         logger.error(f"Failed to restart DaemonSet {namespace}/{name}: {e}")
-        log_action(
-            "daemonset_restart",
-            name,
-            namespace,
-            success=False,
-            error_message=str(e),
-        )
+        if audit:
+            log_action(
+                "daemonset_restart",
+                name,
+                namespace,
+                success=False,
+                error_message=str(e),
+            )
         return {"success": False, "message": str(e)}
 
 
@@ -198,6 +200,7 @@ def update_daemonset_image(
     namespace: str = "default",
     container: str = None,
     image: str = None,
+    audit: bool = True,
 ) -> dict:
     """
     Update the image of a container in a DaemonSet's pod template.
@@ -244,7 +247,8 @@ def update_daemonset_image(
         
         apps.patch_namespaced_daemon_set(name=name, namespace=namespace, body=ds)
         logger.info(f"[ACTION] Updated DaemonSet {namespace}/{name} container '{container}': {previous_image} → {image}")
-        audit_daemonset_image_update(name, namespace, container, image, success=True)
+        if audit:
+            audit_daemonset_image_update(name, namespace, container, image, success=True)
         
         return {
             "success":         True,
@@ -254,7 +258,8 @@ def update_daemonset_image(
         }
     except ApiException as e:
         logger.error(f"Failed to update DaemonSet {namespace}/{name}: {e}")
-        audit_daemonset_image_update(name, namespace, container, image, success=False, error=str(e))
+        if audit:
+            audit_daemonset_image_update(name, namespace, container, image, success=False, error=str(e))
         return {"success": False, "message": str(e)}
 
 

@@ -218,7 +218,12 @@ def _summarize_cronjob(cj) -> dict:
 # ACTION OPERATIONS
 # ─────────────────────────────────────────────
 
-def delete_job(name: str, namespace: str = "default", propagation_policy: str = "Foreground") -> dict:
+def delete_job(
+    name: str,
+    namespace: str = "default",
+    propagation_policy: str = "Foreground",
+    audit: bool = True,
+) -> dict:
     """
     Delete a Job (cascades to pods by default).
 
@@ -247,18 +252,20 @@ def delete_job(name: str, namespace: str = "default", propagation_policy: str = 
             propagation_policy=propagation_policy,
         )
         logger.info(f"[ACTION] Deleted Job {namespace}/{name}")
-        audit_job_action("delete", name, namespace, success=True)
+        if audit:
+            audit_job_action("delete", name, namespace, success=True)
         return {
             "success": True,
             "message": f"Job {namespace}/{name} deleted.",
         }
     except ApiException as e:
         logger.error(f"Failed to delete Job {namespace}/{name}: {e}")
-        audit_job_action("delete", name, namespace, success=False, error=str(e))
+        if audit:
+            audit_job_action("delete", name, namespace, success=False, error=str(e))
         return {"success": False, "message": str(e)}
 
 
-def suspend_job(name: str, namespace: str = "default") -> dict:
+def suspend_job(name: str, namespace: str = "default", audit: bool = True) -> dict:
     """
     Suspend a Job (stop creating new pods, existing pods continue).
 
@@ -282,14 +289,16 @@ def suspend_job(name: str, namespace: str = "default") -> dict:
         job.spec.suspend = True
         batch.patch_namespaced_job(name=name, namespace=namespace, body=job)
         logger.info(f"[ACTION] Suspended Job {namespace}/{name}")
-        audit_job_action("suspend", name, namespace, success=True)
+        if audit:
+            audit_job_action("suspend", name, namespace, success=True)
         return {
             "success": True,
             "message": f"Job {namespace}/{name} suspended.",
         }
     except ApiException as e:
         logger.error(f"Failed to suspend Job {namespace}/{name}: {e}")
-        audit_job_action("suspend", name, namespace, success=False, error=str(e))
+        if audit:
+            audit_job_action("suspend", name, namespace, success=False, error=str(e))
         return {"success": False, "message": str(e)}
 
 
@@ -326,7 +335,7 @@ def resume_job(name: str, namespace: str = "default") -> dict:
         return {"success": False, "message": str(e)}
 
 
-def suspend_cronjob(name: str, namespace: str = "default") -> dict:
+def suspend_cronjob(name: str, namespace: str = "default", audit: bool = True) -> dict:
     """
     Suspend a CronJob (stops scheduling new jobs).
 
@@ -350,18 +359,20 @@ def suspend_cronjob(name: str, namespace: str = "default") -> dict:
         cj.spec.suspend = True
         batch.patch_namespaced_cron_job(name=name, namespace=namespace, body=cj)
         logger.info(f"[ACTION] Suspended CronJob {namespace}/{name}")
-        audit_job_action("suspend", name, namespace, success=True)
+        if audit:
+            audit_job_action("suspend", name, namespace, success=True)
         return {
             "success": True,
             "message": f"CronJob {namespace}/{name} suspended.",
         }
     except ApiException as e:
         logger.error(f"Failed to suspend CronJob {namespace}/{name}: {e}")
-        audit_job_action("suspend", name, namespace, success=False, error=str(e))
+        if audit:
+            audit_job_action("suspend", name, namespace, success=False, error=str(e))
         return {"success": False, "message": str(e)}
 
 
-def resume_cronjob(name: str, namespace: str = "default") -> dict:
+def resume_cronjob(name: str, namespace: str = "default", audit: bool = True) -> dict:
     """
     Resume a suspended CronJob (resumes scheduling).
 
@@ -385,12 +396,14 @@ def resume_cronjob(name: str, namespace: str = "default") -> dict:
         cj.spec.suspend = False
         batch.patch_namespaced_cron_job(name=name, namespace=namespace, body=cj)
         logger.info(f"[ACTION] Resumed CronJob {namespace}/{name}")
-        audit_job_action("resume", name, namespace, success=True)
+        if audit:
+            audit_job_action("resume", name, namespace, success=True)
         return {
             "success": True,
             "message": f"CronJob {namespace}/{name} resumed.",
         }
     except ApiException as e:
         logger.error(f"Failed to resume CronJob {namespace}/{name}: {e}")
-        audit_job_action("resume", name, namespace, success=False, error=str(e))
+        if audit:
+            audit_job_action("resume", name, namespace, success=False, error=str(e))
         return {"success": False, "message": str(e)}
