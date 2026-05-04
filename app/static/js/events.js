@@ -17,37 +17,23 @@ if (!token) window.location.href = "/static/login.html";
 
 const api = new ApiClient(token);
 
-async function connectWebSocket() {
-  const protocol = location.protocol === "https:" ? "wss" : "ws";
-  const wsUrl = `${protocol}://${location.host}/ws/events`;
-  ws = new WebSocket(wsUrl);
-  setWsStatus("connecting");
+function attachToGlobalWs() {
+    const ws = window._globalWs;
+    if (!ws) return;
 
-  ws.onopen = async () => {
-    setWsStatus("connected");
-    const { username, is_god_mode } = await api.getCurrentUser();
-    ws.send(
-      JSON.stringify({
-        token: token,
-        user_id: username,
-        role: is_god_mode ? "admin" : "operator",
-        namespaces: [...nsTags],
-        teams: [...teamTags],
-        severities: getSelectedSeverities(),
-      }),
-    );
-  };
+    ws.addEventListener('message', (raw) => {
+        try {
+            const msg = JSON.parse(raw.data);
+            if (msg.type === 'SUBSCRIBED' && msg.history)
+                msg.history.forEach(ingestEvent);
+            else if (msg.type === 'HISTORY')
+                msg.events.forEach(ingestEvent);
+            else if (msg.type !== 'PONG' && msg.type !== 'SUBSCRIBED')
+                ingestEvent(msg);
+        } catch (_) {}
+    });
 
-  ws.onmessage = (evt) => {
-    const msg = JSON.parse(evt.data);
-    if (msg.type === "SUBSCRIBED" && msg.history)
-      msg.history.forEach(ingestEvent);
-    else if (msg.type === "HISTORY") msg.events.forEach(ingestEvent);
-    else if (msg.type !== "PONG") ingestEvent(msg);
-  };
-
-  ws.onerror = () => setWsStatus("error");
-  ws.onclose = () => setTimeout(connectWebSocket, 5000);
+    setWsStatus(ws.readyState === 1 ? 'connected' : 'connecting');
 }
 
 function setWsStatus(state) {
@@ -71,19 +57,13 @@ function getSelectedSeverities() {
 }
 
 function updateSubscription() {
-  if (!ws || ws.readyState !== 1) return;
-  api.getCurrentUser().then((user) => {
-    ws.send(
-      JSON.stringify({
-        type: "UPDATE_SUBSCRIPTION",
-        user_id: user.username,
-        role: user.is_god_mode ? "admin" : "operator",
+    const ws = window._globalWs;
+    if (!ws || ws.readyState !== 1) return;
+    ws.send(JSON.stringify({
+        type:       'UPDATE_SUBSCRIPTION',
         namespaces: [...nsTags],
-        teams: [...teamTags],
         severities: getSelectedSeverities(),
-      }),
-    );
-  });
+    }));
 }
 
 function ingestEvent(evt) {
@@ -141,7 +121,6 @@ function renderFeed() {
       </div>
       <div class="event-resource"><span class="ns">${e.namespace}/</span>${e.resource_name}</div>
       <div class="event-message">${truncate(e.message, 90)}</div>
-      ${e.teams?.length ? `<div class="event-teams">${e.teams.map((t) => `<span class="team-chip">${t}</span>`).join("")}</div>` : ""}
     </div>
   `,
     )
@@ -185,8 +164,6 @@ function renderDetail(e) {
       <div class="sub-label" style="margin-bottom:6px">Message</div>
       <div style="font-size:11px; line-height:1.6">${e.message}</div>
     </div>
-    ${e.teams?.length ? `<div class="detail-section"><div class="sub-label">Routed Teams</div><div class="labels-list">${e.teams.map((t) => `<span class="team-chip">${t}</span>`).join("")}</div></div>` : ""}
-    ${labelChips ? `<div class="detail-section"><div class="sub-label">Labels & Annotations</div><div class="labels-list">${labelChips}</div></div>` : ""}
   `;
 }
 
@@ -260,7 +237,7 @@ function renderTags(type) {
 
 // Initialization
 document.addEventListener("DOMContentLoaded", () => {
-  connectWebSocket();
+  attachToGlobalWs();
 
   // Filter buttons
   document.querySelectorAll(".filter-btn").forEach((btn) => {

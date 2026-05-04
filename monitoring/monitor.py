@@ -24,8 +24,6 @@ from websockets.server import WebSocketServerProtocol
 from kubernetes_asyncio import client, config, watch
 from kubernetes_asyncio.client import ApiClient
 
-from Tools.teams import extract_teams
-
 
 # ─── Configuration (all from env, zero defaults that encode business logic) ───
 
@@ -34,10 +32,7 @@ WS_PORT       = int(os.getenv("WS_PORT", "8765"))
 HTTP_PORT     = int(os.getenv("HTTP_PORT", "8080"))
 DEDUP_WINDOW  = int(os.getenv("DEDUP_WINDOW_SECONDS", "60"))
 MAX_HISTORY   = int(os.getenv("MAX_EVENT_HISTORY", "500"))
-# How often (seconds) to refresh the namespace→team cache from the cluster
-NS_CACHE_TTL  = int(os.getenv("NS_CACHE_TTL_SECONDS", "120"))
-# Fallback team when no label/annotation/namespace-mapping resolves a team
-FALLBACK_TEAM = os.getenv("FALLBACK_TEAM", "ops-team")
+BACKEND_API_URL = os.getenv("BACKEND_API_URL", "http://localhost:8000")
 
 logging.basicConfig(
     level=getattr(logging, LOG_LEVEL),
@@ -75,7 +70,6 @@ class EnrichedEvent:
     node:          Optional[str]
     labels:        dict
     annotations:   dict
-    teams:         list[str]
     raw_count:     int = 1
     first_seen:    Optional[str] = None
     last_seen:     Optional[str] = None
@@ -93,122 +87,8 @@ class EnrichedEvent:
 class Subscription:
     user_id:    str
     namespaces: set[str] = field(default_factory=set)   # empty = all
-    teams:      set[str] = field(default_factory=set)   # empty = all
     severities: set[str] = field(default_factory=lambda: {"INFO", "WARNING", "CRITICAL"})
     role:       str = "viewer"   # viewer | operator | admin
-
-
-# ─── Dynamic Namespace / Team Cache ──────────────────────────────────────────
-
-class NamespaceTeamCache:
-    """
-    Maintains a live namespace → [teams] mapping discovered from the cluster.
-
-    Team resolution order (per namespace):
-      1. Namespace label/annotation  team=<x>  owner=<x>  app.kubernetes.io/team=<x>
-      2. tools.namespaces.get_namespace_teams(name)  (if the tool is available)
-      3. FALLBACK_TEAM env var
-
-    The cache is refreshed every NS_CACHE_TTL seconds in the background.
-    It is also available synchronously (returns a stale snapshot while
-    refresh is in progress) so EventProcessor never blocks.
-    """
-
-    def __init__(self):
-        self._map: dict[str, list[str]] = {}
-        self._namespaces: list[str] = []
-        self._last_refresh: float = 0.0
-        self._lock = asyncio.Lock()
-
-    # ── Public API ────────────────────────────────────────────────────────────
-
-    def teams_for(self, namespace: str) -> list[str]:
-        """Return known teams for a namespace (may be stale)."""
-        return list(self._map.get(namespace, [FALLBACK_TEAM]))
-
-    def known_namespaces(self) -> list[str]:
-        return list(self._namespaces)
-
-    async def refresh(self, api_client: Optional[ApiClient] = None):
-        """Discover all namespaces and their owning teams from the cluster."""
-        async with self._lock:
-            try:
-                namespaces = await self._list_namespaces(api_client)
-                new_map: dict[str, list[str]] = {}
-                for ns in namespaces:
-                    teams = self._extract_teams_from_metadata(
-                        ns.get("labels", {}),
-                        ns.get("annotations", {}),
-                    )
-                    # Try the tools layer if no team resolved from metadata
-                    if not teams:
-                        teams = await self._tools_teams(ns["name"])
-                    if not teams:
-                        teams = [FALLBACK_TEAM]
-                    new_map[ns["name"]] = sorted(set(teams))
-
-                self._map = new_map
-                self._namespaces = [ns["name"] for ns in namespaces]
-                self._last_refresh = time.monotonic()
-                log.info("Namespace cache refreshed: %d namespaces", len(self._namespaces))
-            except Exception as exc:
-                log.warning("Namespace cache refresh failed: %s", exc)
-
-    async def start_background_refresh(self, api_client: Optional[ApiClient] = None):
-        """Run periodic refresh forever (call with asyncio.create_task)."""
-        while True:
-            await self.refresh(api_client)
-            await asyncio.sleep(NS_CACHE_TTL)
-
-    # ── Internals ─────────────────────────────────────────────────────────────
-
-    @staticmethod
-    async def _list_namespaces(api_client: Optional[ApiClient]) -> list[dict]:
-        """
-        Try tools.namespaces.list_namespaces() first; fall back to direct API.
-        Returns list of dicts: {name, labels, annotations}
-        """
-        try:
-            from Tools.namespaces import list_namespaces  # type: ignore
-            raw = list_namespaces()
-            return [
-                {
-                    "name":        ns.get("name", ""),
-                    "labels":      ns.get("labels", {}) or {},
-                    "annotations": ns.get("annotations", {}) or {},
-                }
-                for ns in raw
-                if ns.get("name")
-            ]
-        except ImportError:
-            pass
-        except Exception as exc:
-            log.debug("tools.namespaces.list_namespaces failed: %s", exc)
-
-        # # Direct Kubernetes API fallback
-        # v1 = client.CoreV1Api(api_client)
-        # ns_list = await v1.list_namespace()
-        # return [
-        #     {
-        #         "name":        ns.metadata.name,
-        #         "labels":      dict(ns.metadata.labels or {}),
-        #         "annotations": dict(ns.metadata.annotations or {}),
-        #     }
-        #     for ns in ns_list.items
-        # ]
-
-    @staticmethod
-    async def _tools_teams(namespace: str) -> list[str]:
-        try:
-            from Tools.namespaces import get_namespace_teams
-            return get_namespace_teams(namespace) or []
-        except (ImportError, Exception):
-            return []
-
-    @staticmethod
-    def _extract_teams_from_metadata(labels: dict, annotations: dict) -> list[str]:
-        return extract_teams(labels, annotations)
-
 
 # ─── Severity / EventType classification (Kubernetes-native) ─────────────────
 
@@ -266,6 +146,41 @@ def _classify_severity(k8s_type: str, reason: str) -> Severity:
     return Severity.WARNING
 
 
+async def _fetch_permitted_namespaces(token: str) -> list[str] | None:
+    """
+    Validate token by calling the backend /auth/me endpoint.
+    Returns list of namespace strings the user has access to,
+    or empty list for god-mode (= all namespaces),
+    or None if the token is invalid.
+    """
+    if not BACKEND_API_URL:
+        # no backend configured — open mode, allow all
+        log.warning("BACKEND_API_URL not set; skipping auth")
+        return []
+
+    import aiohttp
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(
+                f"{BACKEND_API_URL}/auth/me",
+                headers={"Authorization": f"Bearer {token}"},
+                timeout=aiohttp.ClientTimeout(total=5),
+            ) as resp:
+                if resp.status != 200:
+                    log.warning("Auth rejected: status %d", resp.status)
+                    return None
+                body = await resp.json()
+
+        if body.get("is_god_mode"):
+            return []  # empty = all namespaces
+
+        perms = body.get("permissions", {})
+        namespaces = list(perms.get("namespaces", {}).keys())
+        return namespaces
+
+    except Exception as e:
+        log.warning("Failed to reach backend for auth: %s", e)
+        return None   # fail closed 
 
 # ─── Event Processor ──────────────────────────────────────────────────────────
 
@@ -273,47 +188,15 @@ class EventProcessor:
     """
     Normalises raw Kubernetes objects into EnrichedEvents.
     Deduplicates via rolling fingerprint cache.
-    Uses NamespaceTeamCache for dynamic team routing.
     """
 
     def __init__(
         self,
-        ns_cache: NamespaceTeamCache,
         dedup_window: int = DEDUP_WINDOW,
     ):
-        self._ns_cache     = ns_cache
         self._dedup_window = dedup_window
         # fingerprint → (EnrichedEvent, expire_time)
         self._dedup_cache: dict[str, tuple[EnrichedEvent, float]] = {}
-
-    # ── Routing ──────────────────────────────────────────────────────────────
-
-    def _resolve_teams(
-        self,
-        namespace: str,
-        labels: dict,
-        annotations: dict,
-    ) -> list[str]:
-        """
-        Multi-strategy team resolution:
-          1. Resource label / annotation (team, owner, app.kubernetes.io/team, …)
-          2. Namespace → team mapping from NamespaceTeamCache
-          3. FALLBACK_TEAM
-        """
-        teams: set[str] = set()
-
-        # Strategy 1 – resource metadata
-        teams.update(extract_teams(labels, annotations))
-
-        # Strategy 2 – namespace-level mapping
-        teams.update(self._ns_cache.teams_for(namespace))
-
-        # Strategy 3 – fallback (ns_cache already inserts FALLBACK_TEAM
-        # when nothing else resolves, but guard here too)
-        if not teams:
-            teams.add(FALLBACK_TEAM)
-
-        return sorted(teams)
 
     # ── Fingerprint & dedup ───────────────────────────────────────────────────
 
@@ -362,7 +245,6 @@ class EventProcessor:
             timestamp     = last_seen or datetime.now(timezone.utc).isoformat()
 
             severity = _classify_severity(k8s_type, reason)
-            teams    = self._resolve_teams(namespace, labels, annotations)
 
             fp       = self._fingerprint(namespace, resource, reason)
             event_id = f"evt-{fp}-{int(time.time())}"
@@ -372,7 +254,7 @@ class EventProcessor:
                 namespace=namespace, resource_name=resource,
                 resource_kind=resource_kind, reason=reason, message=message,
                 timestamp=timestamp, node=node, labels=labels,
-                annotations=annotations, teams=teams,
+                annotations=annotations,
                 raw_count=raw_count, first_seen=first_seen, last_seen=last_seen,
             )
 
@@ -424,7 +306,6 @@ class EventProcessor:
                 k8s_type = "Normal" if phase in ("Running", "Succeeded") else "Warning"
 
             severity = _classify_severity(k8s_type, reason)
-            teams    = self._resolve_teams(namespace, labels, annotations)
 
             fp       = self._fingerprint(namespace, name, reason)
             event_id = f"pod-{fp}-{int(time.time())}"
@@ -433,8 +314,8 @@ class EventProcessor:
                 event_id=event_id, severity=severity,
                 namespace=namespace, resource_name=name, resource_kind="Pod",
                 reason=reason, message=message, timestamp=timestamp,
-                node=status.host_ip if status else None,
-                labels=labels, annotations=annotations, teams=teams,
+                node=pod.spec.node_name if pod.spec else None,
+                labels=labels, annotations=annotations,
             )
 
             if self._is_duplicate(fp, enriched):
@@ -454,7 +335,6 @@ class EventProcessor:
         annotations: dict,
     ) -> EnrichedEvent:
         """Build an EnrichedEvent for a namespace lifecycle change."""
-        teams = self._resolve_teams(name, labels, annotations)
         fp    = self._fingerprint(name, name, reason)
         return EnrichedEvent(
             event_id=f"ns-{fp}-{int(time.time())}",
@@ -462,7 +342,7 @@ class EventProcessor:
             namespace=name, resource_name=name, resource_kind="Namespace",
             reason=reason, message=message,
             timestamp=datetime.now(timezone.utc).isoformat(),
-            node=None, labels=labels, annotations=annotations, teams=teams,
+            node=None, labels=labels, annotations=annotations,
         )
 
 
@@ -476,8 +356,8 @@ class SubscriptionRegistry:
 
     def register(self, ws: WebSocketServerProtocol, sub: Subscription):
         self._subs[ws] = sub
-        log.info("Registered user=%s role=%s ns=%s teams=%s",
-                 sub.user_id, sub.role, sub.namespaces or "*", sub.teams or "*")
+        log.info("Registered user=%s role=%s ns=%s",
+                 sub.user_id, sub.role, sub.namespaces or "*")
 
     def unregister(self, ws: WebSocketServerProtocol):
         sub = self._subs.pop(ws, None)
@@ -490,8 +370,7 @@ class SubscriptionRegistry:
             if event.severity.value not in sub.severities:
                 continue
             ns_match   = not sub.namespaces or event.namespace in sub.namespaces
-            team_match = not sub.teams      or bool(set(event.teams) & sub.teams)
-            if ns_match and team_match:
+            if ns_match:
                 targets.append(ws)
         return targets
 
@@ -505,7 +384,6 @@ class SubscriptionRegistry:
                 "user_id":    s.user_id,
                 "role":       s.role,
                 "namespaces": list(s.namespaces),
-                "teams":      list(s.teams),
                 "severities": list(s.severities),
             }
             for s in self._subs.values()
@@ -524,8 +402,8 @@ class NotificationDispatcher:
         self._history.append(event.to_dict())   # always store, even if no live subscribers
 
         if not targets:
-            log.debug("No live subscribers for event %s (ns=%s teams=%s)",
-                      event.event_id, event.namespace, event.teams)
+            log.debug("No live subscribers for event %s (ns=%s )",
+                      event.event_id, event.namespace)
             return
 
         payload = event.to_json()
@@ -540,7 +418,10 @@ class NotificationDispatcher:
 
     async def _send(self, ws: WebSocketServerProtocol, payload: str):
         try:
-            await ws.send(payload)
+            if hasattr(ws, 'send_text'):
+                await ws.send_text(payload)
+            else:
+                await ws.send(payload)
         except Exception as exc:
             log.warning("Failed to send to client: %s", exc)
 
@@ -560,11 +441,9 @@ class KubernetesWatcher:
         self,
         processor: EventProcessor,
         dispatcher: NotificationDispatcher,
-        ns_cache: NamespaceTeamCache,
     ):
         self._processor  = processor
         self._dispatcher = dispatcher
-        self._ns_cache   = ns_cache
         self._api_client: Optional[ApiClient] = None
 
     async def _load_config(self):
@@ -580,12 +459,10 @@ class KubernetesWatcher:
         self._api_client = ApiClient()
         log.info("Kubernetes watcher started")
         # Initial namespace cache warm-up before watches begin
-        await self._ns_cache.refresh(self._api_client)
         await asyncio.gather(
             self._watch_events(),
             self._watch_pods(),
             self._watch_namespaces(),
-            self._ns_cache.start_background_refresh(self._api_client),
         )
 
     async def _watch_events(self):
@@ -645,8 +522,7 @@ class KubernetesWatcher:
                                 annotations=annots,
                             )
                             await self._dispatcher.dispatch(enriched)
-                            # Also invalidate cache so the deleted ns is removed on next refresh
-                            await self._ns_cache.refresh(self._api_client)
+
             except Exception as exc:
                 log.error("Namespace watch error, restarting in 5s: %s", exc)
                 await asyncio.sleep(5)
@@ -659,26 +535,36 @@ class WebSocketServer:
         self,
         registry: SubscriptionRegistry,
         dispatcher: NotificationDispatcher,
-        ns_cache: NamespaceTeamCache,
         port: int = WS_PORT,
     ):
         self._registry   = registry
         self._dispatcher = dispatcher
-        self._ns_cache   = ns_cache
         self._port       = port
 
     async def handler(self, ws: WebSocketServerProtocol):
-        log.info("New WS connection from %s", ws.remote_address)
         try:
-            raw      = await asyncio.wait_for(ws.recv(), timeout=10.0)
-            sub_data = json.loads(raw)
+            # ── Step 1: expect AUTH as first message ──────────────────────────
+            raw = await asyncio.wait_for(ws.recv(), timeout=10)
+            data = json.loads(raw)
 
+            if data.get("type") != "AUTH":
+                await ws.close(1008, "First message must be AUTH")
+                return
+
+            token = data.get("token", "")
+            permitted_namespaces = await _fetch_permitted_namespaces(token)
+
+            if permitted_namespaces is None:
+                # token was rejected by backend
+                await ws.close(1008, "Unauthorized")
+                return
+
+            # ── Step 2: build subscription from backend permissions ───────────
             sub = Subscription(
-                user_id    = sub_data.get("user_id", "anonymous"),
-                namespaces = set(sub_data.get("namespaces", [])),
-                teams      = set(sub_data.get("teams", [])),
-                severities = set(sub_data.get("severities", ["INFO", "WARNING", "CRITICAL"])),
-                role       = sub_data.get("role", "viewer"),
+                user_id   = data.get("user_id", "unknown"),
+                namespaces= set(permitted_namespaces),   # empty set = all (god mode)
+                severities= set(data.get("severities", ["INFO", "WARNING", "CRITICAL"])),
+                role      = data.get("role", "viewer"),
             )
             self._registry.register(ws, sub)
 
@@ -688,8 +574,6 @@ class WebSocketServer:
                     "user_id":    sub.user_id,
                     "message":    "Subscription active",
                     "history":    self._dispatcher.recent_events(20),
-                    # Send live namespace / team catalog so the client can populate filters
-                    "namespaces": self._ns_cache.known_namespaces(),
                 }
                 await ws.send(json.dumps(response, default=str))
             except Exception as exc:
@@ -706,22 +590,19 @@ class WebSocketServer:
 
 
                     elif msg_type == "UPDATE_SUBSCRIPTION":
-                        sub.namespaces = set(data.get("namespaces", []))
-                        sub.teams      = set(data.get("teams", []))
+                        requested = set(data.get("namespaces", []))
+                        if sub.namespaces:  # non-empty = restricted user, enforce boundary
+                            sub.namespaces = requested & sub.namespaces
+                        else:
+                            sub.namespaces = requested  # god mode, allow anything
                         sub.severities = set(data.get("severities", ["INFO", "WARNING", "CRITICAL"]))
                         await ws.send(json.dumps({"type": "SUBSCRIPTION_UPDATED"}))
-
+                        
                     elif msg_type == "GET_HISTORY":
                         limit = int(data.get("limit", 50))
                         await ws.send(json.dumps({
                             "type":   "HISTORY",
                             "events": self._dispatcher.recent_events(limit),
-                        }))
-
-                    elif msg_type == "GET_NAMESPACES":
-                        await ws.send(json.dumps({
-                            "type":       "NAMESPACES",
-                            "namespaces": self._ns_cache.known_namespaces(),
                         }))
 
                 except json.JSONDecodeError:
@@ -762,14 +643,12 @@ class WebSocketServer:
 
 async def build_monitor_components() -> dict:
     """Instantiate and wire all monitor components. Returns a dict of components."""
-    ns_cache   = NamespaceTeamCache()
-    processor  = EventProcessor(ns_cache, dedup_window=DEDUP_WINDOW)
+    processor  = EventProcessor(dedup_window=DEDUP_WINDOW)
     registry   = SubscriptionRegistry()
     dispatcher = NotificationDispatcher(registry)
-    watcher    = KubernetesWatcher(processor, dispatcher, ns_cache)
-    ws_server  = WebSocketServer(registry, dispatcher, ns_cache)
+    watcher    = KubernetesWatcher(processor, dispatcher)
+    ws_server  = WebSocketServer(registry, dispatcher)
     return {
-        "ns_cache":   ns_cache,
         "processor":  processor,
         "registry":   registry,
         "dispatcher": dispatcher,
@@ -805,7 +684,6 @@ def get_router():
         return {
             "connected_clients":  m["registry"].connected_count,
             "event_history_size": len(m["dispatcher"].recent_events(MAX_HISTORY)),
-            "known_namespaces":   len(m["ns_cache"].known_namespaces()),
         }
 
     @router.get("/subscribers")
@@ -815,10 +693,6 @@ def get_router():
     @router.get("/events")
     async def events(request: Request, limit: int = 50):
         return {"events": _state(request)["dispatcher"].recent_events(limit)}
-
-    @router.get("/namespaces")
-    async def namespaces(request: Request):
-        return {"namespaces": _state(request)["ns_cache"].known_namespaces()}
 
     return router
 
@@ -841,15 +715,12 @@ async def _main():
             return aio_web.json_response({
                 "connected_clients":  components["registry"].connected_count,
                 "event_history_size": len(components["dispatcher"].recent_events(MAX_HISTORY)),
-                "known_namespaces":   len(components["ns_cache"].known_namespaces()),
             })
         async def _subscribers(_):
             return aio_web.json_response({"subscribers": components["registry"].summary()})
         async def _events(req):
             limit = int(req.rel_url.query.get("limit", 50))
             return aio_web.json_response({"events": components["dispatcher"].recent_events(limit)})
-        async def _namespaces(_):
-            return aio_web.json_response({"namespaces": components["ns_cache"].known_namespaces()})
 
         http_app = aio_web.Application()
         # Support both /health and /monitor/health for backwards compatibility
@@ -863,8 +734,6 @@ async def _main():
         http_app.router.add_get("/monitor/subscribers", _subscribers)
         http_app.router.add_get("/events",              _events)
         http_app.router.add_get("/monitor/events",      _events)
-        http_app.router.add_get("/namespaces",          _namespaces)
-        http_app.router.add_get("/monitor/namespaces",  _namespaces)
 
         runner = aio_web.AppRunner(http_app)
         await runner.setup()

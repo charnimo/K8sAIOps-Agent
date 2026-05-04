@@ -34,9 +34,10 @@ class GlobalEventMonitor {
 
         this.ws.onopen = () => {
             this.ws.send(JSON.stringify({
+                type:       'AUTH',
                 token:      this.token,
                 user_id:    'global-monitor',
-                severities: ['CRITICAL', 'WARNING'],  // only what we toast
+                severities: ['CRITICAL', 'WARNING'],
             }));
         };
 
@@ -49,29 +50,13 @@ class GlobalEventMonitor {
             } catch (_) {}
         };
 
+        window._globalWs = this.ws;
+
         this.ws.onclose = () => setTimeout(() => this._connect(), 4000);
         this.ws.onerror = () => {}; // onclose fires after onerror, reconnect there
     }
 
     _handleEvent(evt) {
-        // Deduplicate: the events page connection may already have shown a toast
-        // for events received while the user is on that page. We track by event_id
-        // and skip if evntCtrl (events page) already fired one.
-        if (evt.event_id) {
-            if (this.seenIds.has(evt.event_id)) return;
-            this.seenIds.add(evt.event_id);
-            // Keep the set bounded
-            if (this.seenIds.size > 1000) {
-                const first = this.seenIds.values().next().value;
-                this.seenIds.delete(first);
-            }
-        }
-
-        // Don't double-toast if the events page is currently active and already
-        // fired its own toast via its own WS connection.
-        const eventsPageActive = !!document.getElementById('evntFeed');
-        if (eventsPageActive) return;
-
         if (typeof window.showToast !== 'function') return;
 
         if (evt.severity === 'CRITICAL') {
@@ -89,6 +74,7 @@ class GlobalEventMonitor {
             this.ws.onclose = null;
             this.ws.close();
             this.ws = null;
+            window._globalWs = null;
         }
     }
 }

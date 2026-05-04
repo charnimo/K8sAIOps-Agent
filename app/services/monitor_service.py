@@ -9,7 +9,7 @@ import json
 import logging
 from fastapi import FastAPI, WebSocket
 
-from monitoring.monitor import build_monitor_components, get_router, Subscription
+from monitoring.monitor import build_monitor_components, get_router, Subscription, _fetch_permitted_namespaces
 from app.services.agent_notifier import AgentNotifier
 
 logger = logging.getLogger(__name__)
@@ -68,37 +68,47 @@ def register_monitor(app: FastAPI):
         components = app.state.monitor
         registry = components["registry"]
         dispatcher = components["dispatcher"]
-        ns_cache = components["ns_cache"]
 
         try:
             # Receive subscription data with timeout
-            import json
+            # Step 1: expect AUTH as first message
             raw = await asyncio.wait_for(ws.receive_text(), timeout=10.0)
             sub_data = json.loads(raw)
-            logger.info("[MONITOR/WS] Subscription data received: user_id=%s", sub_data.get("user_id"))
+            logger.info("[MONITOR/WS] Full message: type=%s", sub_data.get("type"))
 
+            if sub_data.get("type") != "AUTH":
+                await ws.close(code=1008, reason="First message must be AUTH")
+                return
+
+            token = sub_data.get("token", "")
+            permitted_namespaces = await _fetch_permitted_namespaces(token)
+
+            if permitted_namespaces is None:
+                await ws.close(code=1008, reason="Unauthorized")
+                return
+
+            logger.info("[MONITOR/WS] Auth OK: user_id=%s", sub_data.get("user_id"))
+            
             # Create and register subscription
             from monitoring.monitor import Subscription
             sub = Subscription(
                 user_id=sub_data.get("user_id", "anonymous"),
-                namespaces=set(sub_data.get("namespaces", [])),
-                teams=set(sub_data.get("teams", [])),
+                namespaces=set(permitted_namespaces),
                 severities=set(sub_data.get("severities", ["INFO", "WARNING", "CRITICAL"])),
                 role=sub_data.get("role", "viewer"),
             )
+   
             registry.register(ws, sub)
             logger.info("[MONITOR/WS] User %s subscribed", sub.user_id)
 
             # Send subscription confirmation with history
-            response = {
+            await ws.send_text(json.dumps({
                 "type": "SUBSCRIBED",
                 "user_id": sub.user_id,
                 "message": "Subscription active",
                 "history": dispatcher.recent_events(20),
-                "namespaces": ns_cache.known_namespaces(),
-            }
-            await ws.send_json(response)
-            logger.info("[MONITOR/WS] Subscription confirmation sent with %d history events", len(response["history"]))
+            }))
+            logger.info("[MONITOR/WS] Subscription confirmation sent")
 
             # Listen for client messages (PING, UPDATE_SUBSCRIPTION, etc.)
             while True:
@@ -109,27 +119,20 @@ def register_monitor(app: FastAPI):
                     logger.debug("[MONITOR/WS] Message from %s: type=%s", sub.user_id, msg_type)
 
                     if msg_type == "PING":
-                        await ws.send_json({"type": "PONG", "ts": asyncio.get_event_loop().time()})
+                        await ws.send(json.dumps({"type": "PONG", "ts": asyncio.get_event_loop().time()}))
 
                     elif msg_type == "UPDATE_SUBSCRIPTION":
-                        sub.namespaces = set(data.get("namespaces", []))
-                        sub.teams = set(data.get("teams", []))
+                        requested = set(data.get("namespaces", []))
+                        if sub.namespaces: 
+                            sub.namespaces = requested & sub.namespaces
+                        else:
+                            sub.namespaces = requested  # god mode, allow anything
                         sub.severities = set(data.get("severities", ["INFO", "WARNING", "CRITICAL"]))
-                        await ws.send_json({"type": "SUBSCRIPTION_UPDATED"})
-                        logger.info("[MONITOR/WS] Subscription updated for %s", sub.user_id)
+                        await ws.send(json.dumps({"type": "SUBSCRIPTION_UPDATED"}))
 
                     elif msg_type == "GET_HISTORY":
                         limit = int(data.get("limit", 50))
-                        await ws.send_json({
-                            "type": "HISTORY",
-                            "events": dispatcher.recent_events(limit),
-                        })
-
-                    elif msg_type == "GET_NAMESPACES":
-                        await ws.send_json({
-                            "type": "NAMESPACES",
-                            "namespaces": ns_cache.known_namespaces(),
-                        })
+                        await ws.send(json.dumps({"type": "HISTORY", "events": dispatcher.recent_events(limit)}))
 
                 except json.JSONDecodeError:
                     logger.warning("[MONITOR/WS] JSON decode error from %s", sub.user_id)

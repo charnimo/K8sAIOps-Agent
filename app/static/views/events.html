@@ -1,54 +1,319 @@
 <style>
-	.evnt-container { display: flex; flex-direction: column; height: 100%; gap: 16px; padding: 16px; }
-	.evnt-header { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; }
-	.evnt-header h2 { font-size: 18px; font-weight: 700; color: #fff; margin: 0; }
-	.evnt-ws-badge { display: flex; align-items: center; gap: 8px; font-size: 12px; background: rgba(30, 41, 59, 0.5); padding: 6px 12px; border-radius: 6px; border: 1px solid #334155; }
-	.evnt-ws-dot { width: 8px; height: 8px; border-radius: 50%; background: #94a3b8; transition: background 0.3s; }
-	.evnt-ws-dot.connected { background: #10b981; box-shadow: 0 0 8px rgba(16, 185, 129, 0.6); }
-	.evnt-ws-dot.error { background: #ef4444; }
-	.evnt-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
-	.evnt-stat-card { background: #1e293b; border-radius: 8px; border: 1px solid #334155; padding: 16px; }
-	.evnt-stat-label { font-size: 12px; color: #94a3b8; text-transform: uppercase; margin-bottom: 8px; }
-	.evnt-stat-value { font-size: 28px; font-weight: 700; }
-	.evnt-stat-crit .evnt-stat-value { color: #ff4466; }
-	.evnt-stat-warn .evnt-stat-value { color: #ffd700; }
-	.evnt-stat-info .evnt-stat-value { color: #00ff9d; }
-	.evnt-toolbar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
-	.evnt-filter-btn { padding: 6px 12px; border-radius: 6px; font-size: 12px; border: 1px solid #334155; background: transparent; color: #94a3b8; cursor: pointer; transition: all 0.2s; }
-	.evnt-filter-btn:hover { border-color: #64748b; color: #cbd5e1; }
-	.evnt-filter-btn.active { border-color: #00d4ff; color: #00d4ff; background: rgba(0, 212, 255, 0.1); }
-	.evnt-search { margin-left: auto; background: #0c1020; border: 1px solid #334155; color: #e2e8f0; font-size: 12px; padding: 6px 12px; border-radius: 6px; outline: none; min-width: 180px; }
-	.evnt-search:focus { border-color: #00d4ff; }
-	.evnt-grid { display: grid; grid-template-columns: 2fr 1fr; gap: 16px; flex: 1; min-height: 0; }
-	.evnt-panel { background: #1e293b; border-radius: 8px; border: 1px solid #334155; overflow: hidden; display: flex; flex-direction: column; }
-	.evnt-panel-header { font-size: 11px; font-weight: 700; letter-spacing: 1px; color: #94a3b8; padding: 10px 16px; border-bottom: 1px solid #334155; background: #0c1020; text-transform: uppercase; }
-	.evnt-feed { flex: 1; overflow-y: auto; }
-	.evnt-feed-empty { padding: 24px; text-align: center; color: #64748b; }
-	.evnt-event { padding: 12px 16px; border-left: 3px solid #334155; cursor: pointer; transition: all 0.15s; display: flex; flex-direction: column; gap: 8px; }
-	.evnt-event:hover { background: rgba(15, 23, 42, 0.5); }
-	.evnt-event.selected { background: rgba(15, 23, 42, 0.8); border-left-color: #00d4ff; }
-	.evnt-event.CRITICAL { border-left-color: #ff4466; }
-	.evnt-event.WARNING { border-left-color: #ffd700; }
-	.evnt-event.INFO { border-left-color: #00ff9d; }
-	.evnt-event-header { display: flex; align-items: center; gap: 8px; justify-content: space-between; }
-	.evnt-event-badges { display: flex; gap: 6px; align-items: center; }
-	.evnt-severity { font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 4px; letter-spacing: 0.5px; }
-	.evnt-sev-CRITICAL { background: rgba(255, 68, 102, 0.2); color: #ff4466; }
-	.evnt-sev-WARNING { background: rgba(255, 215, 0, 0.2); color: #ffd700; }
-	.evnt-sev-INFO { background: rgba(0, 255, 157, 0.2); color: #00ff9d; }
-	.evnt-event-type { font-size: 11px; color: #a855f7; font-weight: 600; }
-	.evnt-event-time { font-size: 10px; color: #64748b; }
-	.evnt-event-resource { font-size: 12px; color: #e2e8f0; font-weight: 500; }
-	.evnt-event-ns { color: #00d4ff; margin-right: 4px; opacity: 0.8; }
-	.evnt-event-message { font-size: 11px; color: #94a3b8; line-height: 1.4; }
-	.evnt-detail-empty { padding: 32px 16px; text-align: center; color: #64748b; }
-	.evnt-detail-section { padding: 12px 16px; border-bottom: 1px solid #334155; }
-	.evnt-detail-label { font-size: 10px; color: #64748b; text-transform: uppercase; margin-bottom: 6px; }
-	.evnt-detail-value { font-size: 12px; color: #e2e8f0; word-break: break-word; }
-	.evnt-chip { display: inline-block; font-size: 10px; padding: 3px 8px; border-radius: 4px; background: rgba(168, 85, 247, 0.2); color: #a855f7; margin-right: 4px; margin-bottom: 4px; }
-	::-webkit-scrollbar { width: 4px; }
-	::-webkit-scrollbar-track { background: transparent; }
-	::-webkit-scrollbar-thumb { background: #334155; border-radius: 2px; }
+	.evnt-container {
+		display: flex;
+		flex-direction: column;
+		height: 100%;
+		gap: 16px;
+		padding: 16px;
+	}
+
+	.evnt-header {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		flex-wrap: wrap;
+		gap: 12px;
+	}
+
+	.evnt-header h2 {
+		font-size: 18px;
+		font-weight: 700;
+		color: #fff;
+		margin: 0;
+	}
+
+	.evnt-ws-badge {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		font-size: 12px;
+		background: rgba(30, 41, 59, 0.5);
+		padding: 6px 12px;
+		border-radius: 6px;
+		border: 1px solid #334155;
+	}
+
+	.evnt-ws-dot {
+		width: 8px;
+		height: 8px;
+		border-radius: 50%;
+		background: #94a3b8;
+		transition: background 0.3s;
+	}
+
+	.evnt-ws-dot.connected {
+		background: #10b981;
+		box-shadow: 0 0 8px rgba(16, 185, 129, 0.6);
+	}
+
+	.evnt-ws-dot.error {
+		background: #ef4444;
+	}
+
+	.evnt-stats {
+		display: grid;
+		grid-template-columns: repeat(3, 1fr);
+		gap: 16px;
+	}
+
+	.evnt-stat-card {
+		background: #1e293b;
+		border-radius: 8px;
+		border: 1px solid #334155;
+		padding: 16px;
+	}
+
+	.evnt-stat-label {
+		font-size: 12px;
+		color: #94a3b8;
+		text-transform: uppercase;
+		margin-bottom: 8px;
+	}
+
+	.evnt-stat-value {
+		font-size: 28px;
+		font-weight: 700;
+	}
+
+	.evnt-stat-crit .evnt-stat-value {
+		color: #ff4466;
+	}
+
+	.evnt-stat-warn .evnt-stat-value {
+		color: #ffd700;
+	}
+
+	.evnt-stat-info .evnt-stat-value {
+		color: #00ff9d;
+	}
+
+	.evnt-toolbar {
+		display: flex;
+		align-items: center;
+		gap: 12px;
+		flex-wrap: wrap;
+	}
+
+	.evnt-filter-btn {
+		padding: 6px 12px;
+		border-radius: 6px;
+		font-size: 12px;
+		border: 1px solid #334155;
+		background: transparent;
+		color: #94a3b8;
+		cursor: pointer;
+		transition: all 0.2s;
+	}
+
+	.evnt-filter-btn:hover {
+		border-color: #64748b;
+		color: #cbd5e1;
+	}
+
+	.evnt-filter-btn.active {
+		border-color: #00d4ff;
+		color: #00d4ff;
+		background: rgba(0, 212, 255, 0.1);
+	}
+
+	.evnt-search {
+		margin-left: auto;
+		background: #0c1020;
+		border: 1px solid #334155;
+		color: #e2e8f0;
+		font-size: 12px;
+		padding: 6px 12px;
+		border-radius: 6px;
+		outline: none;
+		min-width: 180px;
+	}
+
+	.evnt-search:focus {
+		border-color: #00d4ff;
+	}
+
+	.evnt-grid {
+		display: grid;
+		grid-template-columns: 2fr 1fr;
+		gap: 16px;
+		flex: 1;
+		min-height: 0;
+	}
+
+	.evnt-panel {
+		background: #1e293b;
+		border-radius: 8px;
+		border: 1px solid #334155;
+		overflow: hidden;
+		display: flex;
+		flex-direction: column;
+	}
+
+	.evnt-panel-header {
+		font-size: 11px;
+		font-weight: 700;
+		letter-spacing: 1px;
+		color: #94a3b8;
+		padding: 10px 16px;
+		border-bottom: 1px solid #334155;
+		background: #0c1020;
+		text-transform: uppercase;
+	}
+
+	.evnt-feed {
+		flex: 1;
+		overflow-y: auto;
+	}
+
+	.evnt-feed-empty {
+		padding: 24px;
+		text-align: center;
+		color: #64748b;
+	}
+
+	.evnt-event {
+		padding: 12px 16px;
+		border-left: 3px solid #334155;
+		cursor: pointer;
+		transition: all 0.15s;
+		display: flex;
+		flex-direction: column;
+		gap: 8px;
+	}
+
+	.evnt-event:hover {
+		background: rgba(15, 23, 42, 0.5);
+	}
+
+	.evnt-event.selected {
+		background: rgba(15, 23, 42, 0.8);
+		border-left-color: #00d4ff;
+	}
+
+	.evnt-event.CRITICAL {
+		border-left-color: #ff4466;
+	}
+
+	.evnt-event.WARNING {
+		border-left-color: #ffd700;
+	}
+
+	.evnt-event.INFO {
+		border-left-color: #00ff9d;
+	}
+
+	.evnt-event-header {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		justify-content: space-between;
+	}
+
+	.evnt-event-badges {
+		display: flex;
+		gap: 6px;
+		align-items: center;
+	}
+
+	.evnt-severity {
+		font-size: 10px;
+		font-weight: 700;
+		padding: 2px 8px;
+		border-radius: 4px;
+		letter-spacing: 0.5px;
+	}
+
+	.evnt-sev-CRITICAL {
+		background: rgba(255, 68, 102, 0.2);
+		color: #ff4466;
+	}
+
+	.evnt-sev-WARNING {
+		background: rgba(255, 215, 0, 0.2);
+		color: #ffd700;
+	}
+
+	.evnt-sev-INFO {
+		background: rgba(0, 255, 157, 0.2);
+		color: #00ff9d;
+	}
+
+	.evnt-event-type {
+		font-size: 11px;
+		color: #a855f7;
+		font-weight: 600;
+	}
+
+	.evnt-event-time {
+		font-size: 10px;
+		color: #64748b;
+	}
+
+	.evnt-event-resource {
+		font-size: 12px;
+		color: #e2e8f0;
+		font-weight: 500;
+	}
+
+	.evnt-event-ns {
+		color: #00d4ff;
+		margin-right: 4px;
+		opacity: 0.8;
+	}
+
+	.evnt-event-message {
+		font-size: 11px;
+		color: #94a3b8;
+		line-height: 1.4;
+	}
+
+	.evnt-detail-empty {
+		padding: 32px 16px;
+		text-align: center;
+		color: #64748b;
+	}
+
+	.evnt-detail-section {
+		padding: 12px 16px;
+		border-bottom: 1px solid #334155;
+	}
+
+	.evnt-detail-label {
+		font-size: 10px;
+		color: #64748b;
+		text-transform: uppercase;
+		margin-bottom: 6px;
+	}
+
+	.evnt-detail-value {
+		font-size: 12px;
+		color: #e2e8f0;
+		word-break: break-word;
+	}
+
+	.evnt-chip {
+		display: inline-block;
+		font-size: 10px;
+		padding: 3px 8px;
+		border-radius: 4px;
+		background: rgba(168, 85, 247, 0.2);
+		color: #a855f7;
+		margin-right: 4px;
+		margin-bottom: 4px;
+	}
+
+	::-webkit-scrollbar {
+		width: 4px;
+	}
+
+	::-webkit-scrollbar-track {
+		background: transparent;
+	}
+
+	::-webkit-scrollbar-thumb {
+		background: #334155;
+		border-radius: 2px;
+	}
 </style>
 
 <div class="evnt-container">
@@ -69,20 +334,25 @@
 			<div class="evnt-stat-label">Warning</div>
 			<div class="evnt-stat-value" id="evntStatWarn">0</div>
 		</div>
-		<div class="evnt-stat-card evnt-stat-info">
+		<!-- <div class="evnt-stat-card evnt-stat-info">
 			<div class="evnt-stat-label">Info</div>
 			<div class="evnt-stat-value" id="evntStatInfo">0</div>
-		</div>
+		</div> -->
 	</div>
 
 	<div class="evnt-toolbar">
-		<button class="evnt-filter-btn active" data-filter="ALL" onclick="window.evntCtrl.setFilter('ALL', this)">All</button>
-		<button class="evnt-filter-btn" data-filter="CRITICAL" onclick="window.evntCtrl.setFilter('CRITICAL', this)">Critical</button>
-		<button class="evnt-filter-btn" data-filter="WARNING" onclick="window.evntCtrl.setFilter('WARNING', this)">Warning</button>
-		<button class="evnt-filter-btn" data-filter="INFO" onclick="window.evntCtrl.setFilter('INFO', this)">Info</button>
+		<button class="evnt-filter-btn active" data-filter="ALL"
+			onclick="window.evntCtrl.setFilter('ALL', this)">All</button>
+		<button class="evnt-filter-btn" data-filter="CRITICAL"
+			onclick="window.evntCtrl.setFilter('CRITICAL', this)">Critical</button>
+		<button class="evnt-filter-btn" data-filter="WARNING"
+			onclick="window.evntCtrl.setFilter('WARNING', this)">Warning</button>
+		<!-- <button class="evnt-filter-btn" data-filter="INFO"
+			onclick="window.evntCtrl.setFilter('INFO', this)">Info</button> -->
 		<button class="evnt-filter-btn" onclick="window.evntCtrl.clearAll()" style="margin-left:4px">Clear</button>
-		<input type="text" class="evnt-search" placeholder="Search events…" oninput="window.evntCtrl.setSearch(this.value)" id="evntSearch">
-  </div>
+		<input type="text" class="evnt-search" placeholder="Search events…"
+			oninput="window.evntCtrl.setSearch(this.value)" id="evntSearch">
+	</div>
 
 	<div class="evnt-grid">
 		<div class="evnt-panel">
@@ -102,50 +372,50 @@
 
 <script>
 	(function initEventsPage() {
-	console.log('[EVENTS] Page initializing');
+		console.log('[EVENTS] Page initializing');
 
-	let ws = null;
-	let events = [];
-	let selectedId = null;
-	let filterLevel = 'ALL';
-	let searchQuery = '';
-	const stats = { CRITICAL: 0, WARNING: 0, INFO: 0 };
+		let ws = null;
+		let events = [];
+		let selectedId = null;
+		let filterLevel = 'ALL';
+		let searchQuery = '';
+		const stats = { CRITICAL: 0, WARNING: 0 };
 
-	function timeAgo(ts) {
-	const sec = Math.floor((Date.now() - new Date(ts)) / 1000);
-	if (sec < 60) return sec + 's ago';
-      if (sec < 3600) return Math.floor(sec/60) + 'm ago';
-      return Math.floor(sec/3600) + 'h ago';
-    }
+		function timeAgo(ts) {
+			const sec = Math.floor((Date.now() - new Date(ts)) / 1000);
+			if (sec < 60) return sec + 's ago';
+			if (sec < 3600) return Math.floor(sec / 60) + 'm ago';
+			return Math.floor(sec / 3600) + 'h ago';
+		}
 
-    function updateStats() {
-      document.getElementById('evntStatCrit').textContent = stats.CRITICAL;
-      document.getElementById('evntStatWarn').textContent = stats.WARNING;
-      document.getElementById('evntStatInfo').textContent = stats.INFO;
-    }
+		function updateStats() {
+			document.getElementById('evntStatCrit').textContent = stats.CRITICAL;
+			document.getElementById('evntStatWarn').textContent = stats.WARNING;
+			// document.getElementById('evntStatInfo').textContent = stats.INFO;
+		}
 
-    function renderFeed() {
-      const container = document.getElementById('evntFeed');
-      if (!container) return;
+		function renderFeed() {
+			const container = document.getElementById('evntFeed');
+			if (!container) return;
 
-      const filtered = events.filter(e => {
-        if (filterLevel !== 'ALL' && e.severity !== filterLevel) return false;
-	if (searchQuery) {
-	const q = searchQuery.toLowerCase();
-	return (e.resource_name || '').toLowerCase().includes(q) ||
-	(e.namespace || '').toLowerCase().includes(q) ||
-	(e.message || '').toLowerCase().includes(q) ||
-	(e.reason || '').toLowerCase().includes(q);
-	}
-	return true;
-	});
+			const filtered = events.filter(e => {
+				if (filterLevel !== 'ALL' && e.severity !== filterLevel) return false;
+				if (searchQuery) {
+					const q = searchQuery.toLowerCase();
+					return (e.resource_name || '').toLowerCase().includes(q) ||
+						(e.namespace || '').toLowerCase().includes(q) ||
+						(e.message || '').toLowerCase().includes(q) ||
+						(e.reason || '').toLowerCase().includes(q);
+				}
+				return true;
+			});
 
-	if (filtered.length === 0) {
-	container.innerHTML = '<div class="evnt-feed-empty">No events match filters</div>';
-	return;
-	}
+			if (filtered.length === 0) {
+				container.innerHTML = '<div class="evnt-feed-empty">No events match filters</div>';
+				return;
+			}
 
-	container.innerHTML = filtered.map(e => `
+			container.innerHTML = filtered.map(e => `
 	<div class="evnt-event ${e.severity} ${e.event_id === selectedId ? 'selected' : ''}" onclick="window.evntCtrl.selectEvent('${e.event_id}')">
 		<div class="evnt-event-header">
 			<div class="evnt-event-badges">
@@ -160,13 +430,13 @@
 		<div class="evnt-event-message">${(e.reason || 'Event')} - ${e.message.substring(0, 80)}</div>
 	</div>
 	`).join('');
-	}
+		}
 
-	function renderDetail(evt) {
-	const container = document.getElementById('evntDetail');
-	if (!container) return;
+		function renderDetail(evt) {
+			const container = document.getElementById('evntDetail');
+			if (!container) return;
 
-	const teamsHtml = evt.teams && evt.teams.length ? `
+			const teamsHtml = evt.teams && evt.teams.length ? `
 	<div class="evnt-detail-section">
 		<div class="evnt-detail-label">Routed Teams</div>
 		<div>
@@ -175,16 +445,16 @@
 	</div>
 	` : '';
 
-	const labelsHtml = evt.labels ? `
+			const labelsHtml = evt.labels ? `
 	<div class="evnt-detail-section">
 		<div class="evnt-detail-label">Labels</div>
 		<div>
-			${Object.entries(evt.labels).map(([k,v]) => `<span class="evnt-chip">${k}=${v}</span>`).join('')}
+			${Object.entries(evt.labels).map(([k, v]) => `<span class="evnt-chip">${k}=${v}</span>`).join('')}
 		</div>
 	</div>
 	` : '';
 
-	container.innerHTML = `
+			container.innerHTML = `
 	<div class="evnt-detail-section">
 		<div class="evnt-detail-label">Event ID</div>
 		<div class="evnt-detail-value" style="font-size:10px;font-family:monospace">${evt.event_id}</div>
@@ -194,8 +464,8 @@
 		<div class="evnt-detail-value" style="color:${evt.severity === 'CRITICAL' ? '#ff4466' : evt.severity === 'WARNING' ? '#ffd700' : '#00ff9d'}">${evt.severity}</div>
 	</div>
 	<div class="evnt-detail-section">
-		<div class="evnt-detail-label">Type / Reason</div>
-		<div class="evnt-detail-value">${evt.event_type || 'Unknown'} / ${evt.reason || '—'}</div>
+		<div class="evnt-detail-label"> Reason</div>
+		<div class="evnt-detail-value"> ${evt.reason || '—'}</div>
 	</div>
 	<div class="evnt-detail-section">
 		<div class="evnt-detail-label">Resource</div>
@@ -221,154 +491,95 @@
 	${teamsHtml}
 	${labelsHtml}
 	`;
-	}
+		}
 
-	function addEvent(evt) {
-	events.unshift(evt);
-	if (events.length > 500) events.pop();
-	stats[evt.severity] = (stats[evt.severity] || 0) + 1;
-	updateStats();
-	renderFeed();
-	}
+		function addEvent(evt) {
+			events.unshift(evt);
+			if (events.length > 500) events.pop();
+			stats[evt.severity] = (stats[evt.severity] || 0) + 1;
+			updateStats();
+			renderFeed();
+		}
 
-	function setWsStatus(state) {
-	const dot = document.getElementById('evntWsDot');
-	const label = document.getElementById('evntWsStatus');
-	if (!dot || !label) return;
-	dot.className = 'evnt-ws-dot ' + state;
-	const texts = { connected: 'Connected', error: 'Error', connecting: 'Connecting…', '': 'Disconnected' };
-	label.textContent = texts[state] || 'Disconnected';
-	}
+		function setWsStatus(state) {
+			const dot = document.getElementById('evntWsDot');
+			const label = document.getElementById('evntWsStatus');
+			if (!dot || !label) return;
+			dot.className = 'evnt-ws-dot ' + state;
+			const texts = { connected: 'Connected', error: 'Error', connecting: 'Connecting…', '': 'Disconnected' };
+			label.textContent = texts[state] || 'Disconnected';
+		}
 
-	// ── Public API ────────────────────────────────────────────────────────────
-	// connect(token) is called by EventsController.mount() — NOT self-invoked
-	function connect(token) {
-	console.log('[EVENTS] connect() called with token:', !!token);
-	if (!token) {
-	console.error('[EVENTS] No token provided to connect() — aborting WebSocket connection');
-	setWsStatus('error');
-	return;
-	}
+		// ── Public API ────────────────────────────────────────────────────────────
+		// connect(token) is called by EventsController.mount() — NOT self-invoked
+		function connect(token) {
+			console.log('[EVENTS] _globalWs:', window._globalWs?.readyState, 'url:', window._globalWs?.url);
+			console.log('[EVENTS] connect() — attaching to global WS');
+			const ws = window._globalWs;
+			if (!ws) {
+				console.error('[EVENTS] window._globalWs not available yet');
+				setWsStatus('error');
+				return;
+			}
 
-	// Clean up any existing socket
-	if (ws) {
-	console.log('[EVENTS] Closing existing WebSocket connection');
-	ws.onclose = null; // prevent auto-reconnect from old socket
-	ws.close();
-	ws = null;
-	}
+			setWsStatus(ws.readyState === 1 ? 'connected' : 'connecting');
 
-	const protocol = location.protocol === 'https:' ? 'wss' : 'ws';
-	const url = `${protocol}://${location.host}/ws/events`;
-	console.log('[EVENTS] Attempting WebSocket connection to:', url);
+			ws.addEventListener('message', (raw) => {
+				try {
+					const data = JSON.parse(raw.data);
+					if (data.type === 'SUBSCRIBED' && data.history)
+						data.history.forEach(addEvent);
+					else if (data.type === 'HISTORY')
+						(data.events || []).forEach(addEvent);
+					else if (data.type !== 'PONG' && data.type !== 'SUBSCRIBED')
+						addEvent(data);
+				} catch (e) {
+					console.error('[EVENTS] Parse error:', e);
+				}
+			});
+		}
 
-	setWsStatus('connecting');
-	try {
-	ws = new WebSocket(url);
-	console.log('[EVENTS] WebSocket object created, readyState:', ws.readyState);
-	} catch (err) {
-	console.error('[EVENTS] Failed to create WebSocket:', err);
-	setWsStatus('error');
-	return;
-	}
+		function disconnect() {
+			// nothing to close — global WS is owned by dashboard
+			setWsStatus('');
+		}
 
-	ws.onopen = () => {
-	console.log('[EVENTS] WS connected, readyState:', ws.readyState);
-	setWsStatus('connected');
-	const payload = JSON.stringify({
-	token,
-	user_id: 'dashboard',
-	severities: ['CRITICAL', 'WARNING', 'INFO']
-	});
-	console.log('[EVENTS] Sending subscription payload...');
-	try {
-	ws.send(payload);
-	console.log('[EVENTS] Subscription payload sent');
-	} catch (err) {
-	console.error('[EVENTS] Failed to send subscription:', err);
-	}
-	};
+		window.evntCtrl = {
+			connect,
+			disconnect,
 
-	ws.onmessage = (evt) => {
-	try {
-	const data = JSON.parse(evt.data);
-	console.log('[EVENTS] Message received, type:', data.type);
-	if (data.type === 'SUBSCRIBED' && data.history) {
-	console.log('[EVENTS] Subscription confirmed, history count:', data.history.length);
-	data.history.forEach(addEvent);
-	} else if (data.type === 'HISTORY') {
-	console.log('[EVENTS] History batch, events count:', (data.events || []).length);
-	(data.events || []).forEach(addEvent);
-	} else if (data.type !== 'PONG') {
-	console.log('[EVENTS] Live event received');
-	addEvent(data);
-	}
-	} catch (e) {
-	console.error('[EVENTS] Parse error:', e);
-	}
-	};
+			setFilter(level, btn) {
+				filterLevel = level;
+				document.querySelectorAll('.evnt-filter-btn').forEach(b => b.classList.remove('active'));
+				if (btn) btn.classList.add('active');
+				renderFeed();
+			},
+			setSearch(val) {
+				searchQuery = val;
+				renderFeed();
+			},
+			selectEvent(id) {
+				selectedId = id;
+				const evt = events.find(e => e.event_id === id);
+				if (evt) {
+					renderFeed();
+					renderDetail(evt);
+				}
+			},
+			clearAll() {
+				events = [];
+				stats.CRITICAL = stats.WARNING = 0;
+				selectedId = null;
+				updateStats();
+				renderFeed();
+				const detail = document.getElementById('evntDetail');
+				if (detail) detail.innerHTML = '<div class="evnt-detail-empty">Select an event</div>';
+			}
+		};
 
-	ws.onerror = (evt) => {
-	console.error('[EVENTS] WS error event:', evt);
-	setWsStatus('error');
-	};
-
-	ws.onclose = (evt) => {
-	console.log('[EVENTS] WS closed, code:', evt.code, 'reason:', evt.reason);
-	setWsStatus('');
-	// Reconnect using the same token
-	console.log('[EVENTS] Scheduling reconnect in 3s');
-	setTimeout(() => connect(token), 3000);
-	};
-	}
-
-	function disconnect() {
-	if (ws) {
-	ws.onclose = null; // prevent auto-reconnect on intentional disconnect
-	ws.close();
-	ws = null;
-	}
-	setWsStatus('');
-	}
-
-	window.evntCtrl = {
-	// Called by EventsController.mount() with the real token
-	connect,
-	// Called by EventsController.unmount() to clean up
-	disconnect,
-
-	setFilter(level, btn) {
-	filterLevel = level;
-	document.querySelectorAll('.evnt-filter-btn').forEach(b => b.classList.remove('active'));
-	if (btn) btn.classList.add('active');
-	renderFeed();
-	},
-	setSearch(val) {
-	searchQuery = val;
-	renderFeed();
-	},
-	selectEvent(id) {
-	selectedId = id;
-	const evt = events.find(e => e.event_id === id);
-	if (evt) {
-	renderFeed();
-	renderDetail(evt);
-	}
-	},
-	clearAll() {
-	events = [];
-	stats.CRITICAL = stats.WARNING = stats.INFO = 0;
-	selectedId = null;
-	updateStats();
-	renderFeed();
-	const detail = document.getElementById('evntDetail');
-	if (detail) detail.innerHTML = '<div class="evnt-detail-empty">Select an event</div>';
-	}
-	};
-
-	// ── DO NOT call connectWs() here ─────────────────────────────────────────
-	// EventsController.mount() will call window.evntCtrl.connect(token) once
-	// the view is loaded and the token is available.
+		// ── DO NOT call connectWs() here ─────────────────────────────────────────
+		// EventsController.mount() will call window.evntCtrl.connect(token) once
+		// the view is loaded and the token is available.
 
 	})();
 </script>
