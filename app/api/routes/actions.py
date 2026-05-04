@@ -4,7 +4,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from app.auth.dependencies import get_permission_label, require_permission, user_has_permission
+from app.auth.dependencies import get_current_user, get_permission_label, require_permission, user_has_permission
 from app.core.settings import get_settings
 from app.database.models import User
 from app.schemas.api import ActionRequestCreate
@@ -76,7 +76,7 @@ def _authorize_action_permission(action_type: str, target: dict, user: User) -> 
 @router.post("/action-requests")
 def create_action(
     payload: ActionRequestCreate,
-    user: User = Depends(require_permission("dashboard:read")),
+    user: User = Depends(get_current_user),
 ) -> dict:
     """Create a pending action request."""
     _authorize_action_permission(payload.type, payload.target.model_dump(), user)
@@ -86,7 +86,7 @@ def create_action(
 @router.get("/action-requests")
 def list_actions(
     status: Optional[str] = Query(default=None),
-    user: User = Depends(require_permission("dashboard:read")),
+    user: User = Depends(get_current_user),
 ) -> list[dict]:
     """List action requests, optionally filtered by status."""
     return list_action_requests(status=status)
@@ -95,7 +95,7 @@ def list_actions(
 @router.get("/action-requests/{action_id}")
 def get_action(
     action_id: str,
-    user: User = Depends(require_permission("dashboard:read")),
+    user: User = Depends(get_current_user),
 ) -> dict:
     """Fetch a single action request."""
     record = get_action_request(action_id)
@@ -105,7 +105,7 @@ def get_action(
 
 
 @router.get("/action-types")
-def get_action_types(user: User = Depends(require_permission("dashboard:read"))) -> dict:
+def get_action_types(user: User = Depends(get_current_user)) -> dict:
     """List supported approval-gated action types."""
     return {"action_types": sorted(ACTION_HANDLERS)}
 
@@ -113,7 +113,7 @@ def get_action_types(user: User = Depends(require_permission("dashboard:read")))
 @router.post("/action-requests/{action_id}/approve")
 def approve_action(
     action_id: str,
-    user: User = Depends(require_permission("dashboard:read")),
+    user: User = Depends(get_current_user),
 ) -> dict:
     """Approve and execute an action request if mutations are enabled."""
     record = get_action_request(action_id)
@@ -142,7 +142,7 @@ def approve_action(
 @router.post("/action-requests/{action_id}/reject")
 def reject_action(
     action_id: str,
-    user: User = Depends(require_permission("dashboard:read")),
+    user: User = Depends(get_current_user),
 ) -> dict:
     """Reject a pending action request."""
     record = get_action_request(action_id)

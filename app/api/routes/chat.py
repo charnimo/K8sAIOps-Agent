@@ -5,7 +5,7 @@ from cmath import log
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from app.auth.dependencies import require_permission
+from app.auth.dependencies import get_current_user
 from app.database.database import get_db, SessionLocal
 from app.database.models import ChatHistory, Conversation, User
 from app.schemas.api import ChatMessageRequest, ChatSessionCreateRequest
@@ -84,7 +84,7 @@ def _serialize_session(row: Conversation, include_messages: bool = False) -> dic
 @router.get("/sessions")
 def list_chat_sessions(
     db: Session = Depends(get_db),
-    user: User = Depends(require_permission("dashboard:read")),
+    user: User = Depends(get_current_user),
 ) -> list[dict]:
     """List chat sessions for the current user."""
     _ensure_mock_conversations(db, user)
@@ -101,7 +101,7 @@ def list_chat_sessions(
 def create_chat_session(
     payload: ChatSessionCreateRequest | None = None,
     db: Session = Depends(get_db),
-    user: User = Depends(require_permission("dashboard:read")),
+    user: User = Depends(get_current_user),
 ) -> dict:
     """Create a new DB-backed chat session for the current user."""
     title = "New Conversation"
@@ -119,7 +119,7 @@ def create_chat_session(
 def get_chat_session(
     session_id: int,
     db: Session = Depends(get_db),
-    user: User = Depends(require_permission("dashboard:read")),
+    user: User = Depends(get_current_user),
 ) -> dict:
     """Return chat history for a DB session owned by the current user."""
     row = (
@@ -137,7 +137,7 @@ def post_chat_message(
     session_id: int,
     payload: ChatMessageRequest,
     db: Session = Depends(get_db),
-    user: User = Depends(require_permission("dashboard:read")),
+    user: User = Depends(get_current_user),
 ) -> dict:
     """Append a user message to a DB session and return template assistant reply."""
     session = (
