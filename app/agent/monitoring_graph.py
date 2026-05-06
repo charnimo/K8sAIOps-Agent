@@ -30,6 +30,7 @@ from app.agent.schemas import (
     SuggestedAction,
     ResourceType,
 )
+from app.agent.recipients import resolve_concerned_users_for_event
 from app.agent.tools import (
     execute_tool,
     get_tool_definitions,
@@ -107,6 +108,7 @@ async def node_decide_tools(state: MonitoringGraphState) -> MonitoringGraphState
 
         # Build LLM prompt
         tool_definitions = get_tool_definitions()
+        tool_names = {tool.name for tool in tool_definitions}
         tools_description = "\n".join(
             [f"- {t.name}: {t.description}" for t in tool_definitions]
         )
@@ -136,22 +138,30 @@ Respond in this JSON format:
 }}
 """
 
-        # Call LLM
-        # PLACEHOLDER: Replace with actual LLM client call
         llm_client = get_llm_client()
 
         logger.info(
-            f"[PLACEHOLDER] Calling LLM to select tools for {event.resource_type} {event.resource_name}"
+            f"Calling LLM to select tools for {event.resource_type} {event.resource_name}"
         )
 
-        # PLACEHOLDER RESPONSE (remove when LLM is integrated)
-        llm_response_text = _get_placeholder_llm_response(
-            event.resource_type, event.reason
+        response = await llm_client.ainvoke(
+            [
+                {
+                    "role": "system",
+                    "content": (
+                        "You are a Kubernetes diagnostics planner. "
+                        "Return only JSON with keys: tools (list of strings) and reasoning (string)."
+                    ),
+                },
+                {"role": "user", "content": prompt},
+            ]
         )
+
+        llm_response_text = llm_client.extract_text(response)
 
         # Parse LLM response
         try:
-            response_json = json.loads(llm_response_text)
+            response_json = _extract_json_payload(llm_response_text)
             tools_to_call = response_json.get("tools", [])
             llm_reasoning = response_json.get("reasoning", "")
         except json.JSONDecodeError:
@@ -159,7 +169,7 @@ Respond in this JSON format:
             tools_to_call = _get_default_tools_for_reason(event.reason)
             llm_reasoning = "Fallback to default tools due to LLM parse error"
 
-        state["tools_to_call"] = tools_to_call
+        state["tools_to_call"] = [tool for tool in tools_to_call if tool in tool_names]
         state["llm_tool_reasoning"] = llm_reasoning
 
         logger.info(
@@ -351,6 +361,54 @@ def node_resolve_team(state: MonitoringGraphState) -> MonitoringGraphState:
 
 
 # ============================================================================
+# NODE 5B: RESOLVE RECIPIENT
+# ============================================================================
+
+
+def node_resolve_recipient(state: MonitoringGraphState) -> MonitoringGraphState:
+    """Resolve the best recipient using the namespace permission map."""
+    try:
+        event = state["event"]
+        resolution = resolve_concerned_users_for_event(
+            namespace=event.namespace,
+            resource_type=event.resource_type,
+            additional_context=event.additional_context,
+        )
+
+        state["concerned_users"] = resolution.get("concerned_users", [])
+        state["concerned_person"] = resolution.get("primary_concerned_user")
+        state["owner_hints"] = resolution.get("owner_hints", [])
+
+        if state.get("concerned_person"):
+            person = state["concerned_person"]
+            logger.info(
+                "Resolved recipient for %s/%s -> %s (%s)",
+                event.namespace,
+                event.resource_name,
+                person.get("display_name"),
+                person.get("email"),
+            )
+        else:
+            logger.info(
+                "No specific recipient resolved for %s/%s; notification will fall back to team routing",
+                event.namespace,
+                event.resource_name,
+            )
+
+        return state
+
+    except Exception as e:
+        state["errors"] = state.get("errors", []) + [
+            f"Recipient resolution failed: {str(e)}"
+        ]
+        logger.error(f"Recipient resolution error: {e}", exc_info=True)
+        state["concerned_users"] = []
+        state["concerned_person"] = None
+        state["owner_hints"] = []
+        return state
+
+
+# ============================================================================
 # NODE 6: PERSIST INCIDENT RECORD
 # ============================================================================
 
@@ -374,6 +432,10 @@ async def node_persist_incident(
         severity = state.get("severity", event.severity)
         teams = state.get("teams", [])
         root_cause = state.get("root_cause_analysis")
+        concerned_person = state.get("concerned_person")
+        concerned_users = state.get("concerned_users", [])
+        owner_hints = state.get("owner_hints", [])
+        log_snapshot = _build_log_snapshot(diagnostics)
 
         # Build incident record
         incident = IncidentRecord(
@@ -387,7 +449,13 @@ async def node_persist_incident(
             severity=severity,
             teams=teams,
             summary=f"{event.reason} in {event.namespace}/{event.resource_name}",
-            detailed_summary=_build_detailed_summary(event, diagnostics),
+            detailed_summary=_build_detailed_summary(
+                event,
+                diagnostics,
+                concerned_person=concerned_person,
+                log_snapshot=log_snapshot,
+            ),
+            log_snapshot=log_snapshot,
             collected_diagnostics={
                 name: result.dict() for name, result in diagnostics.items()
             },
@@ -395,6 +463,9 @@ async def node_persist_incident(
             llm_reasoning=state.get("llm_tool_reasoning"),
             root_cause_analysis=root_cause,
             suggested_actions=_generate_suggested_actions(event, root_cause),
+            concerned_person=concerned_person,
+            concerned_users=concerned_users,
+            owner_hints=owner_hints,
             status=IncidentStatus.OPEN,
             created_at=datetime.now(),
             updated_at=datetime.now(),
@@ -409,6 +480,7 @@ async def node_persist_incident(
         # session.commit()
 
         state["incident_record"] = incident
+        state["log_snapshot"] = log_snapshot
 
         logger.info(
             f"Incident persisted: {incident.incident_id} (status: {incident.status})"
@@ -449,7 +521,10 @@ async def node_notify_team(state: MonitoringGraphState) -> MonitoringGraphState:
 
         # PLACEHOLDER: Send WebSocket notification
         logger.info(
-            f"[PLACEHOLDER] Notifying teams {incident.teams} of incident {incident.incident_id}"
+            "Notifying teams %s and recipient %s for incident %s",
+            incident.teams,
+            incident.concerned_person.get("display_name") if incident.concerned_person else None,
+            incident.incident_id,
         )
 
         # from app.api.routes.events import notify_incident
@@ -486,6 +561,7 @@ def build_monitoring_graph():
     graph.add_node("collect_diagnostics", node_collect_diagnostics)
     graph.add_node("classify_severity", node_classify_severity)
     graph.add_node("resolve_team", node_resolve_team)
+    graph.add_node("resolve_recipient", node_resolve_recipient)
     graph.add_node("persist_incident", node_persist_incident)
     graph.add_node("notify_team", node_notify_team)
 
@@ -495,7 +571,8 @@ def build_monitoring_graph():
     graph.add_edge("decide_tools", "collect_diagnostics")
     graph.add_edge("collect_diagnostics", "classify_severity")
     graph.add_edge("classify_severity", "resolve_team")
-    graph.add_edge("resolve_team", "persist_incident")
+    graph.add_edge("resolve_team", "resolve_recipient")
+    graph.add_edge("resolve_recipient", "persist_incident")
     graph.add_edge("persist_incident", "notify_team")
     graph.set_finish_point("notify_team")
 
@@ -560,6 +637,7 @@ def _build_tool_parameters(
 ) -> Dict[str, Dict[str, Any]]:
     """Build parameters for each tool based on event."""
     params = {}
+    additional_context = event.additional_context or {}
 
     for tool_name in tools:
         if tool_name in [
@@ -574,10 +652,24 @@ def _build_tool_parameters(
                 "pod_name": event.resource_name,
             }
         elif tool_name in ["get_deployment_info", "describe_deployment"]:
-            params[tool_name] = {
-                "namespace": event.namespace,
-                "deployment_name": event.resource_name,
-            }
+            deployment_name = additional_context.get("deployment_name")
+            if deployment_name:
+                params[tool_name] = {
+                    "namespace": event.namespace,
+                    "deployment_name": deployment_name,
+                }
+            elif event.resource_type in [ResourceType.DEPLOYMENT, ResourceType.STATEFULSET]:
+                params[tool_name] = {
+                    "namespace": event.namespace,
+                    "deployment_name": event.resource_name,
+                }
+            else:
+                logger.warning(
+                    "Skipping %s because no owning deployment name is available for %s/%s",
+                    tool_name,
+                    event.namespace,
+                    event.resource_name,
+                )
         elif tool_name == "list_nodes":
             params[tool_name] = {}
 
@@ -669,7 +761,10 @@ def _analyze_root_cause(
 
 
 def _build_detailed_summary(
-    event: EnrichedEventInput, diagnostics: Dict[str, DiagnosticResult]
+    event: EnrichedEventInput,
+    diagnostics: Dict[str, DiagnosticResult],
+    concerned_person: Optional[Dict[str, Any]] = None,
+    log_snapshot: Optional[str] = None,
 ) -> str:
     """Build detailed summary of incident."""
     lines = [
@@ -680,7 +775,82 @@ def _build_detailed_summary(
         f"Diagnostics collected: {len(diagnostics)} tools",
     ]
 
+    if concerned_person:
+        display_name = concerned_person.get("display_name") or concerned_person.get("username")
+        email = concerned_person.get("email")
+        lines.append(f"Concerned person: {display_name} ({email})" if email else f"Concerned person: {display_name}")
+
+    if log_snapshot:
+        lines.append("Log snapshot:")
+        lines.extend(f"  {line}" for line in log_snapshot.splitlines())
+
     return "\n".join(lines)
+
+
+def _build_log_snapshot(diagnostics: Dict[str, DiagnosticResult], max_lines: int = 8) -> Optional[str]:
+    """Extract a compact log excerpt from diagnostic outputs."""
+    candidates: list[str] = []
+
+    for key in ("get_pod_logs", "describe_pod"):
+        result = diagnostics.get(key)
+        if not result or not result.success or not result.data:
+            continue
+
+        payload = result.data
+        for field_name in ("logs", "prev_logs"):
+            value = payload.get(field_name)
+            if isinstance(value, str):
+                lines = [line for line in value.splitlines() if line.strip()]
+                if lines:
+                    candidates.extend(lines[:max_lines])
+            elif isinstance(value, dict):
+                for container_name, container_logs in value.items():
+                    if isinstance(container_logs, str):
+                        lines = [line for line in container_logs.splitlines() if line.strip()]
+                        if lines:
+                            candidates.append(f"[{container_name}]")
+                            candidates.extend(lines[:max_lines])
+                    elif isinstance(container_logs, list):
+                        cleaned = [str(line) for line in container_logs if str(line).strip()]
+                        if cleaned:
+                            candidates.append(f"[{container_name}]")
+                            candidates.extend(cleaned[:max_lines])
+
+        if candidates:
+            break
+
+    if not candidates:
+        return None
+
+    return "\n".join(candidates[:max_lines])
+
+
+def _extract_json_payload(text: str) -> Dict[str, Any]:
+    """Extract a JSON object from raw LLM output.
+
+    Handles plain JSON and fenced markdown blocks like:
+    ```json
+    {...}
+    ```
+    """
+    stripped = text.strip()
+
+    if stripped.startswith("```"):
+        stripped = stripped.strip("`")
+        lines = stripped.splitlines()
+        if lines and lines[0].strip().lower() in {"json", "javascript"}:
+            lines = lines[1:]
+        stripped = "\n".join(lines).strip()
+
+    if stripped.startswith("{") and stripped.endswith("}"):
+        return json.loads(stripped)
+
+    start = stripped.find("{")
+    end = stripped.rfind("}")
+    if start != -1 and end != -1 and end > start:
+        return json.loads(stripped[start : end + 1])
+
+    raise json.JSONDecodeError("No JSON object found", text, 0)
 
 
 def _generate_suggested_actions(

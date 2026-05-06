@@ -1,6 +1,6 @@
 """Tool registry and wrappers for monitoring agent.
 
-Wraps Tools/* functions and provides:
+Wraps the existing Tools/* functions and provides:
 - Tool definitions for LLM consumption
 - Permission-scoped execution
 - Error handling and retries
@@ -8,10 +8,16 @@ Wraps Tools/* functions and provides:
 
 import asyncio
 import logging
-from typing import Any, Callable, Dict, List, Optional, Coroutine
 from datetime import datetime
+from typing import Any, Callable, Dict, List, Optional
 
-from app.agent.schemas import ToolDefinition, DiagnosticResult
+from Tools.deployments import get_deployment, get_deployment_events
+from Tools.diagnostics import diagnose_deployment, diagnose_pod
+from Tools.metrics import get_pod_metrics
+from Tools.nodes import list_nodes
+from Tools.pods import get_pod_events, get_pod_logs, get_pod_status
+
+from app.agent.schemas import DiagnosticResult, ToolDefinition
 
 logger = logging.getLogger(__name__)
 
@@ -107,70 +113,42 @@ class Tool:
 # DIAGNOSTIC TOOLS FROM Tools PACKAGE
 # ============================================================================
 
-# PLACEHOLDER: Import functions from Tools package
-# These are stubs - replace with actual imports when ready
-# from Tools import pods, deployments, services, metrics, events, nodes
-# from Tools.diagnostics import diagnose_pod, diagnose_deployment
-
-
 async def _get_pod_logs(
     namespace: str, pod_name: str, container: Optional[str] = None, lines: int = 500
 ) -> Dict[str, Any]:
-    """Get pod container logs.
-
-    PLACEHOLDER: Calls Tools/pods.py::get_pod_logs
-    """
+    """Get pod container logs using the existing Tools implementation."""
     try:
-        # from Tools.pods import get_pod_logs as real_get_pod_logs
-        # return real_get_pod_logs(namespace, pod_name, container, lines)
-        logger.info(f"[PLACEHOLDER] get_pod_logs({namespace}, {pod_name})")
-        return {"logs": [], "container": container, "lines_returned": 0}
+        logs = get_pod_logs(
+            name=pod_name,
+            namespace=namespace,
+            container=container,
+            tail_lines=lines,
+        )
+        return {"logs": logs, "container": container, "lines_returned": lines}
     except Exception as e:
         raise RuntimeError(f"Failed to get pod logs: {str(e)}")
 
 
 async def _get_pod_events(namespace: str, pod_name: str) -> Dict[str, Any]:
-    """Get pod Kubernetes events.
-
-    PLACEHOLDER: Calls Tools/events.py::get_pod_events
-    """
+    """Get pod Kubernetes events using the existing Tools implementation."""
     try:
-        # from Tools.events import get_pod_events as real_get_pod_events
-        # return real_get_pod_events(namespace, pod_name)
-        logger.info(f"[PLACEHOLDER] get_pod_events({namespace}, {pod_name})")
-        return {"events": []}
+        return {"events": get_pod_events(name=pod_name, namespace=namespace)}
     except Exception as e:
         raise RuntimeError(f"Failed to get pod events: {str(e)}")
 
 
 async def _get_pod_status(namespace: str, pod_name: str) -> Dict[str, Any]:
-    """Get pod status and conditions.
-
-    PLACEHOLDER: Calls Tools/pods.py::get_pod_status
-    """
+    """Get pod status and conditions using the existing Tools implementation."""
     try:
-        # from Tools.pods import get_pod_status as real_get_pod_status
-        # return real_get_pod_status(namespace, pod_name)
-        logger.info(f"[PLACEHOLDER] get_pod_status({namespace}, {pod_name})")
-        return {
-            "phase": "Unknown",
-            "conditions": [],
-            "restart_count": 0,
-        }
+        return get_pod_status(name=pod_name, namespace=namespace)
     except Exception as e:
         raise RuntimeError(f"Failed to get pod status: {str(e)}")
 
 
 async def _get_pod_metrics(namespace: str, pod_name: str) -> Dict[str, Any]:
-    """Get pod CPU and memory metrics.
-
-    PLACEHOLDER: Calls Tools/metrics.py::get_pod_metrics
-    """
+    """Get pod CPU and memory metrics using the existing Tools implementation."""
     try:
-        # from Tools.metrics import get_pod_metrics as real_get_pod_metrics
-        # return real_get_pod_metrics(namespace, pod_name)
-        logger.info(f"[PLACEHOLDER] get_pod_metrics({namespace}, {pod_name})")
-        return {"cpu_usage": "0m", "memory_usage": "0Mi"}
+        return get_pod_metrics(name=pod_name, namespace=namespace)
     except Exception as e:
         raise RuntimeError(f"Failed to get pod metrics: {str(e)}")
 
@@ -178,51 +156,27 @@ async def _get_pod_metrics(namespace: str, pod_name: str) -> Dict[str, Any]:
 async def _get_deployment_info(
     namespace: str, deployment_name: str
 ) -> Dict[str, Any]:
-    """Get deployment configuration and status.
-
-    PLACEHOLDER: Calls Tools/deployments.py::get_deployment_info
-    """
+    """Get deployment configuration and status using the existing Tools implementation."""
     try:
-        # from Tools.deployments import get_deployment_info as real_get_deployment_info
-        # return real_get_deployment_info(namespace, deployment_name)
-        logger.info(
-            f"[PLACEHOLDER] get_deployment_info({namespace}, {deployment_name})"
-        )
-        return {
-            "replicas": 0,
-            "ready_replicas": 0,
-            "image": "",
-            "resource_requests": {},
-            "resource_limits": {},
-        }
+        deployment = get_deployment(name=deployment_name, namespace=namespace)
+        events = get_deployment_events(name=deployment_name, namespace=namespace)
+        return {"deployment": deployment, "events": events}
     except Exception as e:
         raise RuntimeError(f"Failed to get deployment info: {str(e)}")
 
 
 async def _list_nodes() -> Dict[str, Any]:
-    """List cluster nodes and their status.
-
-    PLACEHOLDER: Calls Tools/nodes.py::list_nodes
-    """
+    """List cluster nodes and their status using the existing Tools implementation."""
     try:
-        # from Tools.nodes import list_nodes as real_list_nodes
-        # return real_list_nodes()
-        logger.info("[PLACEHOLDER] list_nodes()")
-        return {"nodes": []}
+        return {"nodes": list_nodes()}
     except Exception as e:
         raise RuntimeError(f"Failed to list nodes: {str(e)}")
 
 
 async def _describe_pod(namespace: str, pod_name: str) -> Dict[str, Any]:
-    """Get full pod description (combined status + events + logs).
-
-    PLACEHOLDER: Calls Tools/diagnostics.py::diagnose_pod
-    """
+    """Get full pod description using the existing Tools implementation."""
     try:
-        # from Tools.diagnostics import diagnose_pod as real_diagnose_pod
-        # return real_diagnose_pod(namespace, pod_name)
-        logger.info(f"[PLACEHOLDER] describe_pod({namespace}, {pod_name})")
-        return {"target": f"{namespace}/{pod_name}", "issues": []}
+        return diagnose_pod(name=pod_name, namespace=namespace)
     except Exception as e:
         raise RuntimeError(f"Failed to describe pod: {str(e)}")
 
@@ -230,17 +184,13 @@ async def _describe_pod(namespace: str, pod_name: str) -> Dict[str, Any]:
 async def _describe_deployment(
     namespace: str, deployment_name: str, detailed: bool = False
 ) -> Dict[str, Any]:
-    """Get full deployment description with pod info.
-
-    PLACEHOLDER: Calls Tools/diagnostics.py::diagnose_deployment
-    """
+    """Get full deployment description using the existing Tools implementation."""
     try:
-        # from Tools.diagnostics import diagnose_deployment as real_diagnose_deployment
-        # return real_diagnose_deployment(namespace, deployment_name, detailed)
-        logger.info(
-            f"[PLACEHOLDER] describe_deployment({namespace}, {deployment_name})"
+        return diagnose_deployment(
+            name=deployment_name,
+            namespace=namespace,
+            include_pod_details=detailed,
         )
-        return {"target": f"{namespace}/{deployment_name}", "issues": []}
     except Exception as e:
         raise RuntimeError(f"Failed to describe deployment: {str(e)}")
 

@@ -127,6 +127,7 @@ class IncidentRecord(BaseModel):
     # Summaries
     summary: str
     detailed_summary: Optional[str] = None
+    log_snapshot: Optional[str] = None
 
     # Investigation data
     collected_diagnostics: Dict[str, Any] = Field(default_factory=dict)
@@ -136,6 +137,11 @@ class IncidentRecord(BaseModel):
     llm_reasoning: Optional[str] = None
     root_cause_analysis: Optional[RootCauseAnalysis] = None
     suggested_actions: List[SuggestedAction] = Field(default_factory=list)
+
+    # Recipient routing
+    concerned_person: Optional[Dict[str, Any]] = None
+    concerned_users: List[Dict[str, Any]] = Field(default_factory=list)
+    owner_hints: List[str] = Field(default_factory=list)
 
     # Lifecycle
     status: IncidentStatus = IncidentStatus.OPEN
@@ -177,6 +183,14 @@ class MonitoringGraphState(TypedDict, total=False):
 
     # Node 5: Resolve Team
     teams: List[str]
+
+    # Node 5b: Resolve Recipient
+    concerned_person: Dict[str, Any]
+    concerned_users: List[Dict[str, Any]]
+    owner_hints: List[str]
+
+    # Evidence snapshot
+    log_snapshot: str
 
     # Node 6: Persist Incident
     incident_record: IncidentRecord

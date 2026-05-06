@@ -7,6 +7,8 @@ kubernetes>=29.0.0
 langchain>=0.2.0
 langchain-openai>=0.1.0      # or langchain-anthropic, etc.
 langchain-community>=0.2.0
+langgraph>=1.1.0
+requests>=2.31.0
 
 # Web backend (FastAPI)
 fastapi>=0.111.0

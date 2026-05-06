@@ -1,8 +1,12 @@
 """LLM configuration and client initialization for agent system."""
 
+import json
 import os
-from typing import Optional
+from dataclasses import dataclass
 from enum import Enum
+from typing import Any, Optional
+
+import requests
 
 # ============================================================================
 # PLACEHOLDER: LLM PROVIDER CONFIGURATION
@@ -14,6 +18,7 @@ class LLMProvider(str, Enum):
     OPENAI = "openai"
     ANTHROPIC = "anthropic"
     OLLAMA = "ollama"
+    NVIDIA = "nvidia"
     MOCK = "mock"  # For testing
 
 
@@ -68,6 +73,13 @@ class LLMConfig:
             return key
         elif provider == LLMProvider.OLLAMA:
             return "ollama"  # Ollama doesn't require API key
+        elif provider == LLMProvider.NVIDIA:
+            key = os.getenv("NVIDIA_API_KEY") or os.getenv("LLM_API_KEY")
+            if not key:
+                raise ValueError(
+                    "NVIDIA_API_KEY not set. Set env var or pass api_key param."
+                )
+            return key
         elif provider == LLMProvider.MOCK:
             return "mock"
         return ""
@@ -77,6 +89,11 @@ class LLMConfig:
         """Get base URL from environment variables if set."""
         if provider == LLMProvider.OLLAMA:
             return os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+        if provider == LLMProvider.NVIDIA:
+            return os.getenv(
+                "NVIDIA_API_BASE_URL",
+                "https://integrate.api.nvidia.com/v1/chat/completions",
+            )
         return None
 
 
@@ -84,10 +101,14 @@ class LLMConfig:
 # DEFAULT CONFIGURATION
 # ============================================================================
 
+_default_provider = os.getenv("LLM_PROVIDER")
+if not _default_provider:
+    _default_provider = "nvidia" if (os.getenv("NVIDIA_API_KEY") or os.getenv("LLM_API_KEY")) else "mock"
+
 LLM_CONFIG = LLMConfig(
-    provider=LLMProvider(os.getenv("LLM_PROVIDER", "openai")),
-    model=os.getenv("LLM_MODEL", "gpt-4o"),
-    api_key=os.getenv("LLM_API_KEY"),
+    provider=LLMProvider(_default_provider),
+    model=os.getenv("LLM_MODEL", "mistralai/mistral-small-4-119b-2603"),
+    api_key=os.getenv("NVIDIA_API_KEY") or os.getenv("LLM_API_KEY"),
     base_url=os.getenv("LLM_BASE_URL"),
     temperature=float(os.getenv("LLM_TEMPERATURE", "0.7")),
     max_tokens=int(os.getenv("LLM_MAX_TOKENS", "2000")),
@@ -140,8 +161,62 @@ def get_llm_client():
 
         return MockLLMClient()
 
-    # PLACEHOLDER: Add your actual implementation here
-    raise NotImplementedError(
-        f"LLM client for provider '{LLM_CONFIG.provider}' not yet implemented. "
-        f"Update get_llm_client() in app/agent/config.py"
+    return NVIDIAChatClient(
+        api_key=LLM_CONFIG.api_key,
+        model=LLM_CONFIG.model,
+        base_url=LLM_CONFIG.base_url
+        or "https://integrate.api.nvidia.com/v1/chat/completions",
+        temperature=LLM_CONFIG.temperature,
+        max_tokens=LLM_CONFIG.max_tokens,
+        timeout=LLM_CONFIG.timeout,
     )
+
+
+@dataclass
+class NVIDIAChatClient:
+    """Minimal OpenAI-compatible chat client for NVIDIA endpoints."""
+
+    api_key: str
+    model: str
+    base_url: str
+    temperature: float = 0.7
+    max_tokens: int = 2000
+    timeout: int = 30
+
+    def invoke(self, messages: list[dict[str, Any]]) -> dict[str, Any]:
+        """Synchronous chat completion call."""
+        response = requests.post(
+            self.base_url,
+            headers={
+                "Authorization": f"Bearer {self.api_key}",
+                "Content-Type": "application/json",
+                "Accept": "application/json",
+            },
+            json={
+                "model": self.model,
+                "reasoning_effort": "high",
+                "messages": messages,
+                "max_tokens": self.max_tokens,
+                "temperature": self.temperature,
+                "top_p": 1.0,
+                "stream": False,
+            },
+            timeout=self.timeout,
+        )
+        response.raise_for_status()
+        return response.json()
+
+    async def ainvoke(self, messages: list[dict[str, Any]]) -> dict[str, Any]:
+        """Async-compatible invoke wrapper."""
+        import asyncio
+
+        return await asyncio.to_thread(self.invoke, messages)
+
+    @staticmethod
+    def extract_text(response: dict[str, Any]) -> str:
+        """Extract assistant content from a chat completion response."""
+        choices = response.get("choices", [])
+        if not choices:
+            return ""
+        message = choices[0].get("message", {})
+        return message.get("content", "") or ""

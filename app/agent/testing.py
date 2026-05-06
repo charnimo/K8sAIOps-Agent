@@ -94,6 +94,15 @@ class MockLLMClient:
             )
         }
 
+    async def ainvoke(self, messages: List[Dict[str, str]]) -> Dict[str, Any]:
+        """Async alias used by the monitoring graph."""
+        return await self.invoke(messages)
+
+    @staticmethod
+    def extract_text(response: Dict[str, Any]) -> str:
+        """Extract text from the mock response."""
+        return response.get("content", "")
+
     def generate(self, prompt: str) -> str:
         """Mock LLM generate method.
 

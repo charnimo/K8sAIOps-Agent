@@ -24,21 +24,23 @@ Edit `app/agent/config.py`:
 
 ```python
 # Set environment variables OR update LLM_CONFIG directly
-export LLM_PROVIDER="openai"          # or "anthropic", "ollama"
-export LLM_API_KEY="sk-..."            # Your API key
-export LLM_MODEL="gpt-4o"              # Model to use
+export LLM_PROVIDER="nvidia"           # or "openai", "anthropic", "ollama", "mock"
+export NVIDIA_API_KEY="nvapi-..."      # NVIDIA API key (preferred)
+export LLM_API_KEY="nvapi-..."         # Fallback if you prefer shared env var name
+export LLM_MODEL="mistralai/mistral-small-4-119b-2603"  # Model to use
+export NVIDIA_API_BASE_URL="https://integrate.api.nvidia.com/v1/chat/completions"
 ```
 
 Then implement `get_llm_client()`:
 
 ```python
 def get_llm_client():
-    from langchain_openai import ChatOpenAI
-    return ChatOpenAI(
-        model=LLM_CONFIG.model,
-        api_key=LLM_CONFIG.api_key,
-        temperature=LLM_CONFIG.temperature,
-    )
+  return NVIDIAChatClient(
+    api_key=LLM_CONFIG.api_key,
+    model=LLM_CONFIG.model,
+    base_url=LLM_CONFIG.base_url,
+    temperature=LLM_CONFIG.temperature,
+  )
 ```
 
 ### 2. Wire Kubernetes Tools
@@ -233,9 +235,10 @@ graph = build_monitoring_graph()
 
 ```bash
 # LLM Configuration
-export LLM_PROVIDER="openai"                    # openai, anthropic, ollama, mock
-export LLM_API_KEY="sk-..."                     # API key if required
-export LLM_MODEL="gpt-4o"                       # Model identifier
+export LLM_PROVIDER="nvidia"                   # nvidia, openai, anthropic, ollama, mock
+export NVIDIA_API_KEY="nvapi-..."              # NVIDIA API key
+export LLM_MODEL="mistralai/mistral-small-4-119b-2603"  # Model identifier
+export NVIDIA_API_BASE_URL="https://integrate.api.nvidia.com/v1/chat/completions"
 export LLM_BASE_URL="http://localhost:11434"    # For self-hosted (Ollama)
 export LLM_TEMPERATURE="0.7"                    # Sampling temperature
 export LLM_MAX_TOKENS="2000"                    # Max response length

@@ -78,6 +78,7 @@ class IncidentRecord(Base):
     # Summaries
     summary = Column(String)
     detailed_summary = Column(Text, nullable=True)
+    log_snapshot = Column(Text, nullable=True)
 
     # Investigation data
     collected_diagnostics = Column(JSON, default=dict)
@@ -87,6 +88,11 @@ class IncidentRecord(Base):
     llm_reasoning = Column(Text, nullable=True)
     root_cause_analysis = Column(JSON, nullable=True)  # RootCauseAnalysis dict
     suggested_actions = Column(JSON, default=list)  # List of SuggestedAction dicts
+
+    # Recipient routing
+    concerned_person = Column(JSON, nullable=True)
+    concerned_users = Column(JSON, default=list)
+    owner_hints = Column(JSON, default=list)
 
     # Lifecycle
     status = Column(String, default="OPEN")  # OPEN, INVESTIGATING, RESOLVED, CLOSED
