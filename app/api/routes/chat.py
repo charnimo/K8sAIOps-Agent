@@ -184,7 +184,6 @@ def delete_chat_session(
     return {"success": True}
 
 @router.post("/sessions/{session_id}/messages")
-@router.post("/sessions/{session_id}/messages")
 def post_chat_message(
     session_id: int,
     payload: ChatMessageRequest,
@@ -214,7 +213,6 @@ def post_chat_message(
     db.commit()
     db.refresh(user_message)
 
-    # Check for pending action from previous turn
     pending_action = None
     recent = (
         db.query(ChatHistory)
@@ -248,6 +246,7 @@ def post_chat_message(
             assistant_content = "Agent not configured. Set AIOPS_AGENT_API_KEY in .env"
         else:
             try:
+                assistant_text = ""
                 from langchain_openai import ChatOpenAI
                 from langgraph.prebuilt import create_react_agent
 
@@ -260,18 +259,14 @@ def post_chat_message(
                     task = "inspect"
 
                 try:
-                    # Use cached tool loading to avoid rebuilding tool objects each request
                     tools = _get_tools_cached(task, token, settings.debug_mode)
-
                     if not tools:
                         raise ValueError(f"No tools returned for task '{task}'")
                 except Exception as tool_err:
-                    assistant_content = f"Agent initialization failed: {str(tool_err)}"
                     if settings.debug_mode:
                         print(f"[AGENT ERROR] Failed to load tools for task '{task}': {tool_err}")
                     raise HTTPException(status_code=500, detail=str(tool_err)) from tool_err
                 
-                # Debug: log available tools
                 if settings.debug_mode:
                     tool_names = [getattr(t, "name", str(t)) for t in tools]
                     print(f"\n[AGENT DEBUG] Task: {task}")
@@ -285,7 +280,6 @@ def post_chat_message(
                 )
                 agent = create_react_agent(llm, tools)
 
-                # Build history
                 history = []
                 for h in db.query(ChatHistory).filter(ChatHistory.conversation_id == session.id).order_by(ChatHistory.timestamp).all():
                     if h.id == user_message.id:
@@ -301,26 +295,18 @@ def post_chat_message(
                 system = {"role": "system", "content": get_system_instruction(user.username, is_god_mode=user.is_god_mode)}
                 result = agent.invoke({"messages": [system] + history + [{"role": "user", "content": content}]})
                 
-                if settings.debug_mode:
-                    used_tools = []
-                    for m in result["messages"]:
-                        if getattr(m, "type", None) == "tool":
-                            used_tools.append(getattr(m, "name", "unknown"))
-                    if used_tools:
-                        # ANSI escape codes for terminal highlighting
-                        yellow = "\033[93m"
-                        cyan = "\033[96m"
-                        bold = "\033[1m"
-                        reset = "\033[0m"
-                        unique_tools = ", ".join(set(used_tools))
-                        print(f"\n{yellow}{bold}>>> [AGENT DEBUG: TOOL EXECUTION]{reset}")
-                        print(f"{cyan}TASK:{reset} {task.upper()}")
-                        print(f"{cyan}TOOLS CALLED:{reset} {yellow}{unique_tools}{reset}\n")
-                
                 final = result["messages"][-1]
+                assistant_text = final.content if hasattr(final, "content") else str(final)
 
                 if settings.debug_mode:
-                    # Prefer response metadata on the final message (per langgraph sample)
+                    used_tools = [getattr(m, "name", "unknown") for m in result["messages"] if getattr(m, "type", None) == "tool"]
+                    if used_tools:
+                        yellow, cyan, bold, reset = "\033[93m", "\033[96m", "\033[1m", "\033[0m"
+                        print(f"\n{yellow}{bold}>>> [AGENT DEBUG: TOOL EXECUTION]{reset}")
+                        print(f"{cyan}TASK:{reset} {task.upper()}")
+                        print(f"{cyan}TOOLS CALLED:{reset} {yellow}{', '.join(set(used_tools))}{reset}\n")
+
+                if settings.debug_mode:
                     usage = None
                     try:
                         resp_meta = getattr(final, "response_metadata", None)
@@ -332,41 +318,24 @@ def post_chat_message(
                     if usage is None and isinstance(result, dict):
                         for key in ("llm_response", "llm_output", "raw_response", "openai_response", "response"):
                             candidate = result.get(key)
-                            if candidate is None:
-                                continue
-                            if isinstance(candidate, dict):
-                                candidate_dict = candidate
-                            else:
-                                to_dict = getattr(candidate, "to_dict", None)
-                                try:
-                                    candidate_dict = to_dict() if callable(to_dict) else None
-                                except Exception:
-                                    candidate_dict = None
-
+                            if candidate is None: continue
+                            candidate_dict = candidate if isinstance(candidate, dict) else (getattr(candidate, "to_dict", lambda: None)())
                             if isinstance(candidate_dict, dict):
-                                if "usage" in candidate_dict and isinstance(candidate_dict["usage"], dict):
-                                    usage = candidate_dict["usage"]
-                                    break
-                                if "token_usage" in candidate_dict and isinstance(candidate_dict["token_usage"], dict):
-                                    usage = candidate_dict["token_usage"]
-                                    break
+                                usage = candidate_dict.get("usage") or candidate_dict.get("token_usage")
+                                if usage: break
 
                     if usage is None:
                         try:
                             md = getattr(final, "metadata", None)
                             if isinstance(md, dict):
-                                usage = md.get("usage") or md.get("token_usage") or None
-                        except Exception:
-                            usage = None
+                                usage = md.get("usage") or md.get("token_usage")
+                        except Exception: pass
 
                     def _as_int(val):
-                        try:
-                            return int(val)
-                        except Exception:
-                            return None
+                        try: return int(val)
+                        except: return None
 
-                    tokens_in = tokens_out = None
-                    total = None
+                    tokens_in = tokens_out = total = None
                     if isinstance(usage, dict):
                         tokens_in = _as_int(usage.get("prompt_tokens") or usage.get("input_tokens") or usage.get("prompt_tokens_count") or usage.get("prompt"))
                         tokens_out = _as_int(usage.get("completion_tokens") or usage.get("output_tokens") or usage.get("completion_tokens_count") or usage.get("completion"))
@@ -381,9 +350,8 @@ def post_chat_message(
                         tokens_out = tokens_out or _estimate_tokens(assistant_text or "")
                         total = total or (tokens_in + tokens_out)
 
-                    print(f"[AGENT DEBUG] Tokens — input: {tokens_in}, output: {tokens_out}, total: {total}")
-                
-                # Detect action proposal
+                    print(f"[AGENT DEBUG] Tokens — in: {tokens_in}, out: {tokens_out}, total: {total}")
+
                 action = None
                 for m in result["messages"]:
                     if getattr(m, "type", None) == "tool":
@@ -398,6 +366,7 @@ def post_chat_message(
                     assistant_content = json.dumps({"text": assistant_text, "action": action})
                 else:
                     assistant_content = assistant_text
+
             except Exception as e:
                 assistant_content = f"Agent error: {str(e)}"
 
@@ -410,12 +379,11 @@ def post_chat_message(
     db.commit()
     db.refresh(assistant_message)
 
-    # Automatically generate title on first or second message
     user_msg_count = db.query(ChatHistory).filter(
         ChatHistory.conversation_id == session.id, ChatHistory.sender == user.username
     ).count()
 
-    if user_msg_count <= 1 and settings.agent_api_key:
+    if user_msg_count <= 2 and settings.agent_api_key:
         try:
             import re
             from langchain_openai import ChatOpenAI
@@ -433,7 +401,6 @@ def post_chat_message(
             ]
             title_res = title_llm.invoke(title_prompt)
             
-            # Clean out <think> tags and quotes
             raw_title = title_res.content.strip()
             raw_title = re.sub(r'<think>.*?</think>', '', raw_title, flags=re.DOTALL | re.IGNORECASE).strip()
             session.title = raw_title.replace('"', '')
@@ -441,6 +408,7 @@ def post_chat_message(
         except Exception as e:
             if settings.debug_mode:
                 print(f"[AGENT DEBUG] Failed to generate title: {e}")
+
     session_refreshed = (
         db.query(Conversation)
        .filter(Conversation.id == session.id, Conversation.user_id == user.id)
