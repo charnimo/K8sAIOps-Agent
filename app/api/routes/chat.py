@@ -277,7 +277,7 @@ def post_chat_message(
                         txt = h.message
                     history.append({"role": role, "content": txt})
 
-                system = {"role": "system", "content": get_system_instruction(user.username)}
+                system = {"role": "system", "content": get_system_instruction(user.username, is_god_mode=user.is_god_mode)}
                 result = agent.invoke({"messages": [system] + history + [{"role": "user", "content": content}]})
                 
                 if settings.debug_mode:
