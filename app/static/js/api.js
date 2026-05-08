@@ -71,13 +71,25 @@ export class ApiClient {
         return await res.json();
     }
 
-    async sendChatMessage(sessionId, payload) {
-        const res = await fetch(`/chat/sessions/${encodeURIComponent(sessionId)}/messages`, {
+    async sendChatMessage(sessionId, payload, signal = null) {
+        const options = {
             method: 'POST',
             headers: { ...this.headers, 'Content-Type': 'application/json' },
             body: JSON.stringify(payload),
-        });
+        };
+        if (signal) options.signal = signal;
+
+        const res = await fetch(`/chat/sessions/${encodeURIComponent(sessionId)}/messages`, options);
         if (!res.ok) throw new Error('Failed to send chat message');
+        return await res.json();
+    }
+
+    async deleteChatSession(sessionId) {
+        const res = await fetch(`/chat/sessions/${encodeURIComponent(sessionId)}`, {
+            method: 'DELETE',
+            headers: this.headers
+        });
+        if (!res.ok) throw new Error('Failed to delete chat session');
         return await res.json();
     }
 

@@ -67,7 +67,7 @@ export class ChatDrawer {
         this.input.addEventListener('keydown', (event) => {
             if (event.key === 'Enter' &&!event.shiftKey) {
                 event.preventDefault();
-                this.sendMessage();
+                this.sendMessage(null, true);
             }
         });
     }
@@ -127,7 +127,7 @@ export class ChatDrawer {
         }
     }
 
-    renderSessionList() {
+renderSessionList() {
         if (!this.sessionList) return;
         if (!this.sessions.length) {
             this.sessionList.innerHTML = '<div class="text-xs text-gray-500 px-2 py-1">No conversations yet.</div>';
@@ -137,9 +137,14 @@ export class ChatDrawer {
         this.sessionList.innerHTML = this.sessions.map((session) => {
             const active = Number(this.currentSessionId) === Number(session.id);
             return `
-                <button class="chat-session-item w-full text-left px-2 py-1.5 rounded border ${active? 'bg-cyan-900/30 border-cyan-700/40 text-cyan-100' : 'bg-gray-800 border-gray-700 text-gray-300 hover:bg-gray-750'}" data-session-id="${session.id}">
-                    <div class="text-xs font-medium truncate">${this.escapeHtml(session.title || `Conversation ${session.id}`)}</div>
-                </button>
+                <div class="group flex items-center gap-1 pr-1 rounded border ${active ? 'bg-cyan-900/30 border-cyan-700/40 text-cyan-100' : 'bg-gray-800 border-gray-700 text-gray-300 hover:bg-gray-750'}">
+                    <button class="chat-session-item flex-1 text-left px-2 py-1.5 transition-colors" data-session-id="${session.id}">
+                        <div class="text-xs font-medium truncate">${this.escapeHtml(session.title || `Conversation ${session.id}`)}</div>
+                    </button>
+                    <button class="delete-session-btn opacity-0 group-hover:opacity-100 p-1.5 text-gray-500 hover:text-rose-400 transition-all" data-session-id="${session.id}" title="Delete Conversation">
+                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+                    </button>
+                </div>
             `;
         }).join('');
 
@@ -147,6 +152,35 @@ export class ChatDrawer {
             btn.addEventListener('click', async () => {
                 const sid = Number(btn.getAttribute('data-session-id'));
                 await this.selectSession(sid);
+            });
+        });
+
+        this.sessionList.querySelectorAll('.delete-session-btn').forEach((btn) => {
+            btn.addEventListener('click', async (e) => {
+                e.stopPropagation();
+                const sid = Number(btn.getAttribute('data-session-id'));
+                
+                try {
+                    const { showConfirmModal } = await import('./confirm.js');
+                    const confirmed = await showConfirmModal({
+                        title: 'Delete Conversation?',
+                        message: 'This will permanently erase the chat history for this session.',
+                        intent: 'danger'
+                    });
+
+                    if (confirmed) {
+                        await this.api.deleteChatSession(sid);
+                        if (Number(this.currentSessionId) === sid) {
+                            this.currentSessionId = null;
+                            this.messages = [];
+                            this.renderMessages();
+                        }
+                        await this.loadSessions();
+                        window.showToast('Conversation deleted', 'info');
+                    }
+                } catch (err) {
+                    window.showToast(`Delete failed: ${err.message}`, 'error');
+                }
             });
         });
     }
@@ -329,7 +363,15 @@ renderMessages() {
         this.updateNewChatButtonState();
     }
 
-async sendMessage(overrideContent = null) {
+async sendMessage(overrideContent = null, isFromEnterKey = false) {
+        // If agent is thinking, only the Stop button can abort. Enter key does nothing.
+        if (this.abortController) {
+            if (!isFromEnterKey) {
+                this.abortController.abort(); // Actually stop the request
+            }
+            return; 
+        }
+
         if (!this.input) return;
         const content = overrideContent || this.input.value.trim();
         if (!content) return;
@@ -339,12 +381,14 @@ async sendMessage(overrideContent = null) {
             if (!this.currentSessionId) return;
         }
 
+        this.abortController = new AbortController();
+
         const userMsg = { 
             sender: this.currentUser?.username, 
             message: content, 
             timestamp: new Date().toISOString(), 
             _temp: true,
-            _isSystemTrigger: !!overrideContent // Track if this was a button click
+            _isSystemTrigger: !!overrideContent 
         };
         
         this.messages = [...this.messages, userMsg];
@@ -367,23 +411,34 @@ async sendMessage(overrideContent = null) {
         }, 100);
 
         try {
-            const response = await this.api.sendChatMessage(this.currentSessionId, { content });
-            const endTime = performance.now();
+            // Pass the signal to api.js
+            const response = await this.api.sendChatMessage(
+                this.currentSessionId, 
+                { content }, 
+                this.abortController.signal
+            );
             
+            const endTime = performance.now();
             this.messages = response.session?.messages || [];
+            
             if (this.messages.length > 0) {
-                // Attach generation time to the last message
                 this.messages[this.messages.length - 1]._duration = ((endTime - startTime) / 1000).toFixed(2);
             }
             
             this.renderMessages();
             await this.loadSessions();
         } catch (err) {
-            this.messages = this.messages.filter(m => !m._temp && !m._thinking);
+            if (err.name === 'AbortError') {
+                window.showToast('Agent interrupted', 'info');
+                this.messages = this.messages.filter(m => !m._thinking);
+            } else {
+                this.messages = this.messages.filter(m => !m._temp && !m._thinking);
+                window.showToast(`Failed to send: ${err.message}`, 'error');
+            }
             this.renderMessages();
-            window.showToast(err.message, 'error');
         } finally {
             if (this._timerInterval) { clearInterval(this._timerInterval); this._timerInterval = null; }
+            this.abortController = null;
             this.setLoading(false);
             if (!overrideContent) this.input.focus();
         }
@@ -398,11 +453,21 @@ async sendMessage(overrideContent = null) {
     }
 
     setLoading(loading) {
-        if (!this.sendBtn ||!this.input) return;
-        this.sendBtn.disabled = loading;
-        this.input.disabled = loading;
-        this.sendBtn.classList.toggle('opacity-50', loading);
-        this.sendBtn.classList.toggle('cursor-not-allowed', loading);
+        if (!this.sendBtn || !this.input) return;
+        
+        if (loading) {
+            this.sendBtn.innerHTML = 'Stop';
+            this.sendBtn.classList.replace('bg-cyan-600', 'bg-rose-600');
+            this.sendBtn.classList.replace('hover:bg-cyan-700', 'hover:bg-rose-700');
+            this.sendBtn.classList.replace('border-cyan-500/40', 'border-rose-500/40');
+            // Removed: this.input.disabled = true; (Allows user to keep typing)
+        } else {
+            this.sendBtn.innerHTML = 'Send';
+            this.sendBtn.classList.replace('bg-rose-600', 'bg-cyan-600');
+            this.sendBtn.classList.replace('hover:bg-rose-700', 'hover:bg-cyan-700');
+            this.sendBtn.classList.replace('border-rose-500/40', 'border-cyan-500/40');
+            // Removed: this.input.disabled = false;
+        }
     }
 
     renderMarkdown(text) {

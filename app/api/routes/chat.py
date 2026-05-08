@@ -164,6 +164,26 @@ def get_chat_session(
         raise HTTPException(status_code=404, detail="Session not found")
     return _serialize_session(row, include_messages=True)
 
+@router.delete("/sessions/{session_id}")
+def delete_chat_session(
+    session_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Permanently delete a chat session and its history."""
+    row = (
+        db.query(Conversation)
+        .filter(Conversation.id == session_id, Conversation.user_id == user.id)
+        .first()
+    )
+    if row is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+    
+    db.delete(row)
+    db.commit()
+    return {"success": True}
+
+@router.post("/sessions/{session_id}/messages")
 @router.post("/sessions/{session_id}/messages")
 def post_chat_message(
     session_id: int,
@@ -215,6 +235,8 @@ def post_chat_message(
         except Exception:
             continue
 
+    settings = get_settings()
+
     if pending_action:
         assistant_text = (
             f"I've proposed {pending_action.get('type')} on {pending_action.get('target', {}).get('name')}. "
@@ -222,9 +244,8 @@ def post_chat_message(
         )
         assistant_content = json.dumps({"text": assistant_text, "action": pending_action})
     else:
-        settings = get_settings()
         if not settings.agent_api_key:
-            assistant_content = "Agent not configured. Set AIOPS_AGENT_API_KEY in.env"
+            assistant_content = "Agent not configured. Set AIOPS_AGENT_API_KEY in .env"
         else:
             try:
                 from langchain_openai import ChatOpenAI
@@ -294,8 +315,6 @@ def post_chat_message(
                 if settings.debug_mode:
                     # Prefer response metadata on the final message (per langgraph sample)
                     usage = None
-
-                    # 1) final.response_metadata.token_usage (preferred, per sample)
                     try:
                         resp_meta = getattr(final, "response_metadata", None)
                         if isinstance(resp_meta, dict):
@@ -303,17 +322,14 @@ def post_chat_message(
                     except Exception:
                         usage = None
 
-                    # 2) result-level wrappers: try common keys and coerce to dict if possible
                     if usage is None and isinstance(result, dict):
                         for key in ("llm_response", "llm_output", "raw_response", "openai_response", "response"):
                             candidate = result.get(key)
                             if candidate is None:
                                 continue
-                            # Try candidate as dict-like
                             if isinstance(candidate, dict):
                                 candidate_dict = candidate
                             else:
-                                # Some wrappers expose objects with to_dict()
                                 to_dict = getattr(candidate, "to_dict", None)
                                 try:
                                     candidate_dict = to_dict() if callable(to_dict) else None
@@ -328,7 +344,6 @@ def post_chat_message(
                                     usage = candidate_dict["token_usage"]
                                     break
 
-                    # 3) final.metadata (some wrappers store usage there)
                     if usage is None:
                         try:
                             md = getattr(final, "metadata", None)
@@ -337,7 +352,6 @@ def post_chat_message(
                         except Exception:
                             usage = None
 
-                    # Coerce numeric tokens safely
                     def _as_int(val):
                         try:
                             return int(val)
@@ -354,7 +368,6 @@ def post_chat_message(
                             total = tokens_in + tokens_out
 
                     if tokens_in is None or tokens_out is None:
-                        # Fallback to crude estimator
                         input_msgs = [system] + history + [{"role": "user", "content": content}]
                         input_text = "".join([m.get("content", "") for m in input_msgs if isinstance(m, dict)])
                         tokens_in = tokens_in or _estimate_tokens(input_text)
@@ -362,6 +375,7 @@ def post_chat_message(
                         total = total or (tokens_in + tokens_out)
 
                     print(f"[AGENT DEBUG] Tokens — input: {tokens_in}, output: {tokens_out}, total: {total}")
+                
                 # Detect action proposal
                 action = None
                 for m in result["messages"]:
@@ -389,6 +403,37 @@ def post_chat_message(
     db.commit()
     db.refresh(assistant_message)
 
+    # Automatically generate title on first or second message
+    user_msg_count = db.query(ChatHistory).filter(
+        ChatHistory.conversation_id == session.id, ChatHistory.sender == user.username
+    ).count()
+
+    if user_msg_count <= 1 and settings.agent_api_key:
+        try:
+            import re
+            from langchain_openai import ChatOpenAI
+            from langchain_core.messages import SystemMessage, HumanMessage
+            
+            title_llm = ChatOpenAI(
+                model=settings.agent_model,
+                api_key=settings.agent_api_key,
+                base_url="https://integrate.api.nvidia.com/v1",
+                temperature=0.3,
+            )
+            title_prompt = [
+                SystemMessage(content="You generate extremely short, 3-5 word conversation titles."),
+                HumanMessage(content=f"Generate a title for a Kubernetes session starting with: '{content}'. Return ONLY the title text, no quotes.")
+            ]
+            title_res = title_llm.invoke(title_prompt)
+            
+            # Clean out <think> tags and quotes
+            raw_title = title_res.content.strip()
+            raw_title = re.sub(r'<think>.*?</think>', '', raw_title, flags=re.DOTALL | re.IGNORECASE).strip()
+            session.title = raw_title.replace('"', '')
+            db.commit()
+        except Exception as e:
+            if settings.debug_mode:
+                print(f"[AGENT DEBUG] Failed to generate title: {e}")
     session_refreshed = (
         db.query(Conversation)
        .filter(Conversation.id == session.id, Conversation.user_id == user.id)
