@@ -191,142 +191,147 @@ export class ChatDrawer {
         return sender || 'Unknown';
     }
 
-    renderMessages() {
+renderMessages() {
         if (!this.messagesContainer) return;
         if (!this.messages.length) {
-            this.messagesContainer.innerHTML = '<div class="text-xs text-gray-500">No messages yet. Start by sending one.</div>';
+            this.messagesContainer.innerHTML = '<div class="text-xs text-gray-500">No conversations.</div>';
             this.updateNewChatButtonState();
             return;
         }
 
         this.messagesContainer.innerHTML = this.messages.map((msg) => {
+            if (msg._isSystemTrigger) return ''; // Hide the internal "User approved" messages
+
             const isUser = msg.sender === this.currentUser?.username;
             const sender = this.senderLabel(msg.sender);
-            let displayText = msg.message || '';
+            let rawContent = msg.message || '';
             let action = null;
-            let thinkingContent = null;
-            const raw = String(displayText || '');
-            // Match raw tags
-            let thinkMatch = raw.match(/^\s*<think>([\s\S]*?)<\/think>\s*$/i);
-            if (!thinkMatch) {
-                // Try to detect HTML-escaped forms like &lt;think&gt;...&lt;/think&gt;
-                const unescaped = raw.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/&#39;/g, "'");
-                thinkMatch = unescaped.match(/^\s*<think>([\s\S]*?)<\/think>\s*$/i);
-                if (thinkMatch) {
-                    // if matched from escaped, use the unescaped inner content
-                    thinkingContent = thinkMatch[1];
-                }
-            } else {
-                thinkingContent = thinkMatch[1];
+            let thoughts = null;
+
+            if (rawContent === '__THINKING__' || msg._thinking) {
+                return `
+                    <div class="flex justify-start mb-4">
+                        <div class="max-w-[85%] px-4 py-3 rounded-2xl border bg-gray-800 border-gray-700">
+                            <div class="flex items-center gap-3 text-gray-400">
+                                <svg class="animate-spin h-4 w-4 text-cyan-400" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                                <span class="text-xs font-medium animate-pulse">Consulting cluster...</span>
+                                <span class="text-[10px] text-gray-500 font-mono ml-auto" data-thinking-timer>0.0s</span>
+                            </div>
+                        </div>
+                    </div>
+                `;
             }
 
-            const isThinking = msg._thinking || displayText === '__THINKING__' || !!thinkingContent;
+            const thinkRegex = /<think>([\s\S]*?)<\/think>/i;
+            const match = rawContent.match(thinkRegex);
+            if (match) {
+                thoughts = match[1].trim();
+                rawContent = rawContent.replace(thinkRegex, '').trim();
+            }
 
             try {
-                const parsed = JSON.parse(displayText);
+                const parsed = JSON.parse(rawContent);
                 if (parsed && typeof parsed === 'object' && parsed.text) {
-                    displayText = parsed.text;
+                    rawContent = parsed.text;
                     action = parsed.action;
                 }
             } catch (e) {}
 
-            let contentHtml;
-            if (isThinking) {
-                const inner = thinkingContent ? this.renderMarkdown(thinkingContent) : '';
-                contentHtml = `
-            <div class="flex items-center gap-2 text-gray-400 min-w-0">
-                <svg class="animate-spin h-4 w-4 text-cyan-400 shrink-0" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                </svg>
-                <div class="min-w-0">
-                    <div class="shrink-0">${inner || 'Thinking...'}</div>
-                    <div class="text-[10px] text-gray-500 w-12 text-right font-mono tabular-nums" data-thinking-timer>0.0s</div>
-                </div>
-            </div>`;
-            } else {
-                contentHtml = this.renderMarkdown(displayText);
-            }
+            // Strip Action IDs from the text display
+            rawContent = rawContent.replace(/Action ID:\s*[0-9a-f-]{36}/gi, '').trim();
 
-            const actionHtml = (!isUser && action &&!isThinking)? `
-                <div class="mt-2 flex gap-2 items-center" data-action-id="${this.escapeHtml(action.id)}">
-                    <button class="approve-btn bg-emerald-600 hover:bg-emerald-700 text-white text-xs px-2.5 py-1 rounded border-emerald-500/40 transition-colors">Approve</button>
-                    <button class="reject-btn bg-rose-600 hover:bg-rose-700 text-white text-xs px-2.5 py-1 rounded border border-rose-500/40 transition-colors">Deny</button>
-                    <span class="text- text-gray-400">${this.escapeHtml(action.type)}</span>
+            const thoughtHtml = thoughts ? `
+                <details class="mb-3 group">
+                    <summary class="text-[10px] text-gray-500 cursor-pointer hover:text-cyan-400 list-none flex items-center gap-1 uppercase tracking-widest font-bold">
+                        <svg class="w-3 h-3 transition-transform group-open:rotate-90" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>
+                        Internal Reasoning
+                    </summary>
+                    <div class="mt-2 p-3 bg-black/40 rounded-lg border border-white/5 text-[11px] text-gray-400 font-mono">
+                        ${this.renderMarkdown(thoughts)}
+                    </div>
+                </details>
+            ` : '';
+
+            const actionHtml = (!isUser && action && !msg._actionHandled) ? `
+                <div class="mt-4 flex gap-2 items-center border-t border-white/5 pt-3" data-action-id="${this.escapeHtml(action.id)}" data-action-type="${this.escapeHtml(action.type)}">
+                    <button class="approve-btn bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] uppercase font-black px-3 py-1.5 rounded-md transition-all active:scale-95">Approve</button>
+                    <button class="reject-btn bg-rose-600 hover:bg-rose-500 text-white text-[10px] uppercase font-black px-3 py-1.5 rounded-md transition-all active:scale-95">Deny</button>
+                </div>
+            ` : '';
+
+            const durationHtml = msg._duration ? `
+                <div class="text-[9px] text-gray-600 mt-2 font-mono text-right uppercase tracking-tighter">
+                    Generated in ${msg._duration}s
                 </div>
             ` : '';
 
             return `
-                <div class="flex ${isUser? 'justify-end' : 'justify-start'}">
-                    <div class="max-w-[85%] px-3 py-2 rounded-xl border ${isUser? 'bg-cyan-900/40 border-cyan-700/50 text-cyan-100' : 'bg-gray-800 border-gray-700 text-gray-200'}">
-                        <div class="text- uppercase tracking-wider mb-1 ${isUser? 'text-cyan-300' : 'text-gray-400'}">${this.escapeHtml(sender)}</div>
-                        <div class="text-sm break-words">${contentHtml}</div>
+                <div class="flex ${isUser ? 'justify-end' : 'justify-start'} mb-4">
+                    <div class="max-w-[88%] px-4 py-3 rounded-2xl border ${isUser ? 'bg-cyan-950/40 border-cyan-800/50 text-cyan-50' : 'bg-gray-800 border-gray-700 text-gray-200'}">
+                        <div class="text-[10px] uppercase tracking-tighter mb-1 font-black opacity-20 ${isUser ? 'text-right' : 'text-left'}">${this.escapeHtml(sender)}</div>
+                        ${thoughtHtml}
+                        <div class="text-sm leading-relaxed message-body">${this.renderMarkdown(rawContent)}</div>
                         ${actionHtml}
+                        ${durationHtml}
                     </div>
                 </div>
             `;
         }).join('');
 
-        // Attach approve/deny handlers
         this.messagesContainer.querySelectorAll('[data-action-id]').forEach(container => {
             const actionId = container.getAttribute('data-action-id');
+            const actionType = container.getAttribute('data-action-type');
             const approveBtn = container.querySelector('.approve-btn');
             const rejectBtn = container.querySelector('.reject-btn');
 
-            if (approveBtn &&!approveBtn.dataset.bound) {
-                approveBtn.dataset.bound = 'true';
-                approveBtn.addEventListener('click', async () => {
-                    try {
-                        approveBtn.disabled = true;
-                        rejectBtn.disabled = true;
-                        approveBtn.textContent = 'Approving...';
-                        await this.api.approveActionRequest(actionId);
-                        approveBtn.textContent = 'Approved ✓';
-                        approveBtn.classList.remove('bg-emerald-600', 'hover:bg-emerald-700');
-                        approveBtn.classList.add('bg-gray-600', 'cursor-default');
-                        rejectBtn.classList.add('hidden');
-                        window.showToast('Action approved — agent will continue', 'success');
-                        setTimeout(() => this.selectSession(this.currentSessionId), 500);
-                    } catch (err) {
-                        window.showToast(`Approve failed: ${err.message}`, 'error');
-                        approveBtn.disabled = false;
-                        rejectBtn.disabled = false;
-                        approveBtn.textContent = 'Approve';
-                    }
-                });
-            }
+            approveBtn.addEventListener('click', async () => {
+                try {
+                    approveBtn.disabled = true;
+                    rejectBtn.disabled = true;
+                    await this.api.approveActionRequest(actionId);
+                    
+                    // Locally mark this specific message so the buttons don't re-render
+                    const msgIndex = this.messages.findIndex(m => m.message && m.message.includes(actionId));
+                    if (msgIndex !== -1) this.messages[msgIndex]._actionHandled = true;
 
-            if (rejectBtn &&!rejectBtn.dataset.bound) {
-                rejectBtn.dataset.bound = 'true';
-                rejectBtn.addEventListener('click', async () => {
-                    try {
-                        approveBtn.disabled = true;
-                        rejectBtn.disabled = true;
-                        rejectBtn.textContent = 'Denying...';
-                        await this.api.rejectActionRequest(actionId);
-                        rejectBtn.textContent = 'Denied';
-                        rejectBtn.classList.remove('bg-rose-600', 'hover:bg-rose-700');
-                        rejectBtn.classList.add('bg-gray-600', 'cursor-default');
-                        approveBtn.classList.add('hidden');
-                        window.showToast('Action denied', 'info');
-                        setTimeout(() => this.selectSession(this.currentSessionId), 500);
-                    } catch (err) {
-                        window.showToast(`Deny failed: ${err.message}`, 'error');
-                        approveBtn.disabled = false;
-                        rejectBtn.disabled = false;
-                        rejectBtn.textContent = 'Deny';
-                    }
-                });
-            }
+                    container.innerHTML = '<div class="text-[10px] text-emerald-400 font-black uppercase tracking-widest py-1">Action Approved</div>';
+                    
+                    // Trigger the agent follow-up
+                    await this.sendMessage(`I approved the ${actionType} action. Please confirm the result.`);
+                } catch (err) {
+                    window.showToast(err.message, 'error');
+                    approveBtn.disabled = false;
+                    rejectBtn.disabled = false;
+                }
+            });
+
+            rejectBtn.addEventListener('click', async () => {
+                try {
+                    approveBtn.disabled = true;
+                    rejectBtn.disabled = true;
+                    await this.api.rejectActionRequest(actionId);
+                    
+                    const msgIndex = this.messages.findIndex(m => m.message && m.message.includes(actionId));
+                    if (msgIndex !== -1) this.messages[msgIndex]._actionHandled = true;
+
+                    container.innerHTML = '<div class="text-[10px] text-rose-400 font-black uppercase tracking-widest py-1">Action Denied</div>';
+                    
+                    await this.sendMessage(`I denied the ${actionType} action. Let's find another way.`);
+                } catch (err) {
+                    window.showToast(err.message, 'error');
+                    approveBtn.disabled = false;
+                    rejectBtn.disabled = false;
+                }
+            });
         });
 
         this.messagesContainer.scrollTop = this.messagesContainer.scrollHeight;
         this.updateNewChatButtonState();
     }
 
-    async sendMessage() {
+async sendMessage(overrideContent = null) {
         if (!this.input) return;
-        const content = this.input.value.trim();
+        const content = overrideContent || this.input.value.trim();
         if (!content) return;
 
         if (!this.currentSessionId) {
@@ -334,19 +339,25 @@ export class ChatDrawer {
             if (!this.currentSessionId) return;
         }
 
-        // Optimistic user message
-        const userMsg = { sender: this.currentUser?.username, message: content, timestamp: new Date().toISOString(), _temp: true };
+        const userMsg = { 
+            sender: this.currentUser?.username, 
+            message: content, 
+            timestamp: new Date().toISOString(), 
+            _temp: true,
+            _isSystemTrigger: !!overrideContent // Track if this was a button click
+        };
+        
         this.messages = [...this.messages, userMsg];
-        this.input.value = '';
+        if (!overrideContent) this.input.value = '';
         this.renderMessages();
 
-        // Thinking bubble
         const thinkingMsg = { sender: 'agent', message: '__THINKING__', _thinking: true };
         this.messages = [...this.messages, thinkingMsg];
         this.renderMessages();
         this.setLoading(true);
 
-        this._timerStart = performance.now();
+        const startTime = performance.now();
+        this._timerStart = startTime;
         this._timerInterval = setInterval(() => {
             const el = this.messagesContainer?.querySelector('[data-thinking-timer]');
             if (el) {
@@ -357,20 +368,26 @@ export class ChatDrawer {
 
         try {
             const response = await this.api.sendChatMessage(this.currentSessionId, { content });
+            const endTime = performance.now();
+            
             this.messages = response.session?.messages || [];
+            if (this.messages.length > 0) {
+                // Attach generation time to the last message
+                this.messages[this.messages.length - 1]._duration = ((endTime - startTime) / 1000).toFixed(2);
+            }
+            
             this.renderMessages();
             await this.loadSessions();
         } catch (err) {
-            this.messages = this.messages.filter(m =>!m._temp &&!m._thinking);
+            this.messages = this.messages.filter(m => !m._temp && !m._thinking);
             this.renderMessages();
-            window.showToast(`Failed to send: ${err.message}`, 'error');
+            window.showToast(err.message, 'error');
         } finally {
             if (this._timerInterval) { clearInterval(this._timerInterval); this._timerInterval = null; }
             this.setLoading(false);
-            this.input.focus();
+            if (!overrideContent) this.input.focus();
         }
     }
-
     escapeHtml(value) {
         return String(value?? '')
            .replace(/&/g, '&amp;')
