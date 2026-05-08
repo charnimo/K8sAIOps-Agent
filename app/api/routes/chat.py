@@ -11,7 +11,7 @@ from app.core.settings import get_settings
 from app.database.database import get_db, SessionLocal
 from app.database.models import ChatHistory, Conversation, User
 from app.schemas.api import ChatMessageRequest, ChatSessionCreateRequest
-from app.services.agent_instructions import get_system_instruction
+from agent.agent_instructions import get_system_instruction
 from agent.tools import get_tools_for_task, get_tool_group, ToolGroup
 from app.state.store import get_action_request
 

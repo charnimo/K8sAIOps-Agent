@@ -4,10 +4,10 @@
 def get_system_instruction(username: str) -> str:
     """
     Get the system instruction for the agent.
-    
+
     Args:
         username: The username of the current user
-        
+
     Returns:
         System prompt string
     """
