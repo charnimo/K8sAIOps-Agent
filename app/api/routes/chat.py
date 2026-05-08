@@ -1,18 +1,46 @@
 """Chat session endpoints."""
 
 from cmath import log
+import json
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from app.auth.dependencies import get_current_user
+from app.auth.dependencies import get_current_user, oauth2_scheme
+from app.core.settings import get_settings
 from app.database.database import get_db, SessionLocal
 from app.database.models import ChatHistory, Conversation, User
 from app.schemas.api import ChatMessageRequest, ChatSessionCreateRequest
-
+from app.services.agent_instructions import get_system_instruction
+from agent.tools import get_tools_for_task, get_tool_group, ToolGroup
+from app.state.store import get_action_request
 
 router = APIRouter()
 
+# Simple in-memory cache for tool loading to avoid rebuilding on every request.
+# Cached separately for debug (all-tools) and for task-specific tool sets.
+_CACHED_ALL_TOOLS = {}
+_CACHED_TOOLS_BY_TASK = {}
+
+def _get_tools_cached(task: str, token: str, debug_mode: bool):
+    global _CACHED_ALL_TOOLS, _CACHED_TOOLS_BY_TASK
+    if debug_mode:
+        # Cache per token to avoid leaking tool instances between different auth contexts
+        if token in _CACHED_ALL_TOOLS:
+            return _CACHED_ALL_TOOLS[token]
+        tools = []
+        for g in ToolGroup:
+            tools.extend(get_tool_group(g, token))
+        _CACHED_ALL_TOOLS[token] = tools
+        return tools
+
+    key = (task, token)
+    if key in _CACHED_TOOLS_BY_TASK:
+        return _CACHED_TOOLS_BY_TASK[key]
+
+    tools = get_tools_for_task(task, token)
+    _CACHED_TOOLS_BY_TASK[key] = tools
+    return tools
 
 MOCK_CONVERSATIONS = [
     {
@@ -33,13 +61,12 @@ MOCK_CONVERSATIONS = [
     },
 ]
 
-
 def _ensure_mock_conversations(db: Session, current_user: User) -> None:
     for template in MOCK_CONVERSATIONS:
         exists = (
             db.query(Conversation)
-            .filter(Conversation.user_id == current_user.id, Conversation.title == template["title"])
-            .first()
+           .filter(Conversation.user_id == current_user.id, Conversation.title == template["title"])
+           .first()
         )
         if exists:
             continue
@@ -59,7 +86,6 @@ def _ensure_mock_conversations(db: Session, current_user: User) -> None:
 
     db.commit()
 
-
 def _serialize_message(row: ChatHistory) -> dict:
     return {
         "id": row.id,
@@ -67,7 +93,6 @@ def _serialize_message(row: ChatHistory) -> dict:
         "message": row.message,
         "timestamp": row.timestamp.isoformat() if row.timestamp else None,
     }
-
 
 def _serialize_session(row: Conversation, include_messages: bool = False) -> dict:
     payload = {
@@ -81,6 +106,16 @@ def _serialize_session(row: Conversation, include_messages: bool = False) -> dic
     return payload
 
 
+def _estimate_tokens(chars_text: str) -> int:
+    """Rudimentary token estimator for debug purposes.
+
+    Uses a conservative chars→token heuristic (approx 4 chars/token).
+    This is only for debugging and not intended as precise accounting.
+    """
+    if not chars_text:
+        return 0
+    return max(1, int(len(chars_text) / 4))
+
 @router.get("/sessions")
 def list_chat_sessions(
     db: Session = Depends(get_db),
@@ -90,12 +125,11 @@ def list_chat_sessions(
     _ensure_mock_conversations(db, user)
     rows = (
         db.query(Conversation)
-        .filter(Conversation.user_id == user.id)
-        .order_by(Conversation.created_at.desc())
-        .all()
+       .filter(Conversation.user_id == user.id)
+       .order_by(Conversation.created_at.desc())
+       .all()
     )
     return [_serialize_session(row, include_messages=False) for row in rows]
-
 
 @router.post("/sessions")
 def create_chat_session(
@@ -114,7 +148,6 @@ def create_chat_session(
     db.refresh(row)
     return _serialize_session(row, include_messages=True)
 
-
 @router.get("/sessions/{session_id}")
 def get_chat_session(
     session_id: int,
@@ -124,13 +157,12 @@ def get_chat_session(
     """Return chat history for a DB session owned by the current user."""
     row = (
         db.query(Conversation)
-        .filter(Conversation.id == session_id, Conversation.user_id == user.id)
-        .first()
+       .filter(Conversation.id == session_id, Conversation.user_id == user.id)
+       .first()
     )
     if row is None:
         raise HTTPException(status_code=404, detail="Session not found")
     return _serialize_session(row, include_messages=True)
-
 
 @router.post("/sessions/{session_id}/messages")
 def post_chat_message(
@@ -138,12 +170,13 @@ def post_chat_message(
     payload: ChatMessageRequest,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
+    token: str = Depends(oauth2_scheme),
 ) -> dict:
-    """Append a user message to a DB session and return template assistant reply."""
+    """Append a user message to a DB session and run the agent."""
     session = (
         db.query(Conversation)
-        .filter(Conversation.id == session_id, Conversation.user_id == user.id)
-        .first()
+       .filter(Conversation.id == session_id, Conversation.user_id == user.id)
+       .first()
     )
     if session is None:
         raise HTTPException(status_code=404, detail="Session not found")
@@ -158,23 +191,208 @@ def post_chat_message(
         message=content,
     )
     db.add(user_message)
-    db.flush()
+    db.commit()
+    db.refresh(user_message)
 
-    # Placeholder assistant entry until agent orchestration is integrated.
+    # Check for pending action from previous turn
+    pending_action = None
+    recent = (
+        db.query(ChatHistory)
+       .filter(ChatHistory.conversation_id == session.id, ChatHistory.sender == "agent")
+       .order_by(ChatHistory.id.desc())
+       .limit(5)
+       .all()
+    )
+    for msg in recent:
+        try:
+            data = json.loads(msg.message)
+            if isinstance(data, dict) and "action" in data:
+                aid = data["action"].get("id")
+                req = get_action_request(aid) if aid else None
+                if req and req["status"] == "pending":
+                    pending_action = data["action"]
+                    break
+        except Exception:
+            continue
+
+    if pending_action:
+        assistant_text = (
+            f"I've proposed {pending_action.get('type')} on {pending_action.get('target', {}).get('name')}. "
+            f"I can't proceed until you approve or deny it."
+        )
+        assistant_content = json.dumps({"text": assistant_text, "action": pending_action})
+    else:
+        settings = get_settings()
+        if not settings.agent_api_key:
+            assistant_content = "Agent not configured. Set AIOPS_AGENT_API_KEY in.env"
+        else:
+            try:
+                from langchain_openai import ChatOpenAI
+                from langgraph.prebuilt import create_react_agent
+
+                content_lower = content.lower()
+                if any(w in content_lower for w in ["delete","scale","restart","create","patch","update","drain","cordon","uncordon","suspend","resume"]):
+                    task = "act"
+                elif any(w in content_lower for w in ["why","error","fail","issue","diagnose","triage","crash","oom","pending"]):
+                    task = "triage"
+                else:
+                    task = "inspect"
+
+                try:
+                    # Use cached tool loading to avoid rebuilding tool objects each request
+                    tools = _get_tools_cached(task, token, settings.debug_mode)
+
+                    if not tools:
+                        raise ValueError(f"No tools returned for task '{task}'")
+                except Exception as tool_err:
+                    assistant_content = f"Agent initialization failed: {str(tool_err)}"
+                    if settings.debug_mode:
+                        print(f"[AGENT ERROR] Failed to load tools for task '{task}': {tool_err}")
+                    raise HTTPException(status_code=500, detail=str(tool_err)) from tool_err
+                
+                # Debug: log available tools
+                if settings.debug_mode:
+                    tool_names = [getattr(t, "name", str(t)) for t in tools]
+                    print(f"\n[AGENT DEBUG] Task: {task}")
+                    print(f"[AGENT DEBUG] Available tools ({len(tools)}): {', '.join(tool_names)}")
+                
+                llm = ChatOpenAI(
+                    model=settings.agent_model,
+                    api_key=settings.agent_api_key,
+                    base_url="https://integrate.api.nvidia.com/v1",
+                    temperature=0.3,
+                )
+                agent = create_react_agent(llm, tools)
+
+                # Build history
+                history = []
+                for h in db.query(ChatHistory).filter(ChatHistory.conversation_id == session.id).order_by(ChatHistory.timestamp).all():
+                    if h.id == user_message.id:
+                        continue
+                    role = "user" if h.sender == user.username else "assistant"
+                    try:
+                        d = json.loads(h.message)
+                        txt = d.get("text", h.message) if isinstance(d, dict) else h.message
+                    except Exception:
+                        txt = h.message
+                    history.append({"role": role, "content": txt})
+
+                system = {"role": "system", "content": get_system_instruction(user.username)}
+                result = agent.invoke({"messages": [system] + history + [{"role": "user", "content": content}]})
+                
+                if settings.debug_mode:
+                    used_tools = []
+                    for m in result["messages"]:
+                        if getattr(m, "type", None) == "tool":
+                            used_tools.append(getattr(m, "tool", "unknown_tool"))
+                    if used_tools:
+                        print(f"[AGENT DEBUG] Tools used: {', '.join(set(used_tools))}")
+                
+                final = result["messages"][-1]
+                assistant_text = final.content if hasattr(final, "content") else str(final)
+
+                if settings.debug_mode:
+                    # Prefer response metadata on the final message (per langgraph sample)
+                    usage = None
+
+                    # 1) final.response_metadata.token_usage (preferred, per sample)
+                    try:
+                        resp_meta = getattr(final, "response_metadata", None)
+                        if isinstance(resp_meta, dict):
+                            usage = resp_meta.get("token_usage") or resp_meta.get("usage") or resp_meta
+                    except Exception:
+                        usage = None
+
+                    # 2) result-level wrappers: try common keys and coerce to dict if possible
+                    if usage is None and isinstance(result, dict):
+                        for key in ("llm_response", "llm_output", "raw_response", "openai_response", "response"):
+                            candidate = result.get(key)
+                            if candidate is None:
+                                continue
+                            # Try candidate as dict-like
+                            if isinstance(candidate, dict):
+                                candidate_dict = candidate
+                            else:
+                                # Some wrappers expose objects with to_dict()
+                                to_dict = getattr(candidate, "to_dict", None)
+                                try:
+                                    candidate_dict = to_dict() if callable(to_dict) else None
+                                except Exception:
+                                    candidate_dict = None
+
+                            if isinstance(candidate_dict, dict):
+                                if "usage" in candidate_dict and isinstance(candidate_dict["usage"], dict):
+                                    usage = candidate_dict["usage"]
+                                    break
+                                if "token_usage" in candidate_dict and isinstance(candidate_dict["token_usage"], dict):
+                                    usage = candidate_dict["token_usage"]
+                                    break
+
+                    # 3) final.metadata (some wrappers store usage there)
+                    if usage is None:
+                        try:
+                            md = getattr(final, "metadata", None)
+                            if isinstance(md, dict):
+                                usage = md.get("usage") or md.get("token_usage") or None
+                        except Exception:
+                            usage = None
+
+                    # Coerce numeric tokens safely
+                    def _as_int(val):
+                        try:
+                            return int(val)
+                        except Exception:
+                            return None
+
+                    tokens_in = tokens_out = None
+                    total = None
+                    if isinstance(usage, dict):
+                        tokens_in = _as_int(usage.get("prompt_tokens") or usage.get("input_tokens") or usage.get("prompt_tokens_count") or usage.get("prompt"))
+                        tokens_out = _as_int(usage.get("completion_tokens") or usage.get("output_tokens") or usage.get("completion_tokens_count") or usage.get("completion"))
+                        total = _as_int(usage.get("total_tokens"))
+                        if total is None and tokens_in is not None and tokens_out is not None:
+                            total = tokens_in + tokens_out
+
+                    if tokens_in is None or tokens_out is None:
+                        # Fallback to crude estimator
+                        input_msgs = [system] + history + [{"role": "user", "content": content}]
+                        input_text = "".join([m.get("content", "") for m in input_msgs if isinstance(m, dict)])
+                        tokens_in = tokens_in or _estimate_tokens(input_text)
+                        tokens_out = tokens_out or _estimate_tokens(assistant_text or "")
+                        total = total or (tokens_in + tokens_out)
+
+                    print(f"[AGENT DEBUG] Tokens — input: {tokens_in}, output: {tokens_out}, total: {total}")
+                # Detect action proposal
+                action = None
+                for m in result["messages"]:
+                    if getattr(m, "type", None) == "tool":
+                        try:
+                            out = json.loads(m.content) if isinstance(m.content, str) else m.content
+                            if isinstance(out, dict) and out.get("id") and out.get("type"):
+                                action = {"id": out["id"], "type": out["type"], "target": out.get("target", {})}
+                        except Exception:
+                            pass
+
+                if action:
+                    assistant_content = json.dumps({"text": assistant_text, "action": action})
+                else:
+                    assistant_content = assistant_text
+            except Exception as e:
+                assistant_content = f"Agent error: {str(e)}"
+
     assistant_message = ChatHistory(
         conversation_id=session.id,
         sender="agent",
-        message="Template response: connect LLM agent pipeline here.",
+        message=assistant_content,
     )
     db.add(assistant_message)
     db.commit()
-    db.refresh(user_message)
     db.refresh(assistant_message)
 
     session_refreshed = (
         db.query(Conversation)
-        .filter(Conversation.id == session.id, Conversation.user_id == user.id)
-        .first()
+       .filter(Conversation.id == session.id, Conversation.user_id == user.id)
+       .first()
     )
 
     return {
@@ -183,7 +401,6 @@ def post_chat_message(
         "assistant_message": _serialize_message(assistant_message),
         "session": _serialize_session(session_refreshed, include_messages=True),
     }
-
 
 # ── Monitor-push entry point ───────────────────────────────────────────────────
 
@@ -200,7 +417,6 @@ async def handle_agent_event(prompt: str, event_dict: dict, app_state) -> None:
     loop = asyncio.get_event_loop()
     await loop.run_in_executor(None, _persist_alert_sync, prompt, event_dict)
 
-
 def _persist_alert_sync(prompt: str, event_dict: dict) -> None:
     """Sync DB write — runs in executor so it doesn't block the event loop."""
     db: Session = SessionLocal()
@@ -208,8 +424,8 @@ def _persist_alert_sync(prompt: str, event_dict: dict) -> None:
         # Find or create the shared alert conversation (not user-scoped)
         convo = (
             db.query(Conversation)
-            .filter(Conversation.title == AGENT_ALERT_CONVERSATION_TITLE)
-            .first()
+           .filter(Conversation.title == AGENT_ALERT_CONVERSATION_TITLE)
+           .first()
         )
         if convo is None:
             convo = Conversation(user_id=None, title=AGENT_ALERT_CONVERSATION_TITLE)

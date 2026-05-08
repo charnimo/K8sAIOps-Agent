@@ -1,6 +1,6 @@
 """Shared request and response schemas."""
 
-from typing import Any
+from typing import Any, Optional
 
 from pydantic import BaseModel, Field
 
@@ -48,4 +48,5 @@ class ActionRequestCreate(BaseModel):
     type: str = Field(..., min_length=1)
     target: ActionTarget
     params: dict[str, Any] = Field(default_factory=dict)
+    triggered_by: Optional[str] = Field(default=None, description="Source of action (e.g. 'agent' or 'dashboard')")
 

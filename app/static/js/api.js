@@ -1202,6 +1202,46 @@ export class ApiClient {
         }
         return await res.json();
     }
+        async getActionRequests(status = null) {
+        const params = new URLSearchParams();
+        if (status) params.set('status', status);
+        const url = `/action-requests${params.toString() ? `?${params.toString()}` : ''}`;
+        const res = await fetch(url, { headers: this.headers });
+        if (!res.ok) throw new Error('Failed to fetch action requests');
+        return await res.json();
+    }
+
+    async getActionRequest(actionId) {
+        const res = await fetch(`/action-requests/${encodeURIComponent(actionId)}`, { headers: this.headers });
+        if (!res.ok) throw new Error('Failed to fetch action request');
+        return await res.json();
+    }
+
+    async approveActionRequest(actionId) {
+        const res = await fetch(`/action-requests/${encodeURIComponent(actionId)}/approve`, {
+            method: 'POST',
+            headers: this.headers,
+        });
+        if (!res.ok) {
+            let errorMsg = 'Failed to approve action';
+            try { errorMsg = (await res.json()).detail || errorMsg; } catch(e) {}
+            throw new Error(errorMsg);
+        }
+        return await res.json();
+    }
+
+    async rejectActionRequest(actionId) {
+        const res = await fetch(`/action-requests/${encodeURIComponent(actionId)}/reject`, {
+            method: 'POST',
+            headers: this.headers,
+        });
+        if (!res.ok) {
+            let errorMsg = 'Failed to reject action';
+            try { errorMsg = (await res.json()).detail || errorMsg; } catch(e) {}
+            throw new Error(errorMsg);
+        }
+        return await res.json();
+    }
 }
 
 installApiPermissionGuards(ApiClient);
