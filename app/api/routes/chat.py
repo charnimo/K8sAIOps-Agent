@@ -6,7 +6,7 @@ import json
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from app.auth.dependencies import get_current_user, oauth2_scheme
+from app.auth.dependencies import get_current_user, oauth2_scheme, require_permission
 from app.core.settings import get_settings
 from app.database.database import get_db, SessionLocal
 from app.database.models import ChatHistory, Conversation, User
@@ -15,7 +15,7 @@ from agent.agent_instructions import get_system_instruction
 from agent.tools import get_tools_for_task, get_tool_group, ToolGroup
 from app.state.store import get_action_request
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(require_permission("agent:chat"))])
 
 # Simple in-memory cache for tool loading to avoid rebuilding on every request.
 # Cached separately for debug (all-tools) and for task-specific tool sets.

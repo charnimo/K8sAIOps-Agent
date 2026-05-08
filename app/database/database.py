@@ -98,6 +98,7 @@ PERMISSION_CATALOG_SEED = [
     {"permission_key": "diagnostics:run", "label": "Run Diagnostics", "description": "Run pod, deployment, service, and cluster diagnostics.", "is_dangerous": False, "scope": "cluster"},
 
     {"permission_key": "terminal:kubectl:readonly", "label": "Cluster Terminal", "description": "Use read-only cluster terminal.", "is_dangerous": False, "scope": "cluster"},
+    {"permission_key": "agent:chat", "label": "AI Assistant", "description": "Access the AI agent for cluster management and triage.", "is_dangerous": False, "scope": "cluster"},
 ]
 
 

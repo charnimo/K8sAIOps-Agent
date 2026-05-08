@@ -362,6 +362,21 @@ def build_read_tools(token: str) -> list:
         """
         return client.get(f"/config/configmaps/{name}", {"namespace": namespace})
 
+    # ── RBAC / PERMISSIONS ────────────────────────────────────────────────────
+
+    @tool
+    def get_my_permissions() -> dict:
+        """
+        Get the exact Kubernetes RBAC permissions assigned to you (the agent/user).
+        
+        Returns a dictionary showing if you are in 'god_mode' (full access),
+        along with lists of specific permissions granted globally or per-namespace.
+        
+        Use this tool immediately if a user asks what you are allowed to do,
+        or if you want to verify your permissions before proposing a complex action.
+        """
+        # The /auth/me endpoint returns the effective permissions of the token
+        return client.get("/auth/me")
     # ── SECRETS ───────────────────────────────────────────────────────────────
 
     @tool
@@ -711,4 +726,5 @@ def build_read_tools(token: str) -> list:
         list_namespaces, get_namespace, get_namespace_resource_count,
         list_pvs, get_pv, list_pvcs, get_pvc, get_pvc_issues,
         list_storage_classes,
+        get_my_permissions,
     ]

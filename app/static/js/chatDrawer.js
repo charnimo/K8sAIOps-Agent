@@ -75,6 +75,17 @@ export class ChatDrawer {
     bindHeaderButton() {
         this.openBtn = document.getElementById('openAiChatBtn');
         if (!this.openBtn) return;
+
+        // Use the permission manager to check access
+        const canChat = this.api.permissionManager 
+            ? this.api.permissionManager.can('agent:chat', null, 'cluster') 
+            : true;
+
+        if (!canChat) {
+            this.openBtn.style.display = 'none';
+            return;
+        }
+
         this.openBtn.addEventListener('click', () => this.open());
     }
 
