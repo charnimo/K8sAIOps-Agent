@@ -305,12 +305,19 @@ def post_chat_message(
                     used_tools = []
                     for m in result["messages"]:
                         if getattr(m, "type", None) == "tool":
-                            used_tools.append(getattr(m, "tool", "unknown_tool"))
+                            used_tools.append(getattr(m, "name", "unknown"))
                     if used_tools:
-                        print(f"[AGENT DEBUG] Tools used: {', '.join(set(used_tools))}")
+                        # ANSI escape codes for terminal highlighting
+                        yellow = "\033[93m"
+                        cyan = "\033[96m"
+                        bold = "\033[1m"
+                        reset = "\033[0m"
+                        unique_tools = ", ".join(set(used_tools))
+                        print(f"\n{yellow}{bold}>>> [AGENT DEBUG: TOOL EXECUTION]{reset}")
+                        print(f"{cyan}TASK:{reset} {task.upper()}")
+                        print(f"{cyan}TOOLS CALLED:{reset} {yellow}{unique_tools}{reset}\n")
                 
                 final = result["messages"][-1]
-                assistant_text = final.content if hasattr(final, "content") else str(final)
 
                 if settings.debug_mode:
                     # Prefer response metadata on the final message (per langgraph sample)
