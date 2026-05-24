@@ -4,9 +4,15 @@ import json
 import os
 from dataclasses import dataclass
 from enum import Enum
+from pathlib import Path
 from typing import Any, Optional
 
 import requests
+from dotenv import load_dotenv
+
+# Load repo-root .env so agent config can read API keys without shell export.
+_ENV_PATH = Path(__file__).resolve().parents[2] / ".env"
+load_dotenv(dotenv_path=_ENV_PATH)
 
 # ============================================================================
 # PLACEHOLDER: LLM PROVIDER CONFIGURATION
