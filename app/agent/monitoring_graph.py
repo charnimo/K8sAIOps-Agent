@@ -14,6 +14,7 @@ import asyncio
 import json
 import logging
 import re
+import uuid
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
@@ -44,10 +45,46 @@ from app.database.models import IncidentRecord as IncidentRecordModel
 logger = logging.getLogger(__name__)
 
 ALLOWED_BASIC_ACTION_TOOLS = [
-    "restart_pod",
+    "cordon_node",
+    "uncordon_node",
+    "drain_node",
+    "create_hpa",
+    "delete_hpa",
+    "patch_hpa",
     "scale_deployment",
+    "scale_statefulset",
+    "rollback_deployment",
     "rollout_restart",
+    "restart_pod",
+    "restart_daemonset",
+    "restart_statefulset",
     "patch_resource_limits",
+    "patch_env_var",
+    "patch_configmap",
+    "patch_ingress",
+    "patch_service",
+    "patch_pvc",
+    "update_daemonset_image",
+    "update_secret",
+    "exec_pod",
+    "suspend_job",
+    "resume_job",
+    "suspend_cronjob",
+    "resume_cronjob",
+    "delete_job",
+    "delete_pod",
+    "delete_service",
+    "delete_ingress",
+    "delete_configmap",
+    "delete_secret",
+    "create_configmap",
+    "create_service",
+    "create_ingress",
+    "create_secret",
+    "create_namespace",
+    "delete_namespace",
+    "create_pvc",
+    "delete_pvc",
 ]
 
 
@@ -181,19 +218,32 @@ async def node_decide_tools(state: MonitoringGraphState) -> MonitoringGraphState
         tool_names = {tool.name for tool in tool_definitions}
         action_tool_names = [name for name in ALLOWED_BASIC_ACTION_TOOLS if name in tool_names]
         # Include category and read-only flag to help the LLM distinguish actions
-        tools_description = "\n".join(
-            [f"- {t.name} (category={t.category}, read_only={t.is_read_only}): {t.description}" for t in tool_definitions]
-        )
+        tools_description = "\n".join([
+            f"- {t.name} (category={t.category}, read_only={t.is_read_only})"
+            f"\n  Description: {t.description}"
+            f"\n  Parameters: {json.dumps(t.parameters)}"
+            for t in tool_definitions
+        ])
 
         prompt = f"""
 You are a Kubernetes diagnostics expert. An incident has occurred in the cluster.
 
 EVENT DETAILS:
+- Resource Type: {event.resource_type}
+- Resource Name: {event.resource_name}
 - Namespace: {event.namespace}
 - Reason: {event.reason}
 - Severity: {event.severity}
 - Message: {event.message}
 - Additional Context: {json.dumps(event.additional_context, indent=2)}
+
+RESOURCE CONTEXT:
+The affected resource is a {event.resource_type} named "{event.resource_name}" in namespace "{event.namespace}".
+Select tools appropriate for THIS resource type. For example:
+- If resource is an HPA → prefer get_hpa_info, detect_hpa_issues
+- If resource is a Pod → prefer get_pod_logs, get_pod_status, get_pod_events, describe_pod
+- If resource is a Deployment → prefer get_deployment_info, describe_deployment
+- If a ConfigMap is mentioned in the message → also call list_configmaps and get_configmap
 
 AVAILABLE DIAGNOSTIC TOOLS:
 {tools_description}
@@ -207,9 +257,10 @@ Allowed action tools:
 {", ".join(action_tool_names)}
 
 Rules for fixes:
-- Keep fixes basic and practical.
-- Use only the allowed action tool names above.
-- Prefer 1-2 small-scope actions over long or speculative plans.
+- Be thorough. List every relevant finding from the diagnostics, even failures and 404s.
+- Suggest all plausible remediation actions, not just the safest one.
+- If a tool returned an error or 404, treat it as a diagnostic finding and explain what it implies.
+- Include specific resource names, error messages, and counts in every field.
 - Do not invent new action names, resource kinds, or remediation steps.
 
 Prefer read-only tools for initial diagnostics. If the incident severity is critical, you may include higher-impact diagnostics (e.g., `describe_deployment`) in `tools`.
@@ -262,6 +313,9 @@ Respond in this JSON format:
         llm_reasoning = response_json.get("reasoning", "")
 
         # Only keep known tools.
+        for tool in tools_to_call:
+            if tool not in tool_names:
+                logger.warning("LLM requested unknown tool '%s' — dropping", tool)
         raw_tools = [tool for tool in tools_to_call if tool in tool_names]
         raw_suggested_actions = [tool for tool in suggested_actions if tool in tool_names]
 
@@ -560,6 +614,10 @@ async def node_persist_incident(
             session.close()
 
         state["incident_record"] = incident
+        from app.agent.memory import get_incident_memory
+        memory = get_incident_memory()
+        memory.store_incident(incident.incident_id, incident.dict())
+        
         state["log_snapshot"] = log_snapshot
 
         logger.info(
@@ -663,6 +721,14 @@ def _build_tool_parameters(
     """Build parameters for each tool based on event."""
     params = {}
     additional_context = event.additional_context or {}
+    tool_definitions = get_tool_definitions()
+    tool_def_map = {tool.name: tool for tool in tool_definitions}
+    resource_type = (
+        event.resource_type.value
+        if hasattr(event.resource_type, "value")
+        else str(event.resource_type)
+    )
+    is_namespace_event = event.resource_type == ResourceType.NAMESPACE
 
     for tool_name in tools:
         if tool_name in [
@@ -697,11 +763,75 @@ def _build_tool_parameters(
                 )
         elif tool_name == "list_nodes":
             params[tool_name] = {}
-        elif tool_name in ["get_hpa_info", "detect_hpa_issues"]:
-            params[tool_name] = {
-                "namespace": event.namespace,
-                "hpa_name": event.resource_name,
-            }
+        elif tool_name == "list_namespaces":
+            params[tool_name] = {}
+        elif tool_name == "get_namespace":
+            params[tool_name] = {"name": event.namespace}
+        elif tool_name == "get_namespace_resource_count":
+            params[tool_name] = {"namespace": event.namespace}
+        elif tool_name == "get_namespace_events":
+            params[tool_name] = {"name": event.namespace}
+        elif tool_name in ["get_node_events", "get_node"]:
+            params[tool_name] = {"name": event.resource_name}
+        elif tool_name == "list_pods":
+            params[tool_name] = {"namespace": event.namespace}
+        elif tool_name in ["get_deployment", "get_deployment_events"]:
+            deployment_name = additional_context.get("deployment_name")
+            if deployment_name:
+                params[tool_name] = {
+                    "namespace": event.namespace,
+                    "name": deployment_name,
+                }
+            elif event.resource_type in [ResourceType.DEPLOYMENT, ResourceType.STATEFULSET]:
+                params[tool_name] = {
+                    "namespace": event.namespace,
+                    "name": event.resource_name,
+                }
+            else:
+                logger.warning(
+                    "Skipping %s because no owning deployment name is available for %s/%s",
+                    tool_name,
+                    event.namespace,
+                    event.resource_name,
+                )
+        else:
+            tool_def = tool_def_map.get(tool_name)
+            if not tool_def:
+                continue
+
+            if not tool_def.parameters:
+                params[tool_name] = {}
+                continue
+
+            inferred: Dict[str, Any] = {}
+            if "namespace" in tool_def.parameters:
+                inferred["namespace"] = event.namespace
+            if "pod_name" in tool_def.parameters:
+                inferred["pod_name"] = event.resource_name
+            if "deployment_name" in tool_def.parameters:
+                inferred["deployment_name"] = additional_context.get("deployment_name") or event.resource_name
+            if "service_name" in tool_def.parameters:
+                inferred["service_name"] = event.resource_name
+            if "hpa_name" in tool_def.parameters:
+                inferred["hpa_name"] = event.resource_name
+            if "name" in tool_def.parameters and "name" not in inferred:
+                if is_namespace_event or tool_name.startswith("get_namespace") or tool_name.startswith("delete_namespace"):
+                    inferred["name"] = event.namespace
+                elif tool_name.startswith(("get_node", "detect_node", "cordon_node", "uncordon_node", "drain_node")):
+                    inferred["name"] = event.resource_name
+                elif tool_name.startswith(("get_pod", "delete_pod", "diagnose_pod", "get_pod_status_with_metrics")):
+                    inferred["name"] = event.resource_name
+                elif tool_name.startswith(("get_deployment", "detect_deployment", "rollout_", "rollback_deployment")):
+                    inferred["name"] = event.resource_name
+                elif event.resource_type == ResourceType.NAMESPACE:
+                    inferred["name"] = event.namespace
+                else:
+                    inferred["name"] = event.resource_name
+            if "kind" in tool_def.parameters and "kind" not in inferred:
+                inferred["kind"] = resource_type
+
+            if inferred:
+                params[tool_name] = inferred
 
     return params
 
@@ -738,7 +868,7 @@ def _is_tool_read_only(tool_name: str, tool_definitions: List[Any]) -> bool:
 def _build_log_snapshot(diagnostics: Dict[str, DiagnosticResult], max_lines: int = 8) -> Optional[str]:
     """Extract a compact log excerpt from diagnostic outputs."""
     candidates: list[str] = []
-
+    
     for key in ("get_pod_logs", "describe_pod"):
         result = diagnostics.get(key)
         if not result or not result.success or not result.data:
@@ -763,8 +893,13 @@ def _build_log_snapshot(diagnostics: Dict[str, DiagnosticResult], max_lines: int
                         if cleaned:
                             candidates.append(f"[{container_name}]")
                             candidates.extend(cleaned[:max_lines])
-
-        if candidates:
+        # Also capture errors from failed tools as they are diagnostic findings
+        if not candidates:
+            for key, result in diagnostics.items():
+                if not result.success and result.error:
+                    candidates.append(f"[{key} ERROR] {result.error}")
+        
+        else:
             break
 
     if not candidates:
@@ -941,7 +1076,7 @@ Return only JSON with these keys:
 - severity: one of INFO, WARNING, CRITICAL
 - root_cause_analysis: an object with keys root_cause, hypothesis_confidence, supporting_evidence, reasoning
 - summary: a short one-line incident summary
-- detailed_summary: a concise but complete incident summary using the live diagnostics
+- detailed_summary: a thorough multi-sentence incident summary covering: what happened, why it happened (evidence from diagnostics), what the current state is, and what will happen if left unresolved
 - suggested_actions: a list of remediation suggestions with keys action_type, description, target_resource, priority, estimated_risk, rationale, evidence
 - remediation_plan: an ordered list of handoff steps with keys step_number, action_type, description, target_resource, why, evidence, estimated_risk
 - evidence_map: a mapping from action_type to supporting evidence snippets
@@ -954,7 +1089,8 @@ Rules:
 - Do not invent facts.
 - Keep fixes basic and practical.
 - Use only the allowed action tool names above.
-- Prefer 1-2 small-scope actions.
+- Select all tools that would give useful diagnostic signal for this resource type and reason.
+- Do not artificially limit the number of tools — thoroughness is preferred over brevity.
 - If evidence is insufficient, say so explicitly in the root cause and summary.
 - Do not output markdown or commentary.
 
@@ -971,6 +1107,10 @@ EVENT:
 
 LIVE DIAGNOSTICS:
 {json.dumps(_diagnostics_to_prompt_payload(diagnostics), indent=2, default=str)}
+
+IMPORTANT: If a diagnostic tool returned success=false or an error (e.g. 404 Not Found),
+treat that failure as a diagnostic finding, not just noise. A 404 on a pod lookup IS evidence 
+the pod doesn't exist, which may be the root cause.
 
 LOG SNAPSHOT:
 {_build_log_snapshot(diagnostics) or ""}
