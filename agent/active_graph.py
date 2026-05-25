@@ -57,6 +57,10 @@ _AUDIT_WORDS = {
     "result",
 }
 
+_AUDIT_INTENT_WORDS = {"audit", "history", "who", "changed", "change"}
+_ACTION_DENIAL_WORDS = {"denied", "rejected"}
+_ACTION_RESULT_WORDS = {"approved", "confirm", "result"}
+
 _ACTION_IMPACTS = {
     "delete_pod": "Kubernetes may recreate it if it is managed by a controller.",
     "exec_pod": "The command will run inside the target pod after approval.",
@@ -110,8 +114,13 @@ def classify_task_for_content(content: str, action_context: dict[str, Any] | Non
     text = content.lower()
     words = set(re.findall(r"[a-z_]+", text))
 
-    if action_context and words & _AUDIT_WORDS:
-        return "audit"
+    if action_context:
+        if words & _AUDIT_INTENT_WORDS:
+            return "audit"
+        if words & _ACTION_DENIAL_WORDS:
+            return "triage"
+        if words & _ACTION_RESULT_WORDS:
+            return "inspect"
     if words & _MUTATION_WORDS:
         return "act"
     if words & _TRIAGE_WORDS:
