@@ -36,7 +36,7 @@ from app.agent.tools import (
     execute_tool,
     get_tool_definitions,
 )
-from app.agent.config import get_llm_client, LLM_CONFIG
+from app.agent.config import get_llm_client
 
 logger = logging.getLogger(__name__)
 
@@ -115,39 +115,10 @@ async def node_decide_tools(state: MonitoringGraphState) -> MonitoringGraphState
             [f"- {t.name} (category={t.category}, read_only={t.is_read_only}): {t.description}" for t in tool_definitions]
         )
 
-        few_shot_examples = """
-FEW-SHOT EXAMPLES:
-1) CrashLoopBackOff with log evidence of OOM:
-{
-    "tools": ["get_pod_logs", "get_pod_metrics", "get_pod_status"],
-    "suggested_actions": ["increase_memory_limit", "restart_pod"],
-    "remediation_plan": [
-        {"step_number": 1, "action_type": "increase_memory_limit", "description": "Increase pod memory limit", "target_resource": "namespace/pod", "why": "Logs and metrics show the container is hitting memory pressure", "evidence": ["OOMKilled", "memory usage near limit"], "estimated_risk": "LOW"},
-        {"step_number": 2, "action_type": "restart_pod", "description": "Restart pod after memory fix is reviewed", "target_resource": "namespace/pod", "why": "A restart may recover once the resource issue is fixed", "evidence": ["CrashLoopBackOff"], "estimated_risk": "LOW"}
-    ],
-    "evidence_map": {"increase_memory_limit": ["OOMKilled", "memory usage near limit"], "restart_pod": ["CrashLoopBackOff"]},
-    "reasoning": "OOM evidence is strongest; collect logs and metrics first, then recommend memory fix before restart."
-}
-
-2) HPA unable to fetch metrics:
-{
-    "tools": ["get_hpa_info", "detect_hpa_issues", "list_nodes"],
-    "suggested_actions": ["verify_metrics_server", "validate_hpa_target_metrics"],
-    "remediation_plan": [
-        {"step_number": 1, "action_type": "verify_metrics_server", "description": "Verify metrics-server is installed and metrics.k8s.io API is healthy", "target_resource": "cluster", "why": "HPA metrics are unavailable from the cluster", "evidence": ["metrics.k8s.io unavailable"], "estimated_risk": "LOW"},
-        {"step_number": 2, "action_type": "validate_hpa_target_metrics", "description": "Validate HPA target workload exposes CPU/memory metrics and requests", "target_resource": "namespace/hpa", "why": "After metrics-server is healthy, confirm the workload exports metrics", "evidence": ["FailedGetResourceMetric"], "estimated_risk": "LOW"}
-    ],
-    "evidence_map": {"verify_metrics_server": ["metrics.k8s.io unavailable"], "validate_hpa_target_metrics": ["FailedGetResourceMetric"]},
-    "reasoning": "The cluster metrics pipeline is the blocker, so verify it before touching the target workload."
-}
-""".strip()
-
         prompt = f"""
 You are a Kubernetes diagnostics expert. An incident has occurred in the cluster.
 
 EVENT DETAILS:
-- Resource Type: {event.resource_type}
-- Resource Name: {event.resource_name}
 - Namespace: {event.namespace}
 - Reason: {event.reason}
 - Severity: {event.severity}
@@ -156,7 +127,6 @@ EVENT DETAILS:
 
 AVAILABLE DIAGNOSTIC TOOLS:
 {tools_description}
-{few_shot_examples}
 Note: Some tools are actions (will mutate cluster state) and require explicit approval.
 Return two lists:
 1) `tools`: read-only diagnostic/query tools the agent should execute now.
@@ -196,42 +166,37 @@ Respond in this JSON format:
                 {"role": "user", "content": prompt},
             ]
         )
-
         llm_response_text = llm_client.extract_text(response)
+        if not llm_response_text:
+            raise ValueError("LLM returned an empty tool-selection response")
 
-        # Parse LLM response
-        try:
-            response_json = _extract_json_payload(llm_response_text)
-            tools_to_call = response_json.get("tools", [])
-            suggested_actions = response_json.get("suggested_actions", [])
-            remediation_plan = response_json.get("remediation_plan", [])
-            evidence_map = response_json.get("evidence_map", {})
-            llm_reasoning = response_json.get("reasoning", "")
-        except json.JSONDecodeError:
-            logger.warning(f"Failed to parse LLM response: {llm_response_text}")
-            tools_to_call = _get_default_tools_for_reason(event.reason)
-            suggested_actions = []
-            remediation_plan = []
-            evidence_map = {}
-            llm_reasoning = "Fallback to default tools due to LLM parse error"
+        response_model = str(response.get("model") or response.get("id") or llm_client.model).strip()
+        response_source = "live_nvidia_api"
 
-        # Only keep known tools
+        response_json = _extract_json_payload(llm_response_text)
+        tools_to_call = response_json.get("tools", [])
+        suggested_actions = response_json.get("suggested_actions", [])
+        remediation_plan = response_json.get("remediation_plan", [])
+        evidence_map = response_json.get("evidence_map", {})
+        llm_reasoning = response_json.get("reasoning", "")
+
+        # Only keep known tools.
         raw_tools = [tool for tool in tools_to_call if tool in tool_names]
         raw_suggested_actions = [tool for tool in suggested_actions if tool in tool_names]
 
-        # Sanitize and separate read-only diagnostics vs actions
-        sanitized = _sanitize_tools_for_resource(event, raw_tools)
-        # Heuristic: if severity is CRITICAL, ensure at least one deep diagnostic (describe_deployment/describe_pod)
-        if event.severity == SeverityLevel.CRITICAL:
-            if event.resource_type == ResourceType.POD and "describe_pod" in tool_names and "describe_pod" not in sanitized:
-                sanitized.append("describe_pod")
+        if not raw_tools:
+            raise ValueError("LLM did not return any known diagnostic tools")
 
-        # Store diagnostics to execute now (read-only only). Action tools are kept separately.
-        state["tools_to_call"] = [t for t in sanitized if _is_tool_read_only(t, tool_definitions)]
-        state["suggested_action_tools"] = [t for t in raw_suggested_actions if not _is_tool_read_only(t, tool_definitions)]
-        state["remediation_plan"] = _normalize_remediation_plan(remediation_plan)
+        # Store the LLM output as-is after verifying the tool names exist in the registry.
+        state["tools_to_call"] = raw_tools
+        state["suggested_action_tools"] = raw_suggested_actions
+        state["remediation_plan"] = remediation_plan
         state["evidence_map"] = _normalize_evidence_map(evidence_map)
         state["llm_tool_reasoning"] = llm_reasoning
+        state["llm_provider"] = "nvidia"
+        state["llm_model"] = llm_client.model
+        state["llm_response_model"] = response_model
+        state["llm_response_source"] = response_source
 
         logger.info(
             f"LLM selected tools: {tools_to_call}, suggested_actions: {suggested_actions}. Reasoning: {llm_reasoning}"
@@ -244,8 +209,7 @@ Respond in this JSON format:
             f"Tool selection failed: {str(e)}"
         ]
         logger.error(f"Tool selection error: {e}", exc_info=True)
-        state["tools_to_call"] = _get_default_tools_for_reason(state["event"].reason)
-        return state
+        raise
 
 
 # ============================================================================
@@ -325,56 +289,52 @@ async def node_collect_diagnostics(
 # ============================================================================
 
 
-def node_classify_severity(state: MonitoringGraphState) -> MonitoringGraphState:
-    """Classify incident severity based on diagnostics and rules.
-
-    Uses deterministic rules to classify severity (not LLM).
-
-    Args:
-        state: Graph state with diagnostics
-
-    Returns:
-        Updated state with severity and root_cause_analysis
-    """
+async def node_classify_severity(state: MonitoringGraphState) -> MonitoringGraphState:
+    """Use the LLM to classify severity and summarize the incident."""
     try:
         event = state["event"]
         diagnostics = state.get("collected_diagnostics", {})
 
-        # Deterministic severity rules
-        severity = event.severity  # Start with event severity
+        analysis = await _run_llm_incident_analysis(event, diagnostics)
+        severity_value = str(analysis.get("severity", "")).strip()
+        if severity_value not in {"INFO", "WARNING", "CRITICAL"}:
+            raise ValueError(f"Invalid severity from LLM: {severity_value!r}")
 
-        # Check specific patterns in diagnostics
-        for tool_name, result in diagnostics.items():
-            if not result.success or not result.data:
-                continue
+        root_cause = _normalize_root_cause_analysis(analysis.get("root_cause_analysis"))
 
-            # OOMKilled pattern
-            if (
-                tool_name == "get_pod_metrics"
-                and result.data.get("memory_usage")
-                and result.data.get("memory_limit")
-            ):
-                usage = _parse_memory_value(result.data.get("memory_usage", "0Mi"))
-                limit = _parse_memory_value(result.data.get("memory_limit", "1Gi"))
-                if usage > limit * 0.9:  # 90%+ usage
-                    severity = SeverityLevel.CRITICAL
-                    break
+        suggested_actions_raw = analysis.get("suggested_actions", [])
+        remediation_plan_raw = analysis.get("remediation_plan", [])
+        evidence_map_raw = analysis.get("evidence_map", {})
 
-            # High restart count
-            if tool_name == "get_pod_status":
-                restart_count = result.data.get("restart_count", 0)
-                if restart_count > 5:
-                    severity = SeverityLevel.CRITICAL
-                    break
+        if not isinstance(evidence_map_raw, dict):
+            raise ValueError("LLM did not return a valid evidence_map object")
 
-        # Generate root cause hypothesis
-        root_cause = _analyze_root_cause(event, diagnostics)
-
-        state["severity"] = severity
+        state["severity"] = SeverityLevel(severity_value)
         state["root_cause_analysis"] = root_cause
+        state["summary"] = str(analysis.get("summary", "")).strip()
+        state["detailed_summary"] = str(analysis.get("detailed_summary", "")).strip()
+        state["suggested_actions"] = [
+            SuggestedAction(
+                action_type=str(item.get("action_type") or item.get("action") or "").strip(),
+                description=str(item.get("description") or item.get("summary") or "").strip(),
+                target_resource=str(item.get("target_resource") or item.get("target") or "").strip(),
+                priority=_coerce_int(item.get("priority"), idx),
+                estimated_risk=str(item.get("estimated_risk") or "LOW").strip().upper(),
+                rationale=str(item.get("rationale") or item.get("why") or "").strip() or None,
+                evidence=_coerce_list(item.get("evidence")),
+            )
+            for idx, item in enumerate(suggested_actions_raw, start=1)
+            if isinstance(item, dict)
+        ]
+        state["remediation_plan"] = [
+            step
+            for idx, item in enumerate(remediation_plan_raw, start=1)
+            if (step := _normalize_remediation_item(item, idx)) is not None
+        ]
+        state["evidence_map"] = _normalize_evidence_map(evidence_map_raw)
 
         logger.info(
-            f"Classified severity: {severity}. Root cause: {root_cause.root_cause}"
+            f"LLM incident analysis complete: severity={severity_value}, root cause={state['root_cause_analysis'].root_cause}"
         )
 
         return state
@@ -384,7 +344,7 @@ def node_classify_severity(state: MonitoringGraphState) -> MonitoringGraphState:
             f"Severity classification failed: {str(e)}"
         ]
         logger.error(f"Severity classification error: {e}", exc_info=True)
-        return state
+        raise
 
 
 # ============================================================================
@@ -481,16 +441,7 @@ def node_resolve_recipient(state: MonitoringGraphState) -> MonitoringGraphState:
 async def node_persist_incident(
     state: MonitoringGraphState,
 ) -> MonitoringGraphState:
-    """Create and persist incident record to database.
-
-    PLACEHOLDER: Actual database persistence goes here.
-
-    Args:
-        state: Graph state with all investigation data
-
-    Returns:
-        Updated state with incident_record
-    """
+    """Create and persist incident record to database."""
     try:
         event = state["event"]
         diagnostics = state.get("collected_diagnostics", {})
@@ -501,12 +452,20 @@ async def node_persist_incident(
         concerned_users = state.get("concerned_users", [])
         owner_hints = state.get("owner_hints", [])
         log_snapshot = _build_log_snapshot(diagnostics)
+        summary = str(state.get("summary", "")).strip()
+        detailed_summary = str(state.get("detailed_summary", "")).strip()
         remediation_plan = state.get("remediation_plan", [])
         evidence_map = state.get("evidence_map", {})
-        if not remediation_plan:
-            remediation_plan = _build_remediation_plan(event, root_cause, diagnostics)
+        suggested_actions = state.get("suggested_actions", [])
 
-        suggested_actions = _generate_suggested_actions(event, root_cause)
+        if not summary:
+            raise ValueError("Missing LLM summary for incident record")
+        if not detailed_summary:
+            raise ValueError("Missing LLM detailed summary for incident record")
+        if not isinstance(root_cause, RootCauseAnalysis):
+            raise ValueError("Missing LLM root cause analysis for incident record")
+        if not remediation_plan:
+            raise ValueError("Missing LLM remediation plan for incident record")
 
         # Build incident record
         incident = IncidentRecord(
@@ -519,21 +478,18 @@ async def node_persist_incident(
             reason=event.reason,
             severity=severity,
             teams=teams,
-            summary=f"{event.reason} in {event.namespace}/{event.resource_name}",
-            detailed_summary=_build_detailed_summary(
-                event,
-                diagnostics,
-                concerned_person=concerned_person,
-                log_snapshot=log_snapshot,
-                remediation_plan=remediation_plan,
-                evidence_map=evidence_map,
-            ),
+            summary=summary,
+            detailed_summary=detailed_summary,
             log_snapshot=log_snapshot,
             collected_diagnostics={
                 name: result.dict() for name, result in diagnostics.items()
             },
             tools_called=list(diagnostics.keys()),
             llm_reasoning=state.get("llm_tool_reasoning"),
+            llm_provider=state.get("llm_provider"),
+            llm_model=state.get("llm_model"),
+            llm_response_model=state.get("llm_response_model"),
+            llm_response_source=state.get("llm_response_source"),
             root_cause_analysis=root_cause,
             suggested_actions=suggested_actions,
             remediation_plan=remediation_plan,
@@ -568,7 +524,7 @@ async def node_persist_incident(
             f"Incident persistence failed: {str(e)}"
         ]
         logger.error(f"Incident persistence error: {e}", exc_info=True)
-        return state
+        raise
 
 
 # ============================================================================
@@ -654,100 +610,6 @@ def build_monitoring_graph():
     return graph.compile()
 
 
-# ============================================================================
-# HELPER FUNCTIONS
-# ============================================================================
-
-
-def _get_placeholder_llm_response(resource_type: str, reason: str) -> str:
-    """Get placeholder LLM response for testing.
-
-    REMOVE when LLM is integrated.
-    """
-    # Default tools by reason
-    reason_map = {
-        "CrashLoopBackOff": [
-            "get_pod_logs",
-            "get_pod_events",
-            "get_pod_status",
-            "get_pod_metrics",
-        ],
-        "OOMKilled": ["get_pod_logs", "get_pod_metrics", "get_pod_status"],
-        "ImagePullBackOff": ["get_pod_events", "get_pod_status"],
-        "FailedScheduling": ["get_pod_events", "get_pod_status", "list_nodes"],
-        "Evicted": ["get_pod_status", "list_nodes"],
-        "Pending": ["get_pod_events", "get_pod_status"],
-    }
-
-    tools = reason_map.get(reason, ["get_pod_logs", "get_pod_events", "get_pod_status"])
-
-    return json.dumps(
-        {
-            "tools": tools,
-            "reasoning": f"Selected tools based on {reason} pattern",
-        }
-    )
-
-
-def _get_default_tools_for_reason(reason: str) -> List[str]:
-    """Get default tools for a given failure reason."""
-    reason_map = {
-        "CrashLoopBackOff": [
-            "get_pod_logs",
-            "get_pod_events",
-            "get_pod_status",
-            "get_pod_metrics",
-        ],
-        "OOMKilled": ["get_pod_logs", "get_pod_metrics", "get_pod_status"],
-        "ImagePullBackOff": ["get_pod_events", "get_pod_status"],
-        "FailedScheduling": ["get_pod_events", "get_pod_status", "list_nodes"],
-        "FailedGetResourceMetric": ["get_hpa_info", "detect_hpa_issues", "list_nodes"],
-        "Evicted": ["get_pod_status", "list_nodes"],
-        "Pending": ["get_pod_events", "get_pod_status"],
-    }
-    return reason_map.get(reason, ["get_pod_logs", "get_pod_events", "get_pod_status"])
-
-
-def _sanitize_tools_for_resource(
-    event: EnrichedEventInput, tools: List[str]
-) -> List[str]:
-    """Filter/select tools that are valid for the resource type."""
-    if event.resource_type == ResourceType.HPA:
-        allowed_for_hpa = {"get_hpa_info", "detect_hpa_issues", "list_nodes"}
-        selected = [tool for tool in tools if tool in allowed_for_hpa]
-        if not selected:
-            selected = ["get_hpa_info", "detect_hpa_issues", "list_nodes"]
-        return selected
-
-    if event.resource_type == ResourceType.POD:
-        allowed_for_pod = {
-            "get_pod_logs",
-            "get_pod_events",
-            "get_pod_status",
-            "get_pod_metrics",
-            "describe_pod",
-            "list_nodes",
-            "get_deployment_info",
-            "describe_deployment",
-        }
-        selected = [tool for tool in tools if tool in allowed_for_pod]
-
-        # Deployment-only diagnostics require owning deployment context.
-        additional_context = event.additional_context or {}
-        if not additional_context.get("deployment_name"):
-            selected = [
-                tool
-                for tool in selected
-                if tool not in {"get_deployment_info", "describe_deployment"}
-            ]
-
-        if not selected:
-            selected = ["get_pod_logs", "get_pod_events", "get_pod_status"]
-        return selected
-
-    return tools
-
-
 def _build_tool_parameters(
     event: EnrichedEventInput, tools: List[str]
 ) -> Dict[str, Dict[str, Any]]:
@@ -826,128 +688,6 @@ def _is_tool_read_only(tool_name: str, tool_definitions: List[Any]) -> bool:
     return True
 
 
-def _analyze_root_cause(
-    event: EnrichedEventInput, diagnostics: Dict[str, DiagnosticResult]
-) -> RootCauseAnalysis:
-    """Analyze root cause based on event and diagnostics."""
-    evidence = []
-    root_cause_text = f"Unknown cause of {event.reason}"
-    confidence = 0.5
-
-    # CrashLoopBackOff analysis
-    if event.reason in {"CrashLoopBackOff", "BackOff"}:
-        root_cause_text = "Application container is crashing repeatedly"
-        evidence.append(f"{event.reason} detected")
-
-        # Check metrics for OOM
-        metrics_result = diagnostics.get("get_pod_metrics")
-        if metrics_result and metrics_result.success:
-            usage = _parse_memory_value(
-                metrics_result.data.get("memory_usage", "0Mi")
-            )
-            limit = _parse_memory_value(metrics_result.data.get("memory_limit", "1Gi"))
-            if usage > limit * 0.9:
-                root_cause_text = "Application out of memory (OOMKilled)"
-                evidence.append("Memory usage near limit")
-                confidence = 0.9
-
-        # Check logs for errors
-        logs_result = diagnostics.get("get_pod_logs")
-        if logs_result and logs_result.success:
-            logs = logs_result.data.get("logs", [])
-            if any("error" in line.lower() for line in logs):
-                evidence.append("Application errors found in logs")
-                if confidence < 0.8:
-                    confidence = 0.8
-
-    # OOMKilled analysis
-    elif event.reason == "OOMKilled":
-        root_cause_text = "Application terminated due to out of memory"
-        evidence.append("OOMKilled event detected")
-        confidence = 0.95
-
-    # ImagePullBackOff analysis
-    elif event.reason == "ImagePullBackOff":
-        root_cause_text = "Container image cannot be pulled from registry"
-        evidence.append("ImagePullBackOff detected")
-        confidence = 0.9
-
-    # FailedScheduling analysis
-    elif event.reason == "FailedScheduling":
-        root_cause_text = "Pod cannot be scheduled on available nodes"
-        evidence.append("FailedScheduling detected")
-
-        nodes_result = diagnostics.get("list_nodes")
-        if nodes_result and nodes_result.success:
-            nodes = nodes_result.data.get("nodes", [])
-            if len(nodes) == 0:
-                evidence.append("No nodes available in cluster")
-                confidence = 0.9
-
-    # HPA metric acquisition failures
-    elif event.reason == "FailedGetResourceMetric":
-        root_cause_text = "HPA cannot fetch resource metrics from metrics API"
-        evidence.append("FailedGetResourceMetric detected")
-        message = (event.message or "").lower()
-        if "metrics.k8s.io" in message or "could not find the requested resource" in message:
-            evidence.append("metrics.k8s.io API unavailable or metrics-server not installed")
-            confidence = 0.95
-        else:
-            confidence = 0.8
-
-    return RootCauseAnalysis(
-        root_cause=root_cause_text,
-        hypothesis_confidence=confidence,
-        supporting_evidence=evidence,
-        reasoning=f"Based on {event.reason} event and diagnostic data",
-    )
-
-
-def _build_detailed_summary(
-    event: EnrichedEventInput,
-    diagnostics: Dict[str, DiagnosticResult],
-    concerned_person: Optional[Dict[str, Any]] = None,
-    log_snapshot: Optional[str] = None,
-    remediation_plan: Optional[List[RemediationStep]] = None,
-    evidence_map: Optional[Dict[str, List[str]]] = None,
-) -> str:
-    """Build detailed summary of incident."""
-    lines = [
-        f"Event: {event.reason}",
-        f"Resource: {event.resource_type} {event.namespace}/{event.resource_name}",
-        f"Severity: {event.severity}",
-        f"Message: {event.message}",
-        f"Diagnostics collected: {len(diagnostics)} tools",
-    ]
-
-    if concerned_person:
-        display_name = concerned_person.get("display_name") or concerned_person.get("username")
-        email = concerned_person.get("email")
-        lines.append(f"Concerned person: {display_name} ({email})" if email else f"Concerned person: {display_name}")
-
-    if log_snapshot:
-        lines.append("Log snapshot:")
-        lines.extend(f"  {line}" for line in log_snapshot.splitlines())
-
-    if remediation_plan:
-        lines.append("Remediation handoff:")
-        for step in remediation_plan:
-            evidence_text = ", ".join(step.evidence) if step.evidence else "no evidence quoted"
-            lines.append(
-                f"  {step.step_number}. {step.action_type}: {step.description}"
-            )
-            lines.append(f"     target={step.target_resource}; why={step.why}; risk={step.estimated_risk}")
-            lines.append(f"     evidence={evidence_text}")
-
-    if evidence_map:
-        lines.append("Evidence map:")
-        for action_type, snippets in evidence_map.items():
-            joined = "; ".join(snippets)
-            lines.append(f"  {action_type}: {joined}")
-
-    return "\n".join(lines)
-
-
 def _build_log_snapshot(diagnostics: Dict[str, DiagnosticResult], max_lines: int = 8) -> Optional[str]:
     """Extract a compact log excerpt from diagnostic outputs."""
     candidates: list[str] = []
@@ -1014,221 +754,179 @@ def _extract_json_payload(text: str) -> Dict[str, Any]:
     raise json.JSONDecodeError("No JSON object found", text, 0)
 
 
+def _diagnostics_to_prompt_payload(diagnostics: Dict[str, DiagnosticResult]) -> Dict[str, Any]:
+    """Convert live diagnostic results into prompt-safe JSON."""
+    payload: Dict[str, Any] = {}
+    for name, result in diagnostics.items():
+        payload[name] = {
+            "success": result.success,
+            "data": result.data,
+            "error": result.error,
+            "execution_time_ms": result.execution_time_ms,
+        }
+    return payload
+
+
+def _coerce_number(value: Any, default: float = 0.5) -> float:
+    """Coerce LLM numeric fields into floats."""
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        label_map = {
+            "low": 0.25,
+            "medium": 0.5,
+            "high": 0.75,
+            "very low": 0.1,
+            "very high": 0.9,
+        }
+        if normalized in label_map:
+            return label_map[normalized]
+        try:
+            return float(normalized)
+        except ValueError:
+            return default
+    return default
+
+
+def _coerce_int(value: Any, default: int) -> int:
+    """Coerce LLM integer-like fields into ints."""
+    if isinstance(value, bool):
+        return default
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        return int(value)
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        label_map = {"low": 1, "medium": 2, "high": 3, "very low": 1, "very high": 4}
+        if normalized in label_map:
+            return label_map[normalized]
+        try:
+            return int(float(normalized))
+        except ValueError:
+            return default
+    return default
+
+
+def _coerce_list(value: Any) -> List[str]:
+    """Coerce a potentially scalar LLM field into a cleaned list of strings."""
+    if value is None:
+        return []
+    if isinstance(value, list):
+        return [str(item).strip() for item in value if str(item).strip()]
+    if isinstance(value, str):
+        stripped = value.strip()
+        return [stripped] if stripped else []
+    stripped = str(value).strip()
+    return [stripped] if stripped else []
+
+
+def _normalize_root_cause_analysis(raw_analysis: Any) -> RootCauseAnalysis:
+    """Normalize the model root-cause payload into the typed schema."""
+    if not isinstance(raw_analysis, dict):
+        raise ValueError("LLM did not return a valid root_cause_analysis object")
+
+    return RootCauseAnalysis(
+        root_cause=str(raw_analysis.get("root_cause", "")).strip() or "LLM did not supply a root cause",
+        hypothesis_confidence=_coerce_number(raw_analysis.get("hypothesis_confidence"), default=0.5),
+        supporting_evidence=_coerce_list(raw_analysis.get("supporting_evidence")),
+        reasoning=str(raw_analysis.get("reasoning", "")).strip(),
+    )
+
+
+def _normalize_remediation_item(item: Any, step_number: int) -> Optional[RemediationStep]:
+    """Normalize one LLM remediation step into the typed schema."""
+    if not isinstance(item, dict):
+        return None
+
+    action_type = str(item.get("action_type") or item.get("action") or "").strip()
+    if not action_type:
+        return None
+
+    return RemediationStep(
+        step_number=_coerce_int(item.get("step_number"), step_number),
+        action_type=action_type,
+        description=str(item.get("description") or item.get("summary") or action_type).strip(),
+        target_resource=str(item.get("target_resource") or item.get("target") or "").strip(),
+        why=str(item.get("why") or item.get("rationale") or "").strip(),
+        evidence=_coerce_list(item.get("evidence")),
+        estimated_risk=str(item.get("estimated_risk") or "LOW").strip().upper(),
+    )
+
+
 def _normalize_evidence_map(raw_map: Any) -> Dict[str, List[str]]:
-    """Normalize an LLM evidence map into a simple tool -> snippets mapping."""
-    normalized: Dict[str, List[str]] = {}
+    """Normalize the model evidence-map payload into a dict of string lists."""
     if not isinstance(raw_map, dict):
-        return normalized
+        return {}
 
+    normalized: Dict[str, List[str]] = {}
     for key, value in raw_map.items():
-        if isinstance(value, list):
-            snippets = [str(item).strip() for item in value if str(item).strip()]
-        elif isinstance(value, str):
-            snippets = [value.strip()] if value.strip() else []
-        else:
-            snippets = [str(value).strip()] if str(value).strip() else []
-
-        if snippets:
-            normalized[str(key)] = snippets
+        normalized[str(key)] = _coerce_list(value)
     return normalized
 
 
-def _canonicalize_action_type(action_type: str) -> str:
-    """Map LLM-generated action labels to stable canonical names where possible."""
-    normalized = (action_type or "").strip().lower()
-    aliases = {
-        "verify_metrics_server_installation": "verify_metrics_server",
-        "verify_metrics_server": "verify_metrics_server",
-        "check_metrics_server": "verify_metrics_server",
-        "validate_hpa_target_metrics": "validate_hpa_target_metrics",
-        "restart_pod": "restart_pod",
-        "rollout_restart": "rollout_restart",
-        "scale_deployment": "scale_deployment",
-        "increase_memory_limit": "increase_memory_limit",
-        "check_logs": "check_logs",
-        "add_nodes": "add_nodes",
-    }
-    return aliases.get(normalized, action_type)
-
-
-def _normalize_remediation_plan(raw_plan: Any) -> List[RemediationStep]:
-    """Convert raw LLM remediation plan objects into typed, ordered steps."""
-    if not isinstance(raw_plan, list):
-        return []
-
-    steps: List[RemediationStep] = []
-    for index, item in enumerate(raw_plan, start=1):
-        if not isinstance(item, dict):
-            continue
-
-        evidence = item.get("evidence", [])
-        if isinstance(evidence, str):
-            evidence = [evidence]
-        elif not isinstance(evidence, list):
-            evidence = [str(evidence)] if evidence is not None else []
-
-        try:
-            steps.append(
-                RemediationStep(
-                    step_number=int(item.get("step_number") or index),
-                    action_type=_canonicalize_action_type(str(item.get("action_type") or "unknown")),
-                    description=str(item.get("description") or ""),
-                    target_resource=str(item.get("target_resource") or ""),
-                    why=str(item.get("why") or ""),
-                    evidence=[str(value).strip() for value in evidence if str(value).strip()],
-                    estimated_risk=str(item.get("estimated_risk") or "LOW"),
-                )
-            )
-        except Exception:
-            continue
-
-    steps.sort(key=lambda step: step.step_number)
-    return steps
-
-
-def _generate_suggested_actions(
-    event: EnrichedEventInput, root_cause: Optional[RootCauseAnalysis]
-) -> List[SuggestedAction]:
-    """Generate suggested remediation actions."""
-    actions = []
-
-    if not root_cause:
-        return actions
-
-    # CrashLoopBackOff suggestions
-    if event.reason in {"CrashLoopBackOff", "BackOff"}:
-        if "OOMKilled" in root_cause.root_cause:
-            actions.append(
-                SuggestedAction(
-                    action_type="increase_memory_limit",
-                    description="Increase pod memory limit",
-                    target_resource=f"{event.namespace}/{event.resource_name}",
-                    priority=1,
-                    estimated_risk="LOW",
-                    rationale="Root cause points to memory pressure/OOM",
-                    evidence=["OOMKilled"],
-                )
-            )
-        else:
-            actions.append(
-                SuggestedAction(
-                    action_type="restart_pod",
-                    description="Restart pod to clear transient issues",
-                    target_resource=f"{event.namespace}/{event.resource_name}",
-                    priority=2,
-                    estimated_risk="LOW",
-                    rationale="CrashLoopBackOff commonly needs a restart after diagnosis",
-                    evidence=[event.reason],
-                )
-            )
-            actions.append(
-                SuggestedAction(
-                    action_type="check_logs",
-                    description="Review application logs for errors",
-                    target_resource=f"{event.namespace}/{event.resource_name}",
-                    priority=1,
-                    estimated_risk="LOW",
-                    rationale="Logs are the strongest next evidence source for a crash loop",
-                    evidence=[event.reason],
-                )
-            )
-
-    # ImagePullBackOff suggestions
-    elif event.reason == "ImagePullBackOff":
-        actions.append(
-            SuggestedAction(
-                action_type="check_image_registry",
-                description="Verify image exists in registry and credentials are valid",
-                target_resource=f"{event.namespace}/{event.resource_name}",
-                priority=1,
-                estimated_risk="LOW",
-                rationale="Image pull failures usually come from registry/image config",
-                evidence=[event.reason],
-            )
-        )
-
-    # FailedScheduling suggestions
-    elif event.reason == "FailedScheduling":
-        actions.append(
-            SuggestedAction(
-                action_type="add_nodes",
-                description="Add more nodes to cluster",
-                target_resource="cluster",
-                priority=2,
-                estimated_risk="MEDIUM",
-                rationale="Insufficient capacity or scheduling constraints are the likely cause",
-                evidence=[event.reason],
-            )
-        )
-
-    elif event.reason == "FailedGetResourceMetric":
-        actions.append(
-            SuggestedAction(
-                action_type="verify_metrics_server",
-                description="Verify metrics-server is installed and metrics.k8s.io API is healthy",
-                target_resource="cluster",
-                priority=1,
-                estimated_risk="LOW",
-                rationale="The HPA cannot fetch resource metrics from the cluster",
-                evidence=[event.reason, root_cause.root_cause],
-            )
-        )
-        actions.append(
-            SuggestedAction(
-                action_type="validate_hpa_target_metrics",
-                description="Validate HPA target workload exposes CPU/memory metrics and requests",
-                target_resource=f"{event.namespace}/{event.resource_name}",
-                priority=2,
-                estimated_risk="LOW",
-                rationale="Once metrics are available, verify the target workload is configured correctly",
-                evidence=[event.reason],
-            )
-        )
-
-    # Preserve only highest-priority actions first.
-    actions.sort(key=lambda item: item.priority)
-    return actions[:3]
-
-
-def _build_remediation_plan(
+async def _run_llm_incident_analysis(
     event: EnrichedEventInput,
-    root_cause: Optional[RootCauseAnalysis],
     diagnostics: Dict[str, DiagnosticResult],
-) -> List[RemediationStep]:
-    """Build an ordered remediation handoff from the available evidence."""
-    suggested_actions = _generate_suggested_actions(event, root_cause)
-    plan: List[RemediationStep] = []
+) -> Dict[str, Any]:
+    """Ask the LLM for the full incident analysis payload."""
+    llm_client = get_llm_client()
+    prompt = f"""
+You are a Kubernetes incident analyst.
 
-    for index, action in enumerate(suggested_actions, start=1):
-        evidence = list(getattr(action, "evidence", []) or [])
-        if not evidence and root_cause:
-            evidence = list(root_cause.supporting_evidence)
+Return only JSON with these keys:
+- severity: one of INFO, WARNING, CRITICAL
+- root_cause_analysis: an object with keys root_cause, hypothesis_confidence, supporting_evidence, reasoning
+- summary: a short one-line incident summary
+- detailed_summary: a concise but complete incident summary using the live diagnostics
+- suggested_actions: a list of remediation suggestions with keys action_type, description, target_resource, priority, estimated_risk, rationale, evidence
+- remediation_plan: an ordered list of handoff steps with keys step_number, action_type, description, target_resource, why, evidence, estimated_risk
+- evidence_map: a mapping from action_type to supporting evidence snippets
 
-        plan.append(
-            RemediationStep(
-                step_number=index,
-                action_type=action.action_type,
-                description=action.description,
-                target_resource=action.target_resource,
-                why=(action.rationale or root_cause.reasoning) if root_cause else "Evidence indicates this is the next best action",
-                evidence=evidence,
-                estimated_risk=action.estimated_risk,
-            )
-        )
+Rules:
+- Use only the event details and live diagnostics below.
+- Do not invent facts.
+- If evidence is insufficient, say so explicitly in the root cause and summary.
+- Do not output markdown or commentary.
 
-    # If we still do not have a plan, provide a conservative handoff.
-    if not plan:
-        fallback_evidence = root_cause.supporting_evidence if root_cause else [event.reason]
-        plan.append(
-            RemediationStep(
-                step_number=1,
-                action_type="investigate_further",
-                description="Review the collected diagnostics and expand evidence gathering",
-                target_resource=f"{event.namespace}/{event.resource_name}",
-                why="The agent does not have enough evidence to recommend a safer remediation step",
-                evidence=fallback_evidence,
-                estimated_risk="LOW",
-            )
-        )
+EVENT:
+{json.dumps({
+    "resource_type": event.resource_type,
+    "resource_name": event.resource_name,
+    "namespace": event.namespace,
+    "reason": event.reason,
+    "severity": event.severity,
+    "message": event.message,
+    "additional_context": event.additional_context,
+}, indent=2)}
 
-    return plan
+LIVE DIAGNOSTICS:
+{json.dumps(_diagnostics_to_prompt_payload(diagnostics), indent=2, default=str)}
+
+LOG SNAPSHOT:
+{_build_log_snapshot(diagnostics) or ""}
+""".strip()
+
+    response = await llm_client.ainvoke(
+        [
+            {
+                "role": "system",
+                "content": (
+                    "You are a Kubernetes incident analyst. Return only valid JSON and do not use fallback or heuristic language."
+                ),
+            },
+            {"role": "user", "content": prompt},
+        ]
+    )
+    llm_response_text = llm_client.extract_text(response)
+    if not llm_response_text:
+        raise ValueError("LLM returned an empty incident-analysis response")
+
+    payload = _extract_json_payload(llm_response_text)
+    payload["_response_model"] = str(response.get("model") or response.get("id") or llm_client.model).strip()
+    payload["_response_source"] = "live_nvidia_api"
+    payload["_configured_model"] = llm_client.model
+    return payload
+
+

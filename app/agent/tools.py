@@ -18,7 +18,7 @@ from Tools.metrics import get_pod_metrics
 from Tools.nodes import list_nodes
 from Tools.pods import get_pod_events, get_pod_logs, get_pod_status
 from Tools.pods import delete_pod, exec_pod
-from Tools.deployments import scale_deployment, rollout_restart
+from Tools.deployments import patch_resource_limits, scale_deployment, rollout_restart
 
 from app.agent.schemas import DiagnosticResult, ToolDefinition
 
@@ -388,6 +388,31 @@ MONITORING_TOOL_REGISTRY: Dict[str, Tool] = {
             "deployment_name": {"type": "string", "description": "Deployment name"},
         },
         permission_required="deployments:restart",
+        is_read_only=False,
+    ),
+    "patch_resource_limits": Tool(
+        name="patch_resource_limits",
+        func=lambda namespace, deployment_name, container_name=None, cpu_request=None, cpu_limit=None, memory_request=None, memory_limit=None: patch_resource_limits(
+            name=deployment_name,
+            namespace=namespace,
+            container_name=container_name,
+            cpu_request=cpu_request,
+            cpu_limit=cpu_limit,
+            memory_request=memory_request,
+            memory_limit=memory_limit,
+        ),
+        description="Patch CPU/memory requests and limits for a deployment container (ACTION)",
+        category="action",
+        parameters={
+            "namespace": {"type": "string", "description": "Kubernetes namespace"},
+            "deployment_name": {"type": "string", "description": "Deployment name"},
+            "container_name": {"type": "string", "description": "Container name (optional if single container)"},
+            "cpu_request": {"type": "string", "description": "CPU request, e.g. 250m"},
+            "cpu_limit": {"type": "string", "description": "CPU limit, e.g. 500m"},
+            "memory_request": {"type": "string", "description": "Memory request, e.g. 256Mi"},
+            "memory_limit": {"type": "string", "description": "Memory limit, e.g. 512Mi"},
+        },
+        permission_required="deployments:patch",
         is_read_only=False,
     ),
 }

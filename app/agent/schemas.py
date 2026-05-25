@@ -150,6 +150,10 @@ class IncidentRecord(BaseModel):
 
     # LLM analysis
     llm_reasoning: Optional[str] = None
+    llm_provider: Optional[str] = None
+    llm_model: Optional[str] = None
+    llm_response_model: Optional[str] = None
+    llm_response_source: Optional[str] = None
     root_cause_analysis: Optional[RootCauseAnalysis] = None
     suggested_actions: List[SuggestedAction] = Field(default_factory=list)
     remediation_plan: List[RemediationStep] = Field(default_factory=list)
@@ -190,6 +194,10 @@ class MonitoringGraphState(TypedDict, total=False):
     # Node 2: LLM Tool Selection
     tools_to_call: List[str]
     llm_tool_reasoning: str
+    llm_provider: str
+    llm_model: str
+    llm_response_model: str
+    llm_response_source: str
     suggested_action_tools: List[str]
     remediation_plan: List[Dict[str, Any]]
     evidence_map: Dict[str, List[str]]
@@ -200,6 +208,9 @@ class MonitoringGraphState(TypedDict, total=False):
     # Node 4: Classify Severity
     severity: SeverityLevel
     root_cause_analysis: RootCauseAnalysis
+    summary: str
+    detailed_summary: str
+    suggested_actions: List[SuggestedAction]
 
     # Node 5: Resolve Team
     teams: List[str]
@@ -243,15 +254,3 @@ class ToolDefinition(BaseModel):
         use_enum_values = True
 
 
-# ============================================================================
-# TESTING SCHEMAS
-# ============================================================================
-
-
-class MockLLMResponse(BaseModel):
-    """Mock LLM response for testing."""
-
-    tools: List[str]
-    reasoning: str
-    root_cause: str
-    confidence: float

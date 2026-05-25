@@ -1,17 +1,13 @@
-"""Run integration tests and print a live agent validation report.
+"""Run live warnings through the monitoring graph and print the real LLM result.
 
-This script does two things in order:
-1) Runs selected pytest suites so you can see full errors.
-2) Feeds recent real warning events to the monitoring graph and prints:
-   - agent response summary
-   - root cause
-   - suggested fixes/actions
-   - tools called
+The runner uses only the NVIDIA API key from the environment, the configured
+NVIDIA model, and the live monitoring graph. It does not inject mock data,
+fallback responses, or deterministic incident summaries.
 
 Usage examples:
-  .venv/Scripts/python.exe scripts/run_agent_validation_report.py --run-tests
-  .venv/Scripts/python.exe scripts/run_agent_validation_report.py --events 5
-  .venv/Scripts/python.exe scripts/run_agent_validation_report.py --run-tests --events 5
+    .venv/Scripts/python.exe scripts/run_agent_validation_report.py --run-tests
+    .venv/Scripts/python.exe scripts/run_agent_validation_report.py --events 5
+    .venv/Scripts/python.exe scripts/run_agent_validation_report.py --run-tests --events 5
 """
 
 from __future__ import annotations
@@ -103,7 +99,7 @@ def _resource_exists(kind: str, namespace: str, name: str) -> bool:
 
 
 async def _run_agent_report(events_to_run: int) -> int:
-    # Import after env setup so LLM config reflects --model/--base-url overrides.
+    # Import after env setup so LLM config reflects the selected model override.
     from app.agent.monitoring_graph import build_monitoring_graph
 
     print("\n" + "=" * 80)
@@ -180,6 +176,10 @@ async def _run_agent_report(events_to_run: int) -> int:
             summary = getattr(incident, "summary", "") or ""
             detailed = getattr(incident, "detailed_summary", "") or ""
             log_snapshot = getattr(incident, "log_snapshot", "") or ""
+            llm_provider = getattr(incident, "llm_provider", None) or out.get("llm_provider")
+            llm_model = getattr(incident, "llm_model", None) or out.get("llm_model")
+            llm_response_model = getattr(incident, "llm_response_model", None) or out.get("llm_response_model")
+            llm_response_source = getattr(incident, "llm_response_source", None) or out.get("llm_response_source")
             root_cause = ""
             rca = getattr(incident, "root_cause_analysis", None)
             if rca is not None:
@@ -201,6 +201,12 @@ async def _run_agent_report(events_to_run: int) -> int:
 
             print("\nTOOLS CALLED:")
             print(", ".join(tools) if tools else "(none)")
+
+            if llm_provider or llm_model or llm_response_model or llm_response_source:
+                print("\nLLM SOURCE:")
+                print(
+                    f"provider={llm_provider or 'unknown'}, configured_model={llm_model or 'unknown'}, response_model={llm_response_model or 'unknown'}, source={llm_response_source or 'unknown'}"
+                )
 
             if detailed:
                 print("\nDETAILED SUMMARY:")
@@ -235,27 +241,13 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Run tests and print live agent response report.")
     parser.add_argument("--run-tests", action="store_true", help="Run monitor and tools test suites first.")
     parser.add_argument("--events", type=int, default=5, help="Number of warning events to feed to the agent.")
-    parser.add_argument(
-        "--model",
-        default=os.getenv("LLM_MODEL", "z-ai/glm4.7"),
-        help="NVIDIA/OpenAI-compatible model id (default: z-ai/glm4.7).",
-    )
-    parser.add_argument(
-        "--base-url",
-        default=os.getenv("NVIDIA_API_BASE_URL", "https://integrate.api.nvidia.com/v1/chat/completions"),
-        help="NVIDIA OpenAI-compatible chat completions URL.",
-    )
     args = parser.parse_args()
 
     # Enforce real LLM usage for this report.
-    if not os.getenv("NVIDIA_API_KEY") and not os.getenv("LLM_API_KEY"):
-        print("ERROR: Missing NVIDIA_API_KEY (or LLM_API_KEY).")
-        print("Set a real API key in your environment or .env file before running this script.")
+    if not os.getenv("NVIDIA_API_KEY"):
+        print("ERROR: Missing NVIDIA_API_KEY.")
+        print("Set NVIDIA_API_KEY in your environment or .env file before running this script.")
         return 3
-
-    os.environ["LLM_PROVIDER"] = "nvidia"
-    os.environ["LLM_MODEL"] = args.model
-    os.environ["NVIDIA_API_BASE_URL"] = args.base_url
 
     overall_code = 0
 

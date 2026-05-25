@@ -1,70 +1,24 @@
-"""Integrity check for the monitoring agent.
-
-What it verifies:
-- monitoring graph imports successfully
-- agent uses the existing Tools-based diagnostic names
-- LLM tool selection works (mock or live NVIDIA/OpenAI-compatible)
-- monitoring graph produces an incident analysis end-to-end
-
-This script intentionally stubs the tool execution layer so it can run without
-cluster access while still proving the control flow and model parsing logic.
-"""
+"""Integrity check for the monitoring agent using the real LLM and real tools."""
 
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime
+from datetime import datetime, timezone
 import json
 import os
 import sys
-from typing import Any
 
 
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if REPO_ROOT not in sys.path:
     sys.path.insert(0, REPO_ROOT)
 
-from app.agent.schemas import DiagnosticResult, EnrichedEventInput, ResourceType, SeverityLevel
+from app.agent.schemas import EnrichedEventInput, ResourceType, SeverityLevel
 import app.agent.monitoring_graph as mg
 
 
-async def fake_execute_tool(name: str, **kwargs: Any) -> DiagnosticResult:
-    """Return deterministic tool outputs so the graph can be validated offline."""
-    mapping = {
-        "get_pod_logs": {
-            "logs": ["[ERROR] out of memory"],
-            "container": None,
-            "lines_returned": 500,
-        },
-        "get_pod_events": {
-            "events": [
-                {
-                    "reason": "CrashLoopBackOff",
-                    "message": "Back-off restarting failed container",
-                }
-            ]
-        },
-        "get_pod_status": {"phase": "Running", "restart_count": 7, "conditions": []},
-        "get_pod_metrics": {
-            "memory_usage": "950Mi",
-            "memory_limit": "512Mi",
-            "cpu_usage": "500m",
-            "cpu_limit": "1000m",
-        },
-        "list_nodes": {"nodes": [{"name": "node-a", "status": "Ready"}]},
-        "describe_pod": {"issues": ["CrashLoopBackOff"], "severity": "critical"},
-    }
-    return DiagnosticResult(
-        tool_name=name,
-        success=True,
-        data=mapping.get(name, {}),
-        execution_time_ms=1.0,
-    )
-
-
 async def run_check() -> dict[str, Any]:
-    """Run the monitoring graph end-to-end."""
-    mg.execute_tool = fake_execute_tool
+    """Run the monitoring graph end-to-end with live tools and the real LLM."""
 
     state = {
         "event": EnrichedEventInput(
@@ -74,7 +28,7 @@ async def run_check() -> dict[str, Any]:
             reason="CrashLoopBackOff",
             severity=SeverityLevel.CRITICAL,
             teams=["platform-team"],
-            timestamp=datetime.now(),
+            timestamp=datetime.now(timezone.utc),
             dedup_fingerprint="demo/default/demo-pod/CrashLoopBackOff",
             raw_count=1,
             message="Back-off restarting failed container",
@@ -98,8 +52,8 @@ async def run_check() -> dict[str, Any]:
 
 
 if __name__ == "__main__":
-    if not os.getenv("LLM_PROVIDER") and not (os.getenv("NVIDIA_API_KEY") or os.getenv("LLM_API_KEY")):
-        os.environ["LLM_PROVIDER"] = "mock"
+    if not os.getenv("NVIDIA_API_KEY"):
+        raise SystemExit("NVIDIA_API_KEY is required for this integrity check")
 
     result = asyncio.run(run_check())
     print(json.dumps(result, indent=2))
