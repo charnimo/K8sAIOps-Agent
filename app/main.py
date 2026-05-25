@@ -44,6 +44,12 @@ async def lifespan(app: FastAPI):
             components = await build_monitor_components()
             app.state.monitor = components
 
+            # Attach AgentNotifier so the agent receives notifications
+            from app.services.agent_notifier import AgentNotifier
+            notifier = AgentNotifier(components["dispatcher"], app.state)
+            notifier.attach()
+            app.state.agent_notifier = notifier
+
             # Start watcher and WebSocket server
             watcher_task = asyncio.create_task(components["watcher"].start())
             ws_task = asyncio.create_task(components["ws_server"].start())
@@ -51,12 +57,17 @@ async def lifespan(app: FastAPI):
 
         yield
     finally:
-        for task in tasks:
-            task.cancel()
-            try:
-                await task
-            except asyncio.CancelledError:
-                pass
+            if MONITOR_AVAILABLE:
+                try:
+                    notifier.detach()
+                except Exception:
+                    pass
+            for task in tasks:
+                task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
 
 
 # ─── FastAPI app ──────────────────────────────────────────────────────────────

@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Boolean, ForeignKey, DateTime
+from sqlalchemy import Column, Integer, String, Boolean, ForeignKey, DateTime, JSON, Text
 from sqlalchemy.orm import relationship
 from datetime import datetime
 from app.database.database import Base
@@ -53,3 +53,56 @@ class ChatHistory(Base):
     timestamp = Column(DateTime, default=datetime.utcnow)
 
     conversation = relationship("Conversation", back_populates="messages")
+
+
+class IncidentRecord(Base):
+    """Incident records from automated monitoring and diagnosis."""
+
+    __tablename__ = "incident_records"
+
+    id = Column(Integer, primary_key=True, index=True)
+    incident_id = Column(String, unique=True, index=True)
+    trace_id = Column(String, index=True)
+    conversation_id = Column(Integer, ForeignKey("conversations.id"), nullable=True)
+
+    # Resource information
+    resource_type = Column(String)  # Pod, Deployment, etc.
+    resource_name = Column(String, index=True)
+    namespace = Column(String, index=True)
+    reason = Column(String)  # CrashLoopBackOff, OOMKilled, etc.
+
+    # Severity and ownership
+    severity = Column(String)  # INFO, WARNING, CRITICAL
+    teams = Column(JSON, default=list)  # List of team names
+
+    # Summaries
+    summary = Column(String)
+    detailed_summary = Column(Text, nullable=True)
+    log_snapshot = Column(Text, nullable=True)
+
+    # Investigation data
+    collected_diagnostics = Column(JSON, default=dict)
+    tools_called = Column(JSON, default=list)
+
+    # LLM analysis
+    llm_reasoning = Column(Text, nullable=True)
+    root_cause_analysis = Column(JSON, nullable=True)  # RootCauseAnalysis dict
+    suggested_actions = Column(JSON, default=list)  # List of SuggestedAction dicts
+
+    # Recipient routing
+    concerned_person = Column(JSON, nullable=True)
+    concerned_users = Column(JSON, default=list)
+    owner_hints = Column(JSON, default=list)
+
+    # Lifecycle
+    status = Column(String, default="OPEN")  # OPEN, INVESTIGATING, RESOLVED, CLOSED
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    closed_at = Column(DateTime, nullable=True)
+
+    # Audit trail
+    audit_trail = Column(JSON, default=list)
+
+    # Relationships
+    conversation = relationship("Conversation", foreign_keys=[conversation_id])
+
