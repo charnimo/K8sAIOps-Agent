@@ -1,3 +1,5 @@
+import { buildChatMessageRequest, parseStoredChatMessage } from './chatMessagePayload.js';
+
 export class ChatDrawer {
     constructor(api, auth) {
         this.api = api;
@@ -275,14 +277,10 @@ renderMessages() {
                 rawContent = rawContent.replace(thinkRegex, '').trim();
             }
 
-            try {
-                const parsed = JSON.parse(rawContent);
-                if (parsed && typeof parsed === 'object' && parsed.text) {
-                    rawContent = parsed.text;
-                    action = parsed.action;
-                    internal = parsed.internal === true;
-                }
-            } catch (e) {}
+            const parsedPayload = parseStoredChatMessage(rawContent);
+            rawContent = parsedPayload.text;
+            action = parsedPayload.action;
+            internal = parsedPayload.internal;
 
             if (internal) return '';
 
@@ -429,7 +427,7 @@ async sendMessage(overrideContent = null, isFromEnterKey = false) {
             // Pass the signal to api.js
             const response = await this.api.sendChatMessage(
                 this.currentSessionId, 
-                { content, internal: !!overrideContent },
+                buildChatMessageRequest(content, !!overrideContent),
                 this.abortController.signal
             );
             

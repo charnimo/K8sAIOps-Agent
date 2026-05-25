@@ -9,6 +9,11 @@ from sqlalchemy.orm import Session
 from app.database.models import ChatHistory, Conversation
 
 
+TEXT_FIELD = "text"
+ACTION_FIELD = "action"
+INTERNAL_FIELD = "internal"
+
+
 def serialize_message(row: ChatHistory) -> dict:
     """Serialize one chat history row for API responses."""
     return {
@@ -34,20 +39,30 @@ def serialize_session(row: Conversation, include_messages: bool = False) -> dict
 
 def stored_message_text(raw_message: str) -> str:
     """Return display text from stored JSON payloads."""
+    return parse_stored_message(raw_message)["text"]
+
+
+def parse_stored_message(raw_message: str) -> dict:
+    """Parse a stored chat message into normalized text and metadata."""
     try:
         data = json.loads(raw_message)
-        if isinstance(data, dict) and isinstance(data.get("text"), str):
-            return data["text"]
+        if isinstance(data, dict) and isinstance(data.get(TEXT_FIELD), str):
+            action = data.get(ACTION_FIELD)
+            return {
+                "text": data[TEXT_FIELD],
+                "action": action if isinstance(action, dict) else None,
+                "internal": data.get(INTERNAL_FIELD) is True,
+            }
     except Exception:
         pass
-    return raw_message
+    return {"text": raw_message, "action": None, "internal": False}
 
 
 def stored_user_message(content: str, internal: bool) -> str:
     """Persist visible user text directly and internal trigger text as metadata."""
     if not internal:
         return content
-    return json.dumps({"text": content, "internal": True})
+    return json.dumps({TEXT_FIELD: content, INTERNAL_FIELD: True})
 
 
 def history_for_agent(db: Session, session_id: int, username: str, current_message_id: int) -> list[dict]:
@@ -70,5 +85,5 @@ def history_for_agent(db: Session, session_id: int, username: str, current_messa
 def assistant_payload(text: str, action: dict | None = None) -> str:
     """Store assistant text with optional action-card metadata."""
     if action:
-        return json.dumps({"text": text, "action": action})
+        return json.dumps({TEXT_FIELD: text, ACTION_FIELD: action})
     return text
