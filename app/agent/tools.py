@@ -7,7 +7,12 @@ Wraps the existing Tools/* functions and provides:
 """
 
 import asyncio
+import importlib
+import inspect
 import logging
+import os
+import pkgutil
+import sys
 from datetime import datetime
 from typing import Any, Callable, Dict, List, Optional
 
@@ -110,6 +115,109 @@ class Tool:
                 error=str(e),
                 execution_time_ms=execution_time,
             )
+
+
+# ============================================================================
+# DYNAMIC TOOL LOADING FROM Tools PACKAGE
+# ============================================================================
+
+def _python_type_to_schema(annotation: Any) -> Dict[str, Any]:
+    if annotation in (int, float):
+        return {"type": "number"}
+    if annotation is bool:
+        return {"type": "boolean"}
+    if annotation is dict:
+        return {"type": "object"}
+    if annotation in (list, tuple, set):
+        return {"type": "array"}
+    return {"type": "string"}
+
+
+def _infer_tool_category(name: str) -> str:
+    name = name.lower()
+    if name.startswith(("create", "delete", "patch", "scale", "rollout", "rollback", "restart", "exec", "cordon", "uncordon", "drain", "resume", "suspend", "apply", "update")):
+        return "action"
+    return "diagnostics"
+
+
+def _infer_tool_read_only(name: str) -> bool:
+    return _infer_tool_category(name) != "action"
+
+
+def _infer_permission_required(name: str) -> Optional[str]:
+    # Simple heuristic; actual permission mapping may be enhanced later.
+    if name.startswith("get") or name.startswith("list") or name.startswith("describe") or name.startswith("detect"):
+        return None
+    if name.startswith("create"):
+        return "create"
+    if name.startswith(("delete", "patch", "scale", "rollout", "rollback", "restart", "exec", "cordon", "uncordon", "drain", "resume", "suspend", "update")):
+        return "modify"
+    return None
+
+
+def _build_tool_parameters(func: Callable) -> Dict[str, Any]:
+    params: Dict[str, Any] = {}
+    try:
+        signature = inspect.signature(func)
+    except (ValueError, TypeError):
+        return params
+
+    for name, param in signature.parameters.items():
+        if name == "self" or param.kind not in (inspect.Parameter.POSITIONAL_OR_KEYWORD, inspect.Parameter.KEYWORD_ONLY):
+            continue
+        schema = _python_type_to_schema(param.annotation)
+        if param.default is not inspect.Parameter.empty:
+            schema["default"] = param.default
+        params[name] = schema
+    return params
+
+
+def _load_tools_from_package(exclude: Optional[set[str]] = None) -> Dict[str, Tool]:
+    exclude = exclude or set()
+    tools: Dict[str, Tool] = {}
+
+    package_name = "Tools"
+    try:
+        package = importlib.import_module(package_name)
+    except ImportError:
+        return tools
+
+    # Ensure the repository root is on sys.path for Tools imports.
+    repo_root = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+    if repo_root not in sys.path:
+        sys.path.insert(0, repo_root)
+
+    for finder, module_name, ispkg in pkgutil.iter_modules(package.__path__, package_name + "."):
+        short_name = module_name.split(".")[-1]
+        if short_name in {"client", "config", "utils", "audit"}:
+            continue
+        try:
+            module = importlib.import_module(module_name)
+        except Exception:
+            continue
+
+        for attr_name, attr_value in vars(module).items():
+            if attr_name.startswith("_"):
+                continue
+            if attr_name in exclude:
+                continue
+            if not inspect.isfunction(attr_value):
+                continue
+            if attr_value.__module__ != module_name:
+                continue
+
+            tool = Tool(
+                name=attr_name,
+                func=attr_value,
+                description=f"Tool wrapper for {module_name}.{attr_name}",
+                category=_infer_tool_category(attr_name),
+                parameters=_build_tool_parameters(attr_value),
+                permission_required=_infer_permission_required(attr_name),
+                is_read_only=_infer_tool_read_only(attr_name),
+            )
+            tools[attr_name] = tool
+    return tools
+
 
 
 # ============================================================================
@@ -416,6 +524,12 @@ MONITORING_TOOL_REGISTRY: Dict[str, Tool] = {
         is_read_only=False,
     ),
 }
+
+# Dynamically add any additional Tools/* functions not explicitly wrapped above.
+try:
+    MONITORING_TOOL_REGISTRY.update(_load_tools_from_package(exclude=set(MONITORING_TOOL_REGISTRY.keys())))
+except Exception:
+    logger.warning("Failed to dynamically load additional Tools package functions")
 
 
 # ============================================================================

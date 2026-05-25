@@ -5,9 +5,9 @@ LangGraph DAG that:
 2. Uses LLM to decide which diagnostic tools to call
 3. Collects diagnostics
 4. Classifies severity
-5. Resolves team ownership
+5. Resolves recipient ownership
 6. Persists incident record
-7. Notifies team
+7. Notifies interested recipients
 """
 
 import asyncio
@@ -38,6 +38,8 @@ from app.agent.tools import (
     get_tool_definitions,
 )
 from app.agent.config import get_llm_client
+from app.database.database import SessionLocal
+from app.database.models import IncidentRecord as IncidentRecordModel
 
 logger = logging.getLogger(__name__)
 
@@ -69,13 +71,72 @@ def node_extract_event(state: MonitoringGraphState) -> MonitoringGraphState:
     try:
         event = state["event"]
 
-        # Validate event schema
+        # Accept several incoming shapes:
+        # - dict compatible with EnrichedEventInput
+        # - EnrichedEventInput pydantic model
+        # - monitoring.monitor.EnrichedEvent dataclass (or similar object)
         if isinstance(event, dict):
             event = EnrichedEventInput(**event)
-        elif not isinstance(event, EnrichedEventInput):
-            raise ValueError(
-                f"Invalid event type: {type(event)}. Expected dict or EnrichedEventInput"
-            )
+        elif isinstance(event, EnrichedEventInput):
+            pass
+        else:
+            # Try to coerce objects produced by `monitoring.monitor.EnrichedEvent`.
+            # These objects expose attributes such as resource_kind, resource_name,
+            # namespace, reason, severity (enum), timestamp (ISO string), etc.
+            try:
+                resource_kind = getattr(event, "resource_kind", None) or getattr(event, "resource_type", None)
+                try:
+                    resource_type = ResourceType(resource_kind) if resource_kind else ResourceType.POD
+                except Exception:
+                    resource_type = ResourceType.POD
+
+                resource_name = getattr(event, "resource_name", getattr(event, "resource", "unknown"))
+                namespace = getattr(event, "namespace", "default")
+                reason = getattr(event, "reason", "Unknown")
+
+                sev = getattr(event, "severity", None)
+                if hasattr(sev, "value"):
+                    sev_val = sev.value
+                else:
+                    sev_val = str(sev) if sev is not None else "WARNING"
+                try:
+                    severity = SeverityLevel(sev_val)
+                except Exception:
+                    severity = SeverityLevel.WARNING
+
+                ts = getattr(event, "timestamp", None)
+                if isinstance(ts, str):
+                    try:
+                        ts = datetime.fromisoformat(ts)
+                    except Exception:
+                        ts = datetime.now()
+                elif ts is None:
+                    ts = datetime.now()
+
+                dedup = getattr(event, "event_id", None) or getattr(event, "dedup_fingerprint", None)
+                if not dedup:
+                    dedup = f"{namespace}/{resource_name}/{reason}"
+
+                raw_count = int(getattr(event, "raw_count", 1) or 1)
+                message = getattr(event, "message", "")
+                additional_context = getattr(event, "additional_context", {}) or {}
+
+                event = EnrichedEventInput(
+                    resource_type=resource_type,
+                    resource_name=resource_name,
+                    namespace=namespace,
+                    reason=reason,
+                    severity=severity,
+                    timestamp=ts,
+                    dedup_fingerprint=dedup,
+                    raw_count=raw_count,
+                    message=message,
+                    additional_context=additional_context,
+                )
+            except Exception as e:
+                raise ValueError(
+                    f"Invalid event type: {type(event)}. Expected dict or EnrichedEventInput"
+                ) from e
 
         state["event"] = event
         state["execution_start_time"] = datetime.now()
@@ -185,6 +246,8 @@ Respond in this JSON format:
             ]
         )
         llm_response_text = llm_client.extract_text(response)
+        logger.debug("LLM tool-selection response text: %s", llm_response_text)
+        logger.debug("LLM raw response object: %s", response)
         if not llm_response_text:
             raise ValueError("LLM returned an empty tool-selection response")
 
@@ -369,45 +432,7 @@ async def node_classify_severity(state: MonitoringGraphState) -> MonitoringGraph
 
 
 # ============================================================================
-# NODE 5: RESOLVE TEAM OWNERSHIP
-# ============================================================================
-
-
-def node_resolve_team(state: MonitoringGraphState) -> MonitoringGraphState:
-    """Resolve which team owns this incident.
-
-    Uses event.teams from monitoring pipeline (already resolved).
-
-    Args:
-        state: Graph state with event
-
-    Returns:
-        Updated state with teams
-    """
-    try:
-        event = state["event"]
-
-        # Teams are already resolved in monitoring pipeline
-        # This node just passes them through for consistency
-        teams = event.teams
-
-        state["teams"] = teams
-
-        logger.info(f"Resolved teams: {teams}")
-
-        return state
-
-    except Exception as e:
-        state["errors"] = state.get("errors", []) + [
-            f"Team resolution failed: {str(e)}"
-        ]
-        logger.error(f"Team resolution error: {e}", exc_info=True)
-        state["teams"] = []
-        return state
-
-
-# ============================================================================
-# NODE 5B: RESOLVE RECIPIENT
+# NODE 5: RESOLVE RECIPIENT
 # ============================================================================
 
 
@@ -436,7 +461,7 @@ def node_resolve_recipient(state: MonitoringGraphState) -> MonitoringGraphState:
             )
         else:
             logger.info(
-                "No specific recipient resolved for %s/%s; notification will fall back to team routing",
+                "No specific recipient resolved for %s/%s; continuing with fallback routing",
                 event.namespace,
                 event.resource_name,
             )
@@ -467,7 +492,6 @@ async def node_persist_incident(
         event = state["event"]
         diagnostics = state.get("collected_diagnostics", {})
         severity = state.get("severity", event.severity)
-        teams = state.get("teams", [])
         root_cause = state.get("root_cause_analysis")
         concerned_person = state.get("concerned_person")
         concerned_users = state.get("concerned_users", [])
@@ -498,7 +522,6 @@ async def node_persist_incident(
             namespace=event.namespace,
             reason=event.reason,
             severity=severity,
-            teams=teams,
             summary=summary,
             detailed_summary=detailed_summary,
             log_snapshot=log_snapshot,
@@ -523,13 +546,18 @@ async def node_persist_incident(
             updated_at=datetime.now(),
         )
 
-        # PLACEHOLDER: Save to database
-        logger.info(
-            f"[PLACEHOLDER] Persisting incident {incident.incident_id} to database"
-        )
-        # from app.database.models import IncidentRecord as IncidentRecordModel
-        # session.add(IncidentRecordModel(**incident.dict()))
-        # session.commit()
+        # Persist incident record to the database
+        session = SessionLocal()
+        try:
+            # Filter the pydantic model dict to the DB model's columns to avoid
+            # passing unexpected/extra fields (e.g., llm_model metadata).
+            incident_payload = incident.dict()
+            allowed_cols = {c.name for c in IncidentRecordModel.__table__.columns}
+            filtered = {k: v for k, v in incident_payload.items() if k in allowed_cols}
+            session.add(IncidentRecordModel(**filtered))
+            session.commit()
+        finally:
+            session.close()
 
         state["incident_record"] = incident
         state["log_snapshot"] = log_snapshot
@@ -549,14 +577,14 @@ async def node_persist_incident(
 
 
 # ============================================================================
-# NODE 7: NOTIFY TEAM
+# NODE 7: NOTIFY INCIDENT
 # ============================================================================
 
 
-async def node_notify_team(state: MonitoringGraphState) -> MonitoringGraphState:
-    """Notify team of incident via WebSocket and/or other channels.
+async def node_notify_incident(state: MonitoringGraphState) -> MonitoringGraphState:
+    """Notify interested recipients about the incident.
 
-    PLACEHOLDER: Send notifications to team members.
+    This step is intentionally lightweight because monitoring now focuses on recipient-based routing.
 
     Args:
         state: Graph state with incident_record
@@ -571,26 +599,26 @@ async def node_notify_team(state: MonitoringGraphState) -> MonitoringGraphState:
             logger.warning("No incident record to notify")
             return state
 
-        # PLACEHOLDER: Send WebSocket notification
+        # PLACEHOLDER: Notification logic should publish to subscribers or notification bridge.
         logger.info(
-            "Notifying teams %s and recipient %s for incident %s",
-            incident.teams,
-            incident.concerned_person.get("display_name") if incident.concerned_person else None,
+            "Publishing incident %s to recipient %s (concerned_users=%s)",
             incident.incident_id,
+            incident.concerned_person.get("display_name") if incident.concerned_person else None,
+            incident.concerned_users,
         )
 
-        # from app.api.routes.events import notify_incident
-        # await notify_incident(incident)
+        # Actual notification path can be added here once the monitor service bridge is wired.
+        # For example: await publish_incident_to_subscribers(incident)
 
-        logger.info(f"Teams notified for incident {incident.incident_id}")
+        logger.info(f"Incident notification published for {incident.incident_id}")
 
         return state
 
     except Exception as e:
         state["errors"] = state.get("errors", []) + [
-            f"Team notification failed: {str(e)}"
+            f"Incident notification failed: {str(e)}"
         ]
-        logger.error(f"Team notification error: {e}", exc_info=True)
+        logger.error(f"Incident notification error: {e}", exc_info=True)
         return state
 
 
@@ -612,21 +640,19 @@ def build_monitoring_graph():
     graph.add_node("decide_tools", node_decide_tools)
     graph.add_node("collect_diagnostics", node_collect_diagnostics)
     graph.add_node("classify_severity", node_classify_severity)
-    graph.add_node("resolve_team", node_resolve_team)
     graph.add_node("resolve_recipient", node_resolve_recipient)
     graph.add_node("persist_incident", node_persist_incident)
-    graph.add_node("notify_team", node_notify_team)
+    graph.add_node("notify_incident", node_notify_incident)
 
     # Define flow
     graph.set_entry_point("extract_event")
     graph.add_edge("extract_event", "decide_tools")
     graph.add_edge("decide_tools", "collect_diagnostics")
     graph.add_edge("collect_diagnostics", "classify_severity")
-    graph.add_edge("classify_severity", "resolve_team")
-    graph.add_edge("resolve_team", "resolve_recipient")
+    graph.add_edge("classify_severity", "resolve_recipient")
     graph.add_edge("resolve_recipient", "persist_incident")
-    graph.add_edge("persist_incident", "notify_team")
-    graph.set_finish_point("notify_team")
+    graph.add_edge("persist_incident", "notify_incident")
+    graph.set_finish_point("notify_incident")
 
     return graph.compile()
 
@@ -962,6 +988,8 @@ LOG SNAPSHOT:
         ]
     )
     llm_response_text = llm_client.extract_text(response)
+    logger.debug("LLM incident-analysis response text: %s", llm_response_text)
+    logger.debug("LLM raw response object: %s", response)
     if not llm_response_text:
         raise ValueError("LLM returned an empty incident-analysis response")
 

@@ -20,8 +20,8 @@ class LLMConfig:
     model: str
     api_key: str
     base_url: str
-    temperature: float = 0.2
-    max_tokens: int = 4096
+    temperature: float = 0.7
+    # max_tokens: int = 4096
     timeout: int = 180
 
 
@@ -37,7 +37,7 @@ LLM_CONFIG = LLMConfig(
     api_key=_required_env("NVIDIA_API_KEY"),
     base_url=_required_env("NVIDIA_API_BASE_URL"),
     temperature=float(os.getenv("LLM_TEMPERATURE", "0.2")),
-    max_tokens=int(os.getenv("LLM_MAX_TOKENS", "4096")),
+    # max_tokens=int(os.getenv("LLM_MAX_TOKENS", "4096")),
     timeout=int(os.getenv("LLM_TIMEOUT", "180")),
 )
 
@@ -51,7 +51,7 @@ def get_llm_client():
         model=LLM_CONFIG.model,
         base_url=LLM_CONFIG.base_url,
         temperature=LLM_CONFIG.temperature,
-        max_tokens=LLM_CONFIG.max_tokens,
+        # max_tokens=LLM_CONFIG.max_tokens,
         timeout=LLM_CONFIG.timeout,
     )
 
@@ -64,7 +64,7 @@ class NVIDIAChatClient:
     model: str
     base_url: str
     temperature: float = 0.2
-    max_tokens: int = 4096
+    # max_tokens: int = 4096
     timeout: int = 180
 
     def _completion_url(self) -> str:
@@ -84,7 +84,7 @@ class NVIDIAChatClient:
             json={
                 "model": self.model,
                 "messages": messages,
-                "max_tokens": self.max_tokens,
+                # "max_tokens": self.max_tokens,
                 "temperature": self.temperature,
                 "top_p": 1.0,
                 "stream": False,

@@ -64,7 +64,6 @@ class EnrichedEventInput(BaseModel):
     namespace: str
     reason: str
     severity: SeverityLevel
-    teams: List[str]
     timestamp: datetime
     dedup_fingerprint: str
     raw_count: int
@@ -135,9 +134,8 @@ class IncidentRecord(BaseModel):
     namespace: str
     reason: str
 
-    # Severity & team
+    # Severity
     severity: SeverityLevel
-    teams: List[str]
 
     # Summaries
     summary: str
@@ -212,10 +210,7 @@ class MonitoringGraphState(TypedDict, total=False):
     detailed_summary: str
     suggested_actions: List[SuggestedAction]
 
-    # Node 5: Resolve Team
-    teams: List[str]
-
-    # Node 5b: Resolve Recipient
+    # Node 5: Resolve Recipient
     concerned_person: Dict[str, Any]
     concerned_users: List[Dict[str, Any]]
     owner_hints: List[str]
