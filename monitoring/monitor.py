@@ -458,7 +458,6 @@ class KubernetesWatcher:
         await self._load_config()
         self._api_client = ApiClient()
         log.info("Kubernetes watcher started")
-        # Initial namespace cache warm-up before watches begin
         await asyncio.gather(
             self._watch_events(),
             self._watch_pods(),
@@ -625,22 +624,6 @@ class WebSocketServer:
 
 
 # ─── FastAPI integration helpers ──────────────────────────────────────────────
-#
-# Usage in your FastAPI app:
-#
-#   from monitor import build_monitor_components, get_router
-#
-#   @asynccontextmanager
-#   async def lifespan(app: FastAPI):
-#       components = await build_monitor_components()
-#       app.state.monitor = components
-#       task = asyncio.create_task(components["watcher"].start())
-#       yield
-#       task.cancel()
-#
-#   app = FastAPI(lifespan=lifespan)
-#   app.include_router(get_router())
-
 async def build_monitor_components() -> dict:
     """Instantiate and wire all monitor components. Returns a dict of components."""
     processor  = EventProcessor(dedup_window=DEDUP_WINDOW)
