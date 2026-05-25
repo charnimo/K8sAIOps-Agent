@@ -28,6 +28,7 @@ from app.agent.schemas import (
     SeverityLevel,
     RootCauseAnalysis,
     SuggestedAction,
+    RemediationStep,
     ResourceType,
 )
 from app.agent.recipients import resolve_concerned_users_for_event
@@ -109,9 +110,37 @@ async def node_decide_tools(state: MonitoringGraphState) -> MonitoringGraphState
         # Build LLM prompt
         tool_definitions = get_tool_definitions()
         tool_names = {tool.name for tool in tool_definitions}
+        # Include category and read-only flag to help the LLM distinguish actions
         tools_description = "\n".join(
-            [f"- {t.name}: {t.description}" for t in tool_definitions]
+            [f"- {t.name} (category={t.category}, read_only={t.is_read_only}): {t.description}" for t in tool_definitions]
         )
+
+        few_shot_examples = """
+FEW-SHOT EXAMPLES:
+1) CrashLoopBackOff with log evidence of OOM:
+{
+    "tools": ["get_pod_logs", "get_pod_metrics", "get_pod_status"],
+    "suggested_actions": ["increase_memory_limit", "restart_pod"],
+    "remediation_plan": [
+        {"step_number": 1, "action_type": "increase_memory_limit", "description": "Increase pod memory limit", "target_resource": "namespace/pod", "why": "Logs and metrics show the container is hitting memory pressure", "evidence": ["OOMKilled", "memory usage near limit"], "estimated_risk": "LOW"},
+        {"step_number": 2, "action_type": "restart_pod", "description": "Restart pod after memory fix is reviewed", "target_resource": "namespace/pod", "why": "A restart may recover once the resource issue is fixed", "evidence": ["CrashLoopBackOff"], "estimated_risk": "LOW"}
+    ],
+    "evidence_map": {"increase_memory_limit": ["OOMKilled", "memory usage near limit"], "restart_pod": ["CrashLoopBackOff"]},
+    "reasoning": "OOM evidence is strongest; collect logs and metrics first, then recommend memory fix before restart."
+}
+
+2) HPA unable to fetch metrics:
+{
+    "tools": ["get_hpa_info", "detect_hpa_issues", "list_nodes"],
+    "suggested_actions": ["verify_metrics_server", "validate_hpa_target_metrics"],
+    "remediation_plan": [
+        {"step_number": 1, "action_type": "verify_metrics_server", "description": "Verify metrics-server is installed and metrics.k8s.io API is healthy", "target_resource": "cluster", "why": "HPA metrics are unavailable from the cluster", "evidence": ["metrics.k8s.io unavailable"], "estimated_risk": "LOW"},
+        {"step_number": 2, "action_type": "validate_hpa_target_metrics", "description": "Validate HPA target workload exposes CPU/memory metrics and requests", "target_resource": "namespace/hpa", "why": "After metrics-server is healthy, confirm the workload exports metrics", "evidence": ["FailedGetResourceMetric"], "estimated_risk": "LOW"}
+    ],
+    "evidence_map": {"verify_metrics_server": ["metrics.k8s.io unavailable"], "validate_hpa_target_metrics": ["FailedGetResourceMetric"]},
+    "reasoning": "The cluster metrics pipeline is the blocker, so verify it before touching the target workload."
+}
+""".strip()
 
         prompt = f"""
 You are a Kubernetes diagnostics expert. An incident has occurred in the cluster.
@@ -127,13 +156,23 @@ EVENT DETAILS:
 
 AVAILABLE DIAGNOSTIC TOOLS:
 {tools_description}
+{few_shot_examples}
+Note: Some tools are actions (will mutate cluster state) and require explicit approval.
+Return two lists:
+1) `tools`: read-only diagnostic/query tools the agent should execute now.
+2) `suggested_actions`: action/mutation tools you would recommend (do not execute without approval).
+Also return `remediation_plan` and `evidence_map`.
 
-Based on the incident details, which diagnostic tools would you call to investigate?
-Select only the most relevant tools (2-4 tools usually sufficient).
+Prefer read-only tools for initial diagnostics. If the incident severity is critical, you may include higher-impact diagnostics (e.g., `describe_deployment`) in `tools`.
 
 Respond in this JSON format:
 {{
-    "tools": ["tool_name1", "tool_name2", ...],
+    "tools": ["tool_name1", "tool_name2"],
+    "suggested_actions": ["action_tool_name1"],
+    "remediation_plan": [
+        {{"step_number": 1, "action_type": "action_tool_name1", "description": "...", "target_resource": "...", "why": "...", "evidence": ["..."], "estimated_risk": "LOW"}}
+    ],
+    "evidence_map": {{"action_tool_name1": ["evidence snippet"]}},
     "reasoning": "Why you selected these tools"
 }}
 """
@@ -150,7 +189,8 @@ Respond in this JSON format:
                     "role": "system",
                     "content": (
                         "You are a Kubernetes diagnostics planner. "
-                        "Return only JSON with keys: tools (list of strings) and reasoning (string)."
+                        "Return only JSON with keys: tools, suggested_actions, remediation_plan, evidence_map, and reasoning. "
+                        "Do not invent facts and do not omit evidence references when available."
                     ),
                 },
                 {"role": "user", "content": prompt},
@@ -163,17 +203,38 @@ Respond in this JSON format:
         try:
             response_json = _extract_json_payload(llm_response_text)
             tools_to_call = response_json.get("tools", [])
+            suggested_actions = response_json.get("suggested_actions", [])
+            remediation_plan = response_json.get("remediation_plan", [])
+            evidence_map = response_json.get("evidence_map", {})
             llm_reasoning = response_json.get("reasoning", "")
         except json.JSONDecodeError:
             logger.warning(f"Failed to parse LLM response: {llm_response_text}")
             tools_to_call = _get_default_tools_for_reason(event.reason)
+            suggested_actions = []
+            remediation_plan = []
+            evidence_map = {}
             llm_reasoning = "Fallback to default tools due to LLM parse error"
 
-        state["tools_to_call"] = [tool for tool in tools_to_call if tool in tool_names]
+        # Only keep known tools
+        raw_tools = [tool for tool in tools_to_call if tool in tool_names]
+        raw_suggested_actions = [tool for tool in suggested_actions if tool in tool_names]
+
+        # Sanitize and separate read-only diagnostics vs actions
+        sanitized = _sanitize_tools_for_resource(event, raw_tools)
+        # Heuristic: if severity is CRITICAL, ensure at least one deep diagnostic (describe_deployment/describe_pod)
+        if event.severity == SeverityLevel.CRITICAL:
+            if event.resource_type == ResourceType.POD and "describe_pod" in tool_names and "describe_pod" not in sanitized:
+                sanitized.append("describe_pod")
+
+        # Store diagnostics to execute now (read-only only). Action tools are kept separately.
+        state["tools_to_call"] = [t for t in sanitized if _is_tool_read_only(t, tool_definitions)]
+        state["suggested_action_tools"] = [t for t in raw_suggested_actions if not _is_tool_read_only(t, tool_definitions)]
+        state["remediation_plan"] = _normalize_remediation_plan(remediation_plan)
+        state["evidence_map"] = _normalize_evidence_map(evidence_map)
         state["llm_tool_reasoning"] = llm_reasoning
 
         logger.info(
-            f"LLM selected tools: {tools_to_call}. Reasoning: {llm_reasoning}"
+            f"LLM selected tools: {tools_to_call}, suggested_actions: {suggested_actions}. Reasoning: {llm_reasoning}"
         )
 
         return state
@@ -208,6 +269,10 @@ async def node_collect_diagnostics(
     try:
         event = state["event"]
         tools_to_call = state.get("tools_to_call", [])
+        # Enforce policy: never execute action/mutation tools from the registry.
+        tool_defs = get_tool_definitions()
+        tools_to_call = [t for t in tools_to_call if _is_tool_read_only(t, tool_defs)]
+        state["tools_to_call_executed"] = tools_to_call
 
         if not tools_to_call:
             logger.warning("No tools to call for diagnostics")
@@ -436,6 +501,12 @@ async def node_persist_incident(
         concerned_users = state.get("concerned_users", [])
         owner_hints = state.get("owner_hints", [])
         log_snapshot = _build_log_snapshot(diagnostics)
+        remediation_plan = state.get("remediation_plan", [])
+        evidence_map = state.get("evidence_map", {})
+        if not remediation_plan:
+            remediation_plan = _build_remediation_plan(event, root_cause, diagnostics)
+
+        suggested_actions = _generate_suggested_actions(event, root_cause)
 
         # Build incident record
         incident = IncidentRecord(
@@ -454,6 +525,8 @@ async def node_persist_incident(
                 diagnostics,
                 concerned_person=concerned_person,
                 log_snapshot=log_snapshot,
+                remediation_plan=remediation_plan,
+                evidence_map=evidence_map,
             ),
             log_snapshot=log_snapshot,
             collected_diagnostics={
@@ -462,7 +535,9 @@ async def node_persist_incident(
             tools_called=list(diagnostics.keys()),
             llm_reasoning=state.get("llm_tool_reasoning"),
             root_cause_analysis=root_cause,
-            suggested_actions=_generate_suggested_actions(event, root_cause),
+            suggested_actions=suggested_actions,
+            remediation_plan=remediation_plan,
+            evidence_map=evidence_map,
             concerned_person=concerned_person,
             concerned_users=concerned_users,
             owner_hints=owner_hints,
@@ -626,10 +701,51 @@ def _get_default_tools_for_reason(reason: str) -> List[str]:
         "OOMKilled": ["get_pod_logs", "get_pod_metrics", "get_pod_status"],
         "ImagePullBackOff": ["get_pod_events", "get_pod_status"],
         "FailedScheduling": ["get_pod_events", "get_pod_status", "list_nodes"],
+        "FailedGetResourceMetric": ["get_hpa_info", "detect_hpa_issues", "list_nodes"],
         "Evicted": ["get_pod_status", "list_nodes"],
         "Pending": ["get_pod_events", "get_pod_status"],
     }
     return reason_map.get(reason, ["get_pod_logs", "get_pod_events", "get_pod_status"])
+
+
+def _sanitize_tools_for_resource(
+    event: EnrichedEventInput, tools: List[str]
+) -> List[str]:
+    """Filter/select tools that are valid for the resource type."""
+    if event.resource_type == ResourceType.HPA:
+        allowed_for_hpa = {"get_hpa_info", "detect_hpa_issues", "list_nodes"}
+        selected = [tool for tool in tools if tool in allowed_for_hpa]
+        if not selected:
+            selected = ["get_hpa_info", "detect_hpa_issues", "list_nodes"]
+        return selected
+
+    if event.resource_type == ResourceType.POD:
+        allowed_for_pod = {
+            "get_pod_logs",
+            "get_pod_events",
+            "get_pod_status",
+            "get_pod_metrics",
+            "describe_pod",
+            "list_nodes",
+            "get_deployment_info",
+            "describe_deployment",
+        }
+        selected = [tool for tool in tools if tool in allowed_for_pod]
+
+        # Deployment-only diagnostics require owning deployment context.
+        additional_context = event.additional_context or {}
+        if not additional_context.get("deployment_name"):
+            selected = [
+                tool
+                for tool in selected
+                if tool not in {"get_deployment_info", "describe_deployment"}
+            ]
+
+        if not selected:
+            selected = ["get_pod_logs", "get_pod_events", "get_pod_status"]
+        return selected
+
+    return tools
 
 
 def _build_tool_parameters(
@@ -672,6 +788,11 @@ def _build_tool_parameters(
                 )
         elif tool_name == "list_nodes":
             params[tool_name] = {}
+        elif tool_name in ["get_hpa_info", "detect_hpa_issues"]:
+            params[tool_name] = {
+                "namespace": event.namespace,
+                "hpa_name": event.resource_name,
+            }
 
     return params
 
@@ -694,6 +815,17 @@ def _parse_memory_value(value: str) -> int:
     return 0
 
 
+def _is_tool_read_only(tool_name: str, tool_definitions: List[Any]) -> bool:
+    """Return True if the named tool is marked read-only in definitions."""
+    for t in tool_definitions:
+        try:
+            if t.name == tool_name:
+                return bool(getattr(t, "is_read_only", True))
+        except Exception:
+            continue
+    return True
+
+
 def _analyze_root_cause(
     event: EnrichedEventInput, diagnostics: Dict[str, DiagnosticResult]
 ) -> RootCauseAnalysis:
@@ -703,9 +835,9 @@ def _analyze_root_cause(
     confidence = 0.5
 
     # CrashLoopBackOff analysis
-    if event.reason == "CrashLoopBackOff":
+    if event.reason in {"CrashLoopBackOff", "BackOff"}:
         root_cause_text = "Application container is crashing repeatedly"
-        evidence.append("CrashLoopBackOff detected")
+        evidence.append(f"{event.reason} detected")
 
         # Check metrics for OOM
         metrics_result = diagnostics.get("get_pod_metrics")
@@ -752,6 +884,17 @@ def _analyze_root_cause(
                 evidence.append("No nodes available in cluster")
                 confidence = 0.9
 
+    # HPA metric acquisition failures
+    elif event.reason == "FailedGetResourceMetric":
+        root_cause_text = "HPA cannot fetch resource metrics from metrics API"
+        evidence.append("FailedGetResourceMetric detected")
+        message = (event.message or "").lower()
+        if "metrics.k8s.io" in message or "could not find the requested resource" in message:
+            evidence.append("metrics.k8s.io API unavailable or metrics-server not installed")
+            confidence = 0.95
+        else:
+            confidence = 0.8
+
     return RootCauseAnalysis(
         root_cause=root_cause_text,
         hypothesis_confidence=confidence,
@@ -765,6 +908,8 @@ def _build_detailed_summary(
     diagnostics: Dict[str, DiagnosticResult],
     concerned_person: Optional[Dict[str, Any]] = None,
     log_snapshot: Optional[str] = None,
+    remediation_plan: Optional[List[RemediationStep]] = None,
+    evidence_map: Optional[Dict[str, List[str]]] = None,
 ) -> str:
     """Build detailed summary of incident."""
     lines = [
@@ -783,6 +928,22 @@ def _build_detailed_summary(
     if log_snapshot:
         lines.append("Log snapshot:")
         lines.extend(f"  {line}" for line in log_snapshot.splitlines())
+
+    if remediation_plan:
+        lines.append("Remediation handoff:")
+        for step in remediation_plan:
+            evidence_text = ", ".join(step.evidence) if step.evidence else "no evidence quoted"
+            lines.append(
+                f"  {step.step_number}. {step.action_type}: {step.description}"
+            )
+            lines.append(f"     target={step.target_resource}; why={step.why}; risk={step.estimated_risk}")
+            lines.append(f"     evidence={evidence_text}")
+
+    if evidence_map:
+        lines.append("Evidence map:")
+        for action_type, snippets in evidence_map.items():
+            joined = "; ".join(snippets)
+            lines.append(f"  {action_type}: {joined}")
 
     return "\n".join(lines)
 
@@ -853,6 +1014,78 @@ def _extract_json_payload(text: str) -> Dict[str, Any]:
     raise json.JSONDecodeError("No JSON object found", text, 0)
 
 
+def _normalize_evidence_map(raw_map: Any) -> Dict[str, List[str]]:
+    """Normalize an LLM evidence map into a simple tool -> snippets mapping."""
+    normalized: Dict[str, List[str]] = {}
+    if not isinstance(raw_map, dict):
+        return normalized
+
+    for key, value in raw_map.items():
+        if isinstance(value, list):
+            snippets = [str(item).strip() for item in value if str(item).strip()]
+        elif isinstance(value, str):
+            snippets = [value.strip()] if value.strip() else []
+        else:
+            snippets = [str(value).strip()] if str(value).strip() else []
+
+        if snippets:
+            normalized[str(key)] = snippets
+    return normalized
+
+
+def _canonicalize_action_type(action_type: str) -> str:
+    """Map LLM-generated action labels to stable canonical names where possible."""
+    normalized = (action_type or "").strip().lower()
+    aliases = {
+        "verify_metrics_server_installation": "verify_metrics_server",
+        "verify_metrics_server": "verify_metrics_server",
+        "check_metrics_server": "verify_metrics_server",
+        "validate_hpa_target_metrics": "validate_hpa_target_metrics",
+        "restart_pod": "restart_pod",
+        "rollout_restart": "rollout_restart",
+        "scale_deployment": "scale_deployment",
+        "increase_memory_limit": "increase_memory_limit",
+        "check_logs": "check_logs",
+        "add_nodes": "add_nodes",
+    }
+    return aliases.get(normalized, action_type)
+
+
+def _normalize_remediation_plan(raw_plan: Any) -> List[RemediationStep]:
+    """Convert raw LLM remediation plan objects into typed, ordered steps."""
+    if not isinstance(raw_plan, list):
+        return []
+
+    steps: List[RemediationStep] = []
+    for index, item in enumerate(raw_plan, start=1):
+        if not isinstance(item, dict):
+            continue
+
+        evidence = item.get("evidence", [])
+        if isinstance(evidence, str):
+            evidence = [evidence]
+        elif not isinstance(evidence, list):
+            evidence = [str(evidence)] if evidence is not None else []
+
+        try:
+            steps.append(
+                RemediationStep(
+                    step_number=int(item.get("step_number") or index),
+                    action_type=_canonicalize_action_type(str(item.get("action_type") or "unknown")),
+                    description=str(item.get("description") or ""),
+                    target_resource=str(item.get("target_resource") or ""),
+                    why=str(item.get("why") or ""),
+                    evidence=[str(value).strip() for value in evidence if str(value).strip()],
+                    estimated_risk=str(item.get("estimated_risk") or "LOW"),
+                )
+            )
+        except Exception:
+            continue
+
+    steps.sort(key=lambda step: step.step_number)
+    return steps
+
+
 def _generate_suggested_actions(
     event: EnrichedEventInput, root_cause: Optional[RootCauseAnalysis]
 ) -> List[SuggestedAction]:
@@ -863,7 +1096,7 @@ def _generate_suggested_actions(
         return actions
 
     # CrashLoopBackOff suggestions
-    if event.reason == "CrashLoopBackOff":
+    if event.reason in {"CrashLoopBackOff", "BackOff"}:
         if "OOMKilled" in root_cause.root_cause:
             actions.append(
                 SuggestedAction(
@@ -872,6 +1105,8 @@ def _generate_suggested_actions(
                     target_resource=f"{event.namespace}/{event.resource_name}",
                     priority=1,
                     estimated_risk="LOW",
+                    rationale="Root cause points to memory pressure/OOM",
+                    evidence=["OOMKilled"],
                 )
             )
         else:
@@ -882,6 +1117,8 @@ def _generate_suggested_actions(
                     target_resource=f"{event.namespace}/{event.resource_name}",
                     priority=2,
                     estimated_risk="LOW",
+                    rationale="CrashLoopBackOff commonly needs a restart after diagnosis",
+                    evidence=[event.reason],
                 )
             )
             actions.append(
@@ -891,6 +1128,8 @@ def _generate_suggested_actions(
                     target_resource=f"{event.namespace}/{event.resource_name}",
                     priority=1,
                     estimated_risk="LOW",
+                    rationale="Logs are the strongest next evidence source for a crash loop",
+                    evidence=[event.reason],
                 )
             )
 
@@ -903,6 +1142,8 @@ def _generate_suggested_actions(
                 target_resource=f"{event.namespace}/{event.resource_name}",
                 priority=1,
                 estimated_risk="LOW",
+                rationale="Image pull failures usually come from registry/image config",
+                evidence=[event.reason],
             )
         )
 
@@ -915,7 +1156,79 @@ def _generate_suggested_actions(
                 target_resource="cluster",
                 priority=2,
                 estimated_risk="MEDIUM",
+                rationale="Insufficient capacity or scheduling constraints are the likely cause",
+                evidence=[event.reason],
             )
         )
 
-    return actions
+    elif event.reason == "FailedGetResourceMetric":
+        actions.append(
+            SuggestedAction(
+                action_type="verify_metrics_server",
+                description="Verify metrics-server is installed and metrics.k8s.io API is healthy",
+                target_resource="cluster",
+                priority=1,
+                estimated_risk="LOW",
+                rationale="The HPA cannot fetch resource metrics from the cluster",
+                evidence=[event.reason, root_cause.root_cause],
+            )
+        )
+        actions.append(
+            SuggestedAction(
+                action_type="validate_hpa_target_metrics",
+                description="Validate HPA target workload exposes CPU/memory metrics and requests",
+                target_resource=f"{event.namespace}/{event.resource_name}",
+                priority=2,
+                estimated_risk="LOW",
+                rationale="Once metrics are available, verify the target workload is configured correctly",
+                evidence=[event.reason],
+            )
+        )
+
+    # Preserve only highest-priority actions first.
+    actions.sort(key=lambda item: item.priority)
+    return actions[:3]
+
+
+def _build_remediation_plan(
+    event: EnrichedEventInput,
+    root_cause: Optional[RootCauseAnalysis],
+    diagnostics: Dict[str, DiagnosticResult],
+) -> List[RemediationStep]:
+    """Build an ordered remediation handoff from the available evidence."""
+    suggested_actions = _generate_suggested_actions(event, root_cause)
+    plan: List[RemediationStep] = []
+
+    for index, action in enumerate(suggested_actions, start=1):
+        evidence = list(getattr(action, "evidence", []) or [])
+        if not evidence and root_cause:
+            evidence = list(root_cause.supporting_evidence)
+
+        plan.append(
+            RemediationStep(
+                step_number=index,
+                action_type=action.action_type,
+                description=action.description,
+                target_resource=action.target_resource,
+                why=(action.rationale or root_cause.reasoning) if root_cause else "Evidence indicates this is the next best action",
+                evidence=evidence,
+                estimated_risk=action.estimated_risk,
+            )
+        )
+
+    # If we still do not have a plan, provide a conservative handoff.
+    if not plan:
+        fallback_evidence = root_cause.supporting_evidence if root_cause else [event.reason]
+        plan.append(
+            RemediationStep(
+                step_number=1,
+                action_type="investigate_further",
+                description="Review the collected diagnostics and expand evidence gathering",
+                target_resource=f"{event.namespace}/{event.resource_name}",
+                why="The agent does not have enough evidence to recommend a safer remediation step",
+                evidence=fallback_evidence,
+                estimated_risk="LOW",
+            )
+        )
+
+    return plan

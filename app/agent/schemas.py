@@ -38,6 +38,7 @@ class ResourceType(str, Enum):
 
     POD = "Pod"
     DEPLOYMENT = "Deployment"
+    HPA = "HorizontalPodAutoscaler"
     STATEFULSET = "StatefulSet"
     DAEMONSET = "DaemonSet"
     JOB = "Job"
@@ -104,6 +105,20 @@ class SuggestedAction(BaseModel):
     target_resource: str
     priority: int = 1
     estimated_risk: str = "LOW"
+    rationale: Optional[str] = None
+    evidence: List[str] = Field(default_factory=list)
+
+
+class RemediationStep(BaseModel):
+    """Single ordered remediation step for handoff to another agent."""
+
+    step_number: int
+    action_type: str
+    description: str
+    target_resource: str
+    why: str
+    evidence: List[str] = Field(default_factory=list)
+    estimated_risk: str = "LOW"
 
 
 class IncidentRecord(BaseModel):
@@ -137,6 +152,8 @@ class IncidentRecord(BaseModel):
     llm_reasoning: Optional[str] = None
     root_cause_analysis: Optional[RootCauseAnalysis] = None
     suggested_actions: List[SuggestedAction] = Field(default_factory=list)
+    remediation_plan: List[RemediationStep] = Field(default_factory=list)
+    evidence_map: Dict[str, List[str]] = Field(default_factory=dict)
 
     # Recipient routing
     concerned_person: Optional[Dict[str, Any]] = None
@@ -173,6 +190,9 @@ class MonitoringGraphState(TypedDict, total=False):
     # Node 2: LLM Tool Selection
     tools_to_call: List[str]
     llm_tool_reasoning: str
+    suggested_action_tools: List[str]
+    remediation_plan: List[Dict[str, Any]]
+    evidence_map: Dict[str, List[str]]
 
     # Node 3: Collect Diagnostics
     collected_diagnostics: Dict[str, DiagnosticResult]

@@ -13,9 +13,12 @@ from typing import Any, Callable, Dict, List, Optional
 
 from Tools.deployments import get_deployment, get_deployment_events
 from Tools.diagnostics import diagnose_deployment, diagnose_pod
+from Tools.hpa import detect_hpa_issues, get_hpa
 from Tools.metrics import get_pod_metrics
 from Tools.nodes import list_nodes
 from Tools.pods import get_pod_events, get_pod_logs, get_pod_status
+from Tools.pods import delete_pod, exec_pod
+from Tools.deployments import scale_deployment, rollout_restart
 
 from app.agent.schemas import DiagnosticResult, ToolDefinition
 
@@ -195,6 +198,22 @@ async def _describe_deployment(
         raise RuntimeError(f"Failed to describe deployment: {str(e)}")
 
 
+async def _get_hpa_info(namespace: str, hpa_name: str) -> Dict[str, Any]:
+    """Get HPA status and target information."""
+    try:
+        return {"hpa": get_hpa(name=hpa_name, namespace=namespace)}
+    except Exception as e:
+        raise RuntimeError(f"Failed to get HPA info: {str(e)}")
+
+
+async def _detect_hpa_issues(namespace: str, hpa_name: str) -> Dict[str, Any]:
+    """Detect HPA scaling and metrics issues."""
+    try:
+        return detect_hpa_issues(name=hpa_name, namespace=namespace)
+    except Exception as e:
+        raise RuntimeError(f"Failed to detect HPA issues: {str(e)}")
+
+
 # ============================================================================
 # TOOL REGISTRY
 # ============================================================================
@@ -297,6 +316,79 @@ MONITORING_TOOL_REGISTRY: Dict[str, Tool] = {
             },
         },
         is_read_only=True,
+    ),
+    "get_hpa_info": Tool(
+        name="get_hpa_info",
+        func=_get_hpa_info,
+        description="Get HorizontalPodAutoscaler target, replicas, and conditions",
+        category="diagnostics",
+        parameters={
+            "namespace": {"type": "string", "description": "Kubernetes namespace"},
+            "hpa_name": {"type": "string", "description": "HorizontalPodAutoscaler name"},
+        },
+        is_read_only=True,
+    ),
+    "detect_hpa_issues": Tool(
+        name="detect_hpa_issues",
+        func=_detect_hpa_issues,
+        description="Detect HPA scaling issues such as missing metrics or inactive scaling",
+        category="diagnostics",
+        parameters={
+            "namespace": {"type": "string", "description": "Kubernetes namespace"},
+            "hpa_name": {"type": "string", "description": "HorizontalPodAutoscaler name"},
+        },
+        is_read_only=True,
+    ),
+    # Action / remediation tools (require explicit approval to execute)
+    "restart_pod": Tool(
+        name="restart_pod",
+        func=lambda namespace, pod_name: delete_pod(name=pod_name, namespace=namespace),
+        description="Restart a pod by deleting it (controller will recreate) — ACTION",
+        category="action",
+        parameters={
+            "namespace": {"type": "string", "description": "Kubernetes namespace"},
+            "pod_name": {"type": "string", "description": "Pod name"},
+        },
+        permission_required="pods:delete",
+        is_read_only=False,
+    ),
+    "exec_pod": Tool(
+        name="exec_pod",
+        func=lambda namespace, pod_name, command: exec_pod(name=pod_name, namespace=namespace, command=command),
+        description="Execute a command inside a pod (ACTION, dangerous)",
+        category="action",
+        parameters={
+            "namespace": {"type": "string", "description": "Kubernetes namespace"},
+            "pod_name": {"type": "string", "description": "Pod name"},
+            "command": {"type": "string", "description": "Command to run in pod"},
+        },
+        permission_required="pods:exec",
+        is_read_only=False,
+    ),
+    "scale_deployment": Tool(
+        name="scale_deployment",
+        func=lambda namespace, deployment_name, replicas: scale_deployment(name=deployment_name, namespace=namespace, replicas=replicas),
+        description="Scale a deployment to desired replica count (ACTION)",
+        category="action",
+        parameters={
+            "namespace": {"type": "string", "description": "Kubernetes namespace"},
+            "deployment_name": {"type": "string", "description": "Deployment name"},
+            "replicas": {"type": "integer", "description": "Desired replica count"},
+        },
+        permission_required="deployments:scale",
+        is_read_only=False,
+    ),
+    "rollout_restart": Tool(
+        name="rollout_restart",
+        func=lambda namespace, deployment_name: rollout_restart(name=deployment_name, namespace=namespace),
+        description="Trigger a rolling restart of a deployment (ACTION)",
+        category="action",
+        parameters={
+            "namespace": {"type": "string", "description": "Kubernetes namespace"},
+            "deployment_name": {"type": "string", "description": "Deployment name"},
+        },
+        permission_required="deployments:restart",
+        is_read_only=False,
     ),
 }
 

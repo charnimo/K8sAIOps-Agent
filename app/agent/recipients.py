@@ -10,13 +10,14 @@ import json
 from typing import Any, Iterable, Optional, Sequence
 
 from app.agent.schemas import ResourceType
-from app.database.database import PERMISSION_CATALOG_SEED, SessionLocal
+from app.database.database import Base, PERMISSION_CATALOG_SEED, SessionLocal, engine
 from app.database.models import PermissionCatalog, User
 
 
 RESOURCE_PERMISSION_PRIORITY: dict[ResourceType, tuple[str, ...]] = {
     ResourceType.POD: ("pods:read", "pods:logs", "events:read", "deployments:read"),
     ResourceType.DEPLOYMENT: ("deployments:read", "events:read", "pods:read"),
+    ResourceType.HPA: ("hpa:read", "events:read"),
     ResourceType.STATEFULSET: ("workloads:statefulsets:read", "events:read", "pods:read"),
     ResourceType.DAEMONSET: ("workloads:daemonsets:read", "events:read", "pods:read"),
     ResourceType.SERVICE: ("services:read", "events:read"),
@@ -226,6 +227,9 @@ def resolve_concerned_users_for_event(
     db=None,
 ) -> dict[str, Any]:
     """Resolve the recipients for an incident event from the database."""
+    # Ensure schema exists for standalone scripts/tests that don't run app startup hooks.
+    Base.metadata.create_all(bind=engine)
+
     session = db or SessionLocal()
     close_session = db is None
     try:

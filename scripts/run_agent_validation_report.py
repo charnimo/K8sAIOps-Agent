@@ -30,7 +30,6 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from Tools.events import list_warning_events
-from app.agent.monitoring_graph import build_monitoring_graph
 from app.agent.schemas import EnrichedEventInput, ResourceType, SeverityLevel
 
 
@@ -38,6 +37,7 @@ def _map_resource_type(kind: str | None) -> ResourceType:
     mapping = {
         "Pod": ResourceType.POD,
         "Deployment": ResourceType.DEPLOYMENT,
+        "HorizontalPodAutoscaler": ResourceType.HPA,
         "StatefulSet": ResourceType.STATEFULSET,
         "DaemonSet": ResourceType.DAEMONSET,
         "Job": ResourceType.JOB,
@@ -82,7 +82,30 @@ def _flatten_suggestions(suggested_actions: Iterable) -> list[str]:
     return lines
 
 
+def _resource_exists(kind: str, namespace: str, name: str) -> bool:
+    """Best-effort existence check to skip stale warning events for deleted resources."""
+    try:
+        if kind == "Pod":
+            from Tools.pods import get_pod_status
+
+            get_pod_status(name=name, namespace=namespace)
+            return True
+        if kind == "HorizontalPodAutoscaler":
+            from Tools.hpa import get_hpa
+
+            result = get_hpa(name=name, namespace=namespace)
+            return not (isinstance(result, dict) and result.get("error"))
+    except Exception:
+        return False
+
+    # For resource kinds without a lightweight check, keep the event.
+    return True
+
+
 async def _run_agent_report(events_to_run: int) -> int:
+    # Import after env setup so LLM config reflects --model/--base-url overrides.
+    from app.agent.monitoring_graph import build_monitoring_graph
+
     print("\n" + "=" * 80)
     print("AGENT REPORT: LIVE WARNING EVENTS")
     print("=" * 80)
@@ -93,7 +116,26 @@ async def _run_agent_report(events_to_run: int) -> int:
         return 1
 
     graph = build_monitoring_graph()
-    selected = warnings[:events_to_run]
+    selected = []
+    for ev in warnings:
+        involved = ev.get("involved_object", {})
+        kind = involved.get("kind") or "Pod"
+        namespace = involved.get("namespace") or ev.get("namespace") or "default"
+        resource_name = involved.get("name") or ev.get("name") or "unknown"
+
+        if _resource_exists(kind, namespace, resource_name):
+            selected.append(ev)
+        else:
+            print(
+                f"Skipping stale event for deleted {kind} {namespace}/{resource_name}"
+            )
+
+        if len(selected) >= events_to_run:
+            break
+
+    if not selected:
+        print("No active resources found for recent warning events.")
+        return 1
 
     pass_count = 0
     fail_count = 0
@@ -125,7 +167,9 @@ async def _run_agent_report(events_to_run: int) -> int:
         print("-" * 80)
 
         try:
+            # Always invoke with event only; remediation actions are never executed by the agent.
             out = await graph.ainvoke({"event": event})
+
             incident = out.get("incident_record")
             if incident is None:
                 print("FAIL: incident_record missing")
@@ -165,6 +209,16 @@ async def _run_agent_report(events_to_run: int) -> int:
             if log_snapshot:
                 print("\nLOG SNAPSHOT:")
                 print(log_snapshot)
+
+            # Print which diagnostics were actually executed and which action tools were suggested
+            executed_tools = out.get("tools_to_call_executed") or []
+            suggested_action_tools = out.get("suggested_action_tools") or []
+            if executed_tools:
+                print("\nDIAGNOSTICS EXECUTED:")
+                print(", ".join(executed_tools))
+            if suggested_action_tools:
+                print("\nSUGGESTED ACTION TOOLS (not executed):")
+                print(", ".join(suggested_action_tools))
 
             pass_count += 1
         except Exception as exc:
