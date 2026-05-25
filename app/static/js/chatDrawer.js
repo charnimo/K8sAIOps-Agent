@@ -252,6 +252,7 @@ renderMessages() {
             let rawContent = msg.message || '';
             let action = null;
             let thoughts = null;
+            let internal = false;
 
             if (rawContent === '__THINKING__' || msg._thinking) {
                 return `
@@ -279,8 +280,11 @@ renderMessages() {
                 if (parsed && typeof parsed === 'object' && parsed.text) {
                     rawContent = parsed.text;
                     action = parsed.action;
+                    internal = parsed.internal === true;
                 }
             } catch (e) {}
+
+            if (internal) return '';
 
             // Strip Action IDs from the text display
             rawContent = rawContent.replace(/Action ID:\s*[0-9a-f-]{36}/gi, '').trim();
@@ -425,7 +429,7 @@ async sendMessage(overrideContent = null, isFromEnterKey = false) {
             // Pass the signal to api.js
             const response = await this.api.sendChatMessage(
                 this.currentSessionId, 
-                { content }, 
+                { content, internal: !!overrideContent },
                 this.abortController.signal
             );
             

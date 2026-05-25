@@ -100,6 +100,13 @@ def _stored_message_text(raw_message: str) -> str:
     return raw_message
 
 
+def _stored_user_message(content: str, internal: bool) -> str:
+    """Persist visible user text directly and internal trigger text as metadata."""
+    if not internal:
+        return content
+    return json.dumps({"text": content, "internal": True})
+
+
 def _history_for_agent(db: Session, session_id: int, username: str, current_message_id: int) -> list[dict]:
     """Build compact history for the active agent graph."""
     rows = (
@@ -365,7 +372,7 @@ def post_chat_message(
     user_message = ChatHistory(
         conversation_id=session.id,
         sender=user.username,
-        message=content,
+        message=_stored_user_message(content, payload.internal),
     )
     db.add(user_message)
     db.commit()

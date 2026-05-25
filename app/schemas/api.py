@@ -27,6 +27,7 @@ class ChatMessageRequest(BaseModel):
     """User chat message payload."""
 
     content: str = Field(..., min_length=1)
+    internal: bool = False
 
 
 class ChatSessionCreateRequest(BaseModel):
