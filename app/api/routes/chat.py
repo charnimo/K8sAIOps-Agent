@@ -1,46 +1,26 @@
 """Chat session endpoints."""
 
-from cmath import log
+from __future__ import annotations
+
 import json
+import logging
+import re
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
+from agent.active_graph import run_active_agent
 from app.auth.dependencies import get_current_user, oauth2_scheme, require_permission
 from app.core.settings import get_settings
-from app.database.database import get_db, SessionLocal
+from app.database.database import SessionLocal, get_db
 from app.database.models import ChatHistory, Conversation, User
 from app.schemas.api import ChatMessageRequest, ChatSessionCreateRequest
-from agent.agent_instructions import get_system_instruction
-from agent.tools import get_tools_for_task, get_tool_group, ToolGroup
 from app.state.store import get_action_request
 
+
 router = APIRouter(dependencies=[Depends(require_permission("agent:chat"))])
+logger = logging.getLogger(__name__)
 
-# Simple in-memory cache for tool loading to avoid rebuilding on every request.
-# Cached separately for debug (all-tools) and for task-specific tool sets.
-_CACHED_ALL_TOOLS = {}
-_CACHED_TOOLS_BY_TASK = {}
-
-def _get_tools_cached(task: str, token: str, debug_mode: bool):
-    global _CACHED_ALL_TOOLS, _CACHED_TOOLS_BY_TASK
-    if debug_mode:
-        # Cache per token to avoid leaking tool instances between different auth contexts
-        if token in _CACHED_ALL_TOOLS:
-            return _CACHED_ALL_TOOLS[token]
-        tools = []
-        for g in ToolGroup:
-            tools.extend(get_tool_group(g, token))
-        _CACHED_ALL_TOOLS[token] = tools
-        return tools
-
-    key = (task, token)
-    if key in _CACHED_TOOLS_BY_TASK:
-        return _CACHED_TOOLS_BY_TASK[key]
-
-    tools = get_tools_for_task(task, token)
-    _CACHED_TOOLS_BY_TASK[key] = tools
-    return tools
 
 MOCK_CONVERSATIONS = [
     {
@@ -61,12 +41,13 @@ MOCK_CONVERSATIONS = [
     },
 ]
 
+
 def _ensure_mock_conversations(db: Session, current_user: User) -> None:
     for template in MOCK_CONVERSATIONS:
         exists = (
             db.query(Conversation)
-           .filter(Conversation.user_id == current_user.id, Conversation.title == template["title"])
-           .first()
+            .filter(Conversation.user_id == current_user.id, Conversation.title == template["title"])
+            .first()
         )
         if exists:
             continue
@@ -86,6 +67,7 @@ def _ensure_mock_conversations(db: Session, current_user: User) -> None:
 
     db.commit()
 
+
 def _serialize_message(row: ChatHistory) -> dict:
     return {
         "id": row.id,
@@ -93,6 +75,7 @@ def _serialize_message(row: ChatHistory) -> dict:
         "message": row.message,
         "timestamp": row.timestamp.isoformat() if row.timestamp else None,
     }
+
 
 def _serialize_session(row: Conversation, include_messages: bool = False) -> dict:
     payload = {
@@ -106,15 +89,141 @@ def _serialize_session(row: Conversation, include_messages: bool = False) -> dic
     return payload
 
 
-def _estimate_tokens(chars_text: str) -> int:
-    """Rudimentary token estimator for debug purposes.
+def _stored_message_text(raw_message: str) -> str:
+    """Return assistant display text from stored JSON payloads."""
+    try:
+        data = json.loads(raw_message)
+        if isinstance(data, dict) and isinstance(data.get("text"), str):
+            return data["text"]
+    except Exception:
+        pass
+    return raw_message
 
-    Uses a conservative chars→token heuristic (approx 4 chars/token).
-    This is only for debugging and not intended as precise accounting.
-    """
-    if not chars_text:
-        return 0
-    return max(1, int(len(chars_text) / 4))
+
+def _history_for_agent(db: Session, session_id: int, username: str, current_message_id: int) -> list[dict]:
+    """Build compact history for the active agent graph."""
+    rows = (
+        db.query(ChatHistory)
+        .filter(ChatHistory.conversation_id == session_id)
+        .order_by(ChatHistory.timestamp)
+        .all()
+    )
+    history = []
+    for row in rows:
+        if row.id == current_message_id:
+            continue
+        role = "user" if row.sender == username else "assistant"
+        history.append({"role": role, "content": _stored_message_text(row.message)})
+    return history
+
+
+def _mentions_action_followup(content: str) -> bool:
+    text = content.lower()
+    return any(
+        marker in text
+        for marker in ("approved", "denied", "rejected", "confirm", "result")
+    )
+
+
+def _recent_action_context(db: Session, session_id: int, user_content: str) -> tuple[dict | None, dict | None]:
+    """Find a recent approval-gated action relevant to this turn."""
+    recent = (
+        db.query(ChatHistory)
+        .filter(ChatHistory.conversation_id == session_id, ChatHistory.sender == "agent")
+        .order_by(ChatHistory.id.desc())
+        .limit(8)
+        .all()
+    )
+
+    for msg in recent:
+        try:
+            data = json.loads(msg.message)
+        except Exception:
+            continue
+        if not isinstance(data, dict) or not isinstance(data.get("action"), dict):
+            continue
+
+        action = data["action"]
+        action_id = action.get("id")
+        request_record = get_action_request(action_id) if action_id else None
+        if not request_record:
+            continue
+
+        if request_record.get("status") == "pending":
+            return action, request_record
+        if _mentions_action_followup(user_content):
+            return action, request_record
+
+    return None, None
+
+
+def _safe_action_context(action: dict, request_record: dict) -> dict:
+    """Trim an action request record into graph context."""
+    return {
+        "action": {
+            "type": action.get("type"),
+            "target": action.get("target", {}),
+        },
+        "request": {
+            "status": request_record.get("status"),
+            "created_at": request_record.get("created_at"),
+            "approved_at": request_record.get("approved_at"),
+            "completed_at": request_record.get("completed_at"),
+            "result": request_record.get("result"),
+        },
+    }
+
+
+def _assistant_payload(text: str, action: dict | None = None) -> str:
+    if action:
+        return json.dumps({"text": text, "action": action})
+    return text
+
+
+def _maybe_update_conversation_title(
+    *,
+    db: Session,
+    session: Conversation,
+    user_message_count: int,
+    user_content: str,
+    settings,
+) -> None:
+    """Generate a short title for new conversations when the agent is configured."""
+    if user_message_count > 2 or not settings.agent_api_key:
+        return
+
+    try:
+        from langchain_core.messages import HumanMessage, SystemMessage
+        from langchain_openai import ChatOpenAI
+
+        title_llm = ChatOpenAI(
+            model=settings.agent_model,
+            api_key=settings.agent_api_key,
+            base_url="https://integrate.api.nvidia.com/v1",
+            temperature=0.3,
+        )
+        title_res = title_llm.invoke(
+            [
+                SystemMessage(content="You generate extremely short, 3-5 word conversation titles."),
+                HumanMessage(
+                    content=(
+                        "Generate a title for a Kubernetes session starting with: "
+                        f"'{user_content}'. Return only the title text, no quotes."
+                    )
+                ),
+            ]
+        )
+
+        raw_title = str(title_res.content).strip()
+        raw_title = re.sub(r"<think>.*?</think>", "", raw_title, flags=re.DOTALL | re.IGNORECASE).strip()
+        if raw_title:
+            session.title = raw_title.replace('"', "")
+            db.commit()
+    except Exception as exc:
+        db.rollback()
+        if settings.debug_mode:
+            logger.debug("Failed to generate chat title: %s", exc)
+
 
 @router.get("/sessions")
 def list_chat_sessions(
@@ -125,11 +234,12 @@ def list_chat_sessions(
     _ensure_mock_conversations(db, user)
     rows = (
         db.query(Conversation)
-       .filter(Conversation.user_id == user.id)
-       .order_by(Conversation.created_at.desc())
-       .all()
+        .filter(Conversation.user_id == user.id)
+        .order_by(Conversation.created_at.desc())
+        .all()
     )
     return [_serialize_session(row, include_messages=False) for row in rows]
+
 
 @router.post("/sessions")
 def create_chat_session(
@@ -148,6 +258,7 @@ def create_chat_session(
     db.refresh(row)
     return _serialize_session(row, include_messages=True)
 
+
 @router.get("/sessions/{session_id}")
 def get_chat_session(
     session_id: int,
@@ -157,12 +268,13 @@ def get_chat_session(
     """Return chat history for a DB session owned by the current user."""
     row = (
         db.query(Conversation)
-       .filter(Conversation.id == session_id, Conversation.user_id == user.id)
-       .first()
+        .filter(Conversation.id == session_id, Conversation.user_id == user.id)
+        .first()
     )
     if row is None:
         raise HTTPException(status_code=404, detail="Session not found")
     return _serialize_session(row, include_messages=True)
+
 
 @router.delete("/sessions/{session_id}")
 def delete_chat_session(
@@ -178,10 +290,11 @@ def delete_chat_session(
     )
     if row is None:
         raise HTTPException(status_code=404, detail="Session not found")
-    
+
     db.delete(row)
     db.commit()
     return {"success": True}
+
 
 @router.post("/sessions/{session_id}/messages")
 def post_chat_message(
@@ -191,11 +304,11 @@ def post_chat_message(
     user: User = Depends(get_current_user),
     token: str = Depends(oauth2_scheme),
 ) -> dict:
-    """Append a user message to a DB session and run the agent."""
+    """Append a user message to a DB session and run the active LangGraph agent."""
     session = (
         db.query(Conversation)
-       .filter(Conversation.id == session_id, Conversation.user_id == user.id)
-       .first()
+        .filter(Conversation.id == session_id, Conversation.user_id == user.id)
+        .first()
     )
     if session is None:
         raise HTTPException(status_code=404, detail="Session not found")
@@ -213,162 +326,46 @@ def post_chat_message(
     db.commit()
     db.refresh(user_message)
 
-    pending_action = None
-    recent = (
-        db.query(ChatHistory)
-       .filter(ChatHistory.conversation_id == session.id, ChatHistory.sender == "agent")
-       .order_by(ChatHistory.id.desc())
-       .limit(5)
-       .all()
-    )
-    for msg in recent:
-        try:
-            data = json.loads(msg.message)
-            if isinstance(data, dict) and "action" in data:
-                aid = data["action"].get("id")
-                req = get_action_request(aid) if aid else None
-                if req and req["status"] == "pending":
-                    pending_action = data["action"]
-                    break
-        except Exception:
-            continue
-
     settings = get_settings()
+    recent_action, action_record = _recent_action_context(db, session.id, content)
 
-    if pending_action:
+    if action_record and action_record.get("status") == "pending":
+        target = recent_action.get("target", {}) if recent_action else {}
         assistant_text = (
-            f"I've proposed {pending_action.get('type')} on {pending_action.get('target', {}).get('name')}. "
-            f"I can't proceed until you approve or deny it."
+            f"I've proposed {recent_action.get('type') if recent_action else 'an action'} "
+            f"on {target.get('name', 'the target')}. I can't proceed until you approve or deny it."
         )
-        assistant_content = json.dumps({"text": assistant_text, "action": pending_action})
+        assistant_content = _assistant_payload(assistant_text, recent_action)
+    elif not settings.agent_api_key:
+        assistant_content = "Agent not configured. Set AIOPS_AGENT_API_KEY in .env"
     else:
-        if not settings.agent_api_key:
-            assistant_content = "Agent not configured. Set AIOPS_AGENT_API_KEY in .env"
-        else:
-            try:
-                assistant_text = ""
-                from langchain_openai import ChatOpenAI
-                from langgraph.prebuilt import create_react_agent
+        try:
+            history = _history_for_agent(db, session.id, user.username, user_message.id)
+            action_context = (
+                _safe_action_context(recent_action, action_record)
+                if recent_action and action_record
+                else None
+            )
+            agent_result = run_active_agent(
+                content=content,
+                history=history,
+                username=user.username,
+                is_god_mode=user.is_god_mode,
+                token=token,
+                settings=settings,
+                action_context=action_context,
+            )
 
-                content_lower = content.lower()
-                if any(w in content_lower for w in ["delete","scale","restart","create","patch","update","drain","cordon","uncordon","suspend","resume"]):
-                    task = "act"
-                elif any(w in content_lower for w in ["why","error","fail","issue","diagnose","triage","crash","oom","pending"]):
-                    task = "triage"
-                else:
-                    task = "inspect"
+            if settings.debug_mode:
+                logger.debug("Agent task: %s", agent_result.task)
+                if agent_result.tools_called:
+                    logger.debug("Agent tools called: %s", ", ".join(dict.fromkeys(agent_result.tools_called)))
+                if agent_result.token_usage:
+                    logger.debug("Agent token usage: %s", agent_result.token_usage)
 
-                try:
-                    tools = _get_tools_cached(task, token, settings.debug_mode)
-                    if not tools:
-                        raise ValueError(f"No tools returned for task '{task}'")
-                except Exception as tool_err:
-                    if settings.debug_mode:
-                        print(f"[AGENT ERROR] Failed to load tools for task '{task}': {tool_err}")
-                    raise HTTPException(status_code=500, detail=str(tool_err)) from tool_err
-                
-                if settings.debug_mode:
-                    tool_names = [getattr(t, "name", str(t)) for t in tools]
-                    print(f"\n[AGENT DEBUG] Task: {task}")
-                    print(f"[AGENT DEBUG] Available tools ({len(tools)}): {', '.join(tool_names)}")
-                
-                llm = ChatOpenAI(
-                    model=settings.agent_model,
-                    api_key=settings.agent_api_key,
-                    base_url="https://integrate.api.nvidia.com/v1",
-                    temperature=0.3,
-                )
-                agent = create_react_agent(llm, tools)
-
-                history = []
-                for h in db.query(ChatHistory).filter(ChatHistory.conversation_id == session.id).order_by(ChatHistory.timestamp).all():
-                    if h.id == user_message.id:
-                        continue
-                    role = "user" if h.sender == user.username else "assistant"
-                    try:
-                        d = json.loads(h.message)
-                        txt = d.get("text", h.message) if isinstance(d, dict) else h.message
-                    except Exception:
-                        txt = h.message
-                    history.append({"role": role, "content": txt})
-
-                system = {"role": "system", "content": get_system_instruction(user.username, is_god_mode=user.is_god_mode)}
-                result = agent.invoke({"messages": [system] + history + [{"role": "user", "content": content}]})
-                
-                final = result["messages"][-1]
-                assistant_text = final.content if hasattr(final, "content") else str(final)
-
-                if settings.debug_mode:
-                    used_tools = [getattr(m, "name", "unknown") for m in result["messages"] if getattr(m, "type", None) == "tool"]
-                    if used_tools:
-                        yellow, cyan, bold, reset = "\033[93m", "\033[96m", "\033[1m", "\033[0m"
-                        print(f"\n{yellow}{bold}>>> [AGENT DEBUG: TOOL EXECUTION]{reset}")
-                        print(f"{cyan}TASK:{reset} {task.upper()}")
-                        print(f"{cyan}TOOLS CALLED:{reset} {yellow}{', '.join(set(used_tools))}{reset}\n")
-
-                if settings.debug_mode:
-                    usage = None
-                    try:
-                        resp_meta = getattr(final, "response_metadata", None)
-                        if isinstance(resp_meta, dict):
-                            usage = resp_meta.get("token_usage") or resp_meta.get("usage") or resp_meta
-                    except Exception:
-                        usage = None
-
-                    if usage is None and isinstance(result, dict):
-                        for key in ("llm_response", "llm_output", "raw_response", "openai_response", "response"):
-                            candidate = result.get(key)
-                            if candidate is None: continue
-                            candidate_dict = candidate if isinstance(candidate, dict) else (getattr(candidate, "to_dict", lambda: None)())
-                            if isinstance(candidate_dict, dict):
-                                usage = candidate_dict.get("usage") or candidate_dict.get("token_usage")
-                                if usage: break
-
-                    if usage is None:
-                        try:
-                            md = getattr(final, "metadata", None)
-                            if isinstance(md, dict):
-                                usage = md.get("usage") or md.get("token_usage")
-                        except Exception: pass
-
-                    def _as_int(val):
-                        try: return int(val)
-                        except: return None
-
-                    tokens_in = tokens_out = total = None
-                    if isinstance(usage, dict):
-                        tokens_in = _as_int(usage.get("prompt_tokens") or usage.get("input_tokens") or usage.get("prompt_tokens_count") or usage.get("prompt"))
-                        tokens_out = _as_int(usage.get("completion_tokens") or usage.get("output_tokens") or usage.get("completion_tokens_count") or usage.get("completion"))
-                        total = _as_int(usage.get("total_tokens"))
-                        if total is None and tokens_in is not None and tokens_out is not None:
-                            total = tokens_in + tokens_out
-
-                    if tokens_in is None or tokens_out is None:
-                        input_msgs = [system] + history + [{"role": "user", "content": content}]
-                        input_text = "".join([m.get("content", "") for m in input_msgs if isinstance(m, dict)])
-                        tokens_in = tokens_in or _estimate_tokens(input_text)
-                        tokens_out = tokens_out or _estimate_tokens(assistant_text or "")
-                        total = total or (tokens_in + tokens_out)
-
-                    print(f"[AGENT DEBUG] Tokens — in: {tokens_in}, out: {tokens_out}, total: {total}")
-
-                action = None
-                for m in result["messages"]:
-                    if getattr(m, "type", None) == "tool":
-                        try:
-                            out = json.loads(m.content) if isinstance(m.content, str) else m.content
-                            if isinstance(out, dict) and out.get("id") and out.get("type"):
-                                action = {"id": out["id"], "type": out["type"], "target": out.get("target", {})}
-                        except Exception:
-                            pass
-
-                if action:
-                    assistant_content = json.dumps({"text": assistant_text, "action": action})
-                else:
-                    assistant_content = assistant_text
-
-            except Exception as e:
-                assistant_content = f"Agent error: {str(e)}"
+            assistant_content = _assistant_payload(agent_result.text, agent_result.action)
+        except Exception as exc:
+            assistant_content = f"Agent error: {str(exc)}"
 
     assistant_message = ChatHistory(
         conversation_id=session.id,
@@ -379,40 +376,23 @@ def post_chat_message(
     db.commit()
     db.refresh(assistant_message)
 
-    user_msg_count = db.query(ChatHistory).filter(
-        ChatHistory.conversation_id == session.id, ChatHistory.sender == user.username
-    ).count()
-
-    if user_msg_count <= 2 and settings.agent_api_key:
-        try:
-            import re
-            from langchain_openai import ChatOpenAI
-            from langchain_core.messages import SystemMessage, HumanMessage
-            
-            title_llm = ChatOpenAI(
-                model=settings.agent_model,
-                api_key=settings.agent_api_key,
-                base_url="https://integrate.api.nvidia.com/v1",
-                temperature=0.3,
-            )
-            title_prompt = [
-                SystemMessage(content="You generate extremely short, 3-5 word conversation titles."),
-                HumanMessage(content=f"Generate a title for a Kubernetes session starting with: '{content}'. Return ONLY the title text, no quotes.")
-            ]
-            title_res = title_llm.invoke(title_prompt)
-            
-            raw_title = title_res.content.strip()
-            raw_title = re.sub(r'<think>.*?</think>', '', raw_title, flags=re.DOTALL | re.IGNORECASE).strip()
-            session.title = raw_title.replace('"', '')
-            db.commit()
-        except Exception as e:
-            if settings.debug_mode:
-                print(f"[AGENT DEBUG] Failed to generate title: {e}")
+    user_msg_count = (
+        db.query(ChatHistory)
+        .filter(ChatHistory.conversation_id == session.id, ChatHistory.sender == user.username)
+        .count()
+    )
+    _maybe_update_conversation_title(
+        db=db,
+        session=session,
+        user_message_count=user_msg_count,
+        user_content=content,
+        settings=settings,
+    )
 
     session_refreshed = (
         db.query(Conversation)
-       .filter(Conversation.id == session.id, Conversation.user_id == user.id)
-       .first()
+        .filter(Conversation.id == session.id, Conversation.user_id == user.id)
+        .first()
     )
 
     return {
@@ -422,44 +402,46 @@ def post_chat_message(
         "session": _serialize_session(session_refreshed, include_messages=True),
     }
 
-# ── Monitor-push entry point ───────────────────────────────────────────────────
 
 AGENT_ALERT_CONVERSATION_TITLE = "Auto-Alerts"
+
 
 async def handle_agent_event(prompt: str, event_dict: dict, app_state) -> None:
     """
     Called by AgentNotifier when a WARNING/CRITICAL event fires.
-    Persists the alert into a dedicated system conversation so it
-    appears in the dashboard chat history automatically.
-    No user interaction required.
+    Persists the alert into a dedicated system conversation so it appears in
+    the dashboard chat history automatically.
     """
     import asyncio
+
     loop = asyncio.get_event_loop()
     await loop.run_in_executor(None, _persist_alert_sync, prompt, event_dict)
 
+
 def _persist_alert_sync(prompt: str, event_dict: dict) -> None:
-    """Sync DB write — runs in executor so it doesn't block the event loop."""
+    """Sync DB write; runs in an executor so it does not block the event loop."""
     db: Session = SessionLocal()
     try:
-        # Find or create the shared alert conversation (not user-scoped)
         convo = (
             db.query(Conversation)
-           .filter(Conversation.title == AGENT_ALERT_CONVERSATION_TITLE)
-           .first()
+            .filter(Conversation.title == AGENT_ALERT_CONVERSATION_TITLE)
+            .first()
         )
         if convo is None:
             convo = Conversation(user_id=None, title=AGENT_ALERT_CONVERSATION_TITLE)
             db.add(convo)
             db.flush()
 
-        db.add(ChatHistory(
-            conversation_id=convo.id,
-            sender="monitor",
-            message=prompt,
-        ))
+        db.add(
+            ChatHistory(
+                conversation_id=convo.id,
+                sender="monitor",
+                message=prompt,
+            )
+        )
         db.commit()
     except Exception as exc:
         db.rollback()
-        log.error("Failed to persist agent alert: %s", exc)
+        logger.error("Failed to persist agent alert: %s", exc)
     finally:
         db.close()

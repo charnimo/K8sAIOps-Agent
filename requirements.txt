@@ -3,12 +3,12 @@
 # Kubernetes client
 kubernetes>=29.0.0
 
-# LangChain (AI agent layer — used in agent/ module)
-langchain>=0.2.0
-langchain-openai>=0.1.0      # or langchain-anthropic, etc.
-langchain-community>=0.2.0
+# LangGraph active agent layer
 langgraph>=1.1.0
+langchain-core>=0.2.0
+langchain-openai>=0.1.0
 requests>=2.31.0
+httpx>=0.27.0
 
 # Web backend (FastAPI)
 fastapi>=0.111.0
