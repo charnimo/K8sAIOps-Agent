@@ -6,9 +6,11 @@ export class ChatDrawer {
         this.auth = auth;
         this.currentUser = null;
         this.currentSessionId = null;
+        this.currentSessionTitle = '';
         this.sessions = [];
         this.messages = [];
         this.isOpen = false;
+        this.viewMode = 'list';
         this._timerInterval = null;
         this._timerStart = null;
 
@@ -24,9 +26,16 @@ export class ChatDrawer {
 
         this.drawer.innerHTML = `
             <div class="h-16 px-4 border-b border-gray-800 flex items-center justify-between bg-gray-950">
-                <div>
-                    <h2 class="text-base font-bold text-white tracking-tight">AI Chat</h2>
-                    <p class="text- text-gray-500">Persistent panel template</p>
+                <div class="flex items-center gap-2 min-w-0">
+                    <button id="chatDrawerBackBtn" class="hidden p-1.5 rounded-md hover:bg-gray-800 transition-colors shrink-0" aria-label="Back to chats">
+                        <svg class="w-5 h-5 text-gray-400 hover:text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"></path>
+                        </svg>
+                    </button>
+                    <div class="min-w-0">
+                        <h2 id="chatDrawerTitle" class="text-base font-bold text-white tracking-tight truncate">Chats</h2>
+                        <p id="chatDrawerSubtitle" class="text-xs text-gray-500 truncate">Select a conversation</p>
+                    </div>
                 </div>
                 <button id="chatDrawerCloseBtn" class="p-1.5 rounded-md hover:bg-gray-800 transition-colors" aria-label="Close chat panel">
                     <svg class="w-5 h-5 text-gray-400 hover:text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -35,21 +44,23 @@ export class ChatDrawer {
                 </button>
             </div>
 
-            <div class="border-b border-gray-800 px-3 py-2 bg-gray-900">
-                <div class="flex items-center gap-2">
+            <div id="chatListView" class="flex-1 overflow-y-auto p-3 bg-gray-950">
+                <div class="flex items-center justify-between mb-3">
+                    <div class="text-xs uppercase tracking-wide text-gray-500">Conversations</div>
                     <button id="chatDrawerNewSessionBtn" class="bg-cyan-600 hover:bg-cyan-700 text-white text-xs font-medium px-2.5 py-1.5 rounded border border-cyan-500/40">New Chat</button>
-                    <span class="text- text-gray-500">History mirrors DB conversations</span>
                 </div>
-                <div id="chatSessionList" class="mt-2 max-h-28 overflow-y-auto space-y-1"></div>
+                <div id="chatSessionList" class="space-y-1"></div>
             </div>
 
-            <div id="chatMessagesContainer" class="flex-1 overflow-y-auto p-3 space-y-3 bg-gradient-to-b from-gray-900 to-gray-950"></div>
+            <div id="chatDetailView" class="hidden flex-1 min-h-0 flex-col">
+                <div id="chatMessagesContainer" class="flex-1 overflow-y-auto p-3 space-y-3 bg-gradient-to-b from-gray-900 to-gray-950"></div>
 
-            <div class="border-t border-gray-800 p-3 bg-gray-900">
-                <label class="text- uppercase tracking-wide text-gray-500 mb-1 block">Message</label>
-                <div class="flex items-end gap-2">
-                    <textarea id="chatDrawerInput" rows="2" class="flex-1 bg-gray-800 border border-gray-700 text-white rounded-lg p-2 text-sm resize-none" placeholder="Type a message..."></textarea>
-                    <button id="chatDrawerSendBtn" class="bg-cyan-600 hover:bg-cyan-700 text-white text-sm font-medium px-3 py-2 rounded-lg border border-cyan-500/40">Send</button>
+                <div class="border-t border-gray-800 p-3 bg-gray-900">
+                    <label class="text-xs uppercase tracking-wide text-gray-500 mb-1 block">Message</label>
+                    <div class="flex items-end gap-2">
+                        <textarea id="chatDrawerInput" rows="2" class="flex-1 bg-gray-800 border border-gray-700 text-white rounded-lg p-2 text-sm resize-none" placeholder="Type a message..."></textarea>
+                        <button id="chatDrawerSendBtn" class="bg-cyan-600 hover:bg-cyan-700 text-white text-sm font-medium px-3 py-2 rounded-lg border border-cyan-500/40">Send</button>
+                    </div>
                 </div>
             </div>
         `;
@@ -57,13 +68,19 @@ export class ChatDrawer {
         document.body.appendChild(this.drawer);
 
         this.closeBtn = this.drawer.querySelector('#chatDrawerCloseBtn');
+        this.backBtn = this.drawer.querySelector('#chatDrawerBackBtn');
+        this.titleEl = this.drawer.querySelector('#chatDrawerTitle');
+        this.subtitleEl = this.drawer.querySelector('#chatDrawerSubtitle');
         this.newBtn = this.drawer.querySelector('#chatDrawerNewSessionBtn');
         this.sendBtn = this.drawer.querySelector('#chatDrawerSendBtn');
         this.input = this.drawer.querySelector('#chatDrawerInput');
+        this.listView = this.drawer.querySelector('#chatListView');
+        this.detailView = this.drawer.querySelector('#chatDetailView');
         this.messagesContainer = this.drawer.querySelector('#chatMessagesContainer');
         this.sessionList = this.drawer.querySelector('#chatSessionList');
 
         this.closeBtn.addEventListener('click', () => this.close());
+        this.backBtn.addEventListener('click', () => this.showSessionList());
         this.newBtn.addEventListener('click', () => this.createSession());
         this.sendBtn.addEventListener('click', () => this.sendMessage());
         this.input.addEventListener('keydown', (event) => {
@@ -97,13 +114,29 @@ export class ChatDrawer {
 
     updateNewChatButtonState() {
         if (!this.newBtn) return;
-        const enabled = this.hasCurrentChatContent();
-        this.newBtn.disabled =!enabled;
-        this.newBtn.classList.toggle('opacity-50',!enabled);
-        this.newBtn.classList.toggle('cursor-not-allowed',!enabled);
-        this.newBtn.title = enabled
-           ? 'Create a new conversation'
-            : 'Add content in the current chat before creating a new conversation';
+        this.newBtn.disabled = false;
+        this.newBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+        this.newBtn.title = 'Create a new conversation';
+    }
+
+    setViewMode(mode) {
+        this.viewMode = mode === 'detail' ? 'detail' : 'list';
+        const isList = this.viewMode === 'list';
+
+        this.listView?.classList.toggle('hidden', !isList);
+        this.detailView?.classList.toggle('hidden', isList);
+        this.detailView?.classList.toggle('flex', !isList);
+        this.backBtn?.classList.toggle('hidden', isList);
+
+        if (this.titleEl) {
+            this.titleEl.textContent = isList ? 'Chats' : (this.currentSessionTitle || 'AI Chat');
+        }
+        if (this.subtitleEl) {
+            const count = this.sessions.length;
+            this.subtitleEl.textContent = isList
+                ? `${count} ${count === 1 ? 'conversation' : 'conversations'}`
+                : 'K8s AIOps agent';
+        }
     }
 
     async bootstrap() {
@@ -129,10 +162,7 @@ export class ChatDrawer {
         try {
             this.sessions = await this.api.getChatSessions();
             this.renderSessionList();
-            if (!this.currentSessionId && this.sessions.length) {
-                await this.selectSession(this.sessions[0].id);
-                return;
-            }
+            this.setViewMode(this.viewMode === 'detail' && this.currentSessionId ? 'detail' : 'list');
             this.updateNewChatButtonState();
         } catch (err) {
             this.sessionList.innerHTML = '<div class="text-xs text-rose-400 px-2 py-1">Failed to load chat history</div>';
@@ -142,17 +172,19 @@ export class ChatDrawer {
 
 renderSessionList() {
         if (!this.sessionList) return;
+        this.setViewMode(this.viewMode);
         if (!this.sessions.length) {
-            this.sessionList.innerHTML = '<div class="text-xs text-gray-500 px-2 py-1">No conversations yet.</div>';
+            this.sessionList.innerHTML = '<div class="text-sm text-gray-500 px-2 py-8 text-center">No conversations yet.</div>';
             return;
         }
 
         this.sessionList.innerHTML = this.sessions.map((session) => {
             const active = Number(this.currentSessionId) === Number(session.id);
             return `
-                <div class="group flex items-center gap-1 pr-1 rounded border ${active ? 'bg-cyan-900/30 border-cyan-700/40 text-cyan-100' : 'bg-gray-800 border-gray-700 text-gray-300 hover:bg-gray-750'}">
-                    <button class="chat-session-item flex-1 text-left px-2 py-1.5 transition-colors" data-session-id="${session.id}">
-                        <div class="text-xs font-medium truncate">${this.escapeHtml(session.title || `Conversation ${session.id}`)}</div>
+                <div class="group flex items-center gap-1 pr-1 rounded border ${active ? 'bg-cyan-900/30 border-cyan-700/40 text-cyan-100' : 'bg-gray-900 border-gray-800 text-gray-300 hover:bg-gray-800'}">
+                    <button class="chat-session-item flex-1 text-left px-3 py-2.5 transition-colors min-w-0" data-session-id="${session.id}">
+                        <div class="text-sm font-medium truncate">${this.escapeHtml(session.title || `Conversation ${session.id}`)}</div>
+                        <div class="text-[11px] text-gray-500 mt-0.5">${this.formatSessionAge(session.created_at)}</div>
                     </button>
                     <button class="delete-session-btn opacity-0 group-hover:opacity-100 p-1.5 text-gray-500 hover:text-rose-400 transition-all" data-session-id="${session.id}" title="Delete Conversation">
                         <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
@@ -185,8 +217,9 @@ renderSessionList() {
                         await this.api.deleteChatSession(sid);
                         if (Number(this.currentSessionId) === sid) {
                             this.currentSessionId = null;
+                            this.currentSessionTitle = '';
                             this.messages = [];
-                            this.renderMessages();
+                            this.setViewMode('list');
                         }
                         await this.loadSessions();
                         window.showToast('Conversation deleted', 'info');
@@ -199,15 +232,10 @@ renderSessionList() {
     }
 
     async createSession() {
-        if (!this.hasCurrentChatContent()) {
-            window.showToast('Add content in the current chat before opening a new one', 'info');
-            this.updateNewChatButtonState();
-            return;
-        }
-
         try {
             const created = await this.api.createChatSession({ title: 'New Conversation' });
             this.currentSessionId = created.id;
+            this.currentSessionTitle = created.title || 'New Conversation';
             await this.loadSessions();
             await this.selectSession(created.id);
             this.open();
@@ -218,10 +246,14 @@ renderSessionList() {
 
     async selectSession(sessionId) {
         this.currentSessionId = Number(sessionId);
+        const sessionSummary = this.sessions.find((session) => Number(session.id) === Number(sessionId));
+        this.currentSessionTitle = sessionSummary?.title || `Conversation ${sessionId}`;
         this.renderSessionList();
         try {
             const session = await this.api.getChatSession(this.currentSessionId);
+            this.currentSessionTitle = session.title || this.currentSessionTitle;
             this.messages = Array.isArray(session.messages)? session.messages : [];
+            this.setViewMode('detail');
             this.renderMessages();
             this.updateNewChatButtonState();
         } catch (err) {
@@ -230,6 +262,25 @@ renderSessionList() {
             this.updateNewChatButtonState();
             window.showToast(`Failed to load conversation: ${err.message}`, 'error');
         }
+    }
+
+    showSessionList() {
+        this.setViewMode('list');
+        this.renderSessionList();
+    }
+
+    formatSessionAge(value) {
+        if (!value) return '';
+        const timestamp = new Date(value).getTime();
+        if (Number.isNaN(timestamp)) return '';
+        const diffMs = Date.now() - timestamp;
+        const minutes = Math.max(0, Math.round(diffMs / 60000));
+        if (minutes < 1) return 'now';
+        if (minutes < 60) return `${minutes}m`;
+        const hours = Math.round(minutes / 60);
+        if (hours < 24) return `${hours}h`;
+        const days = Math.round(hours / 24);
+        return `${days}d`;
     }
 
     senderLabel(sender) {
@@ -241,7 +292,7 @@ renderSessionList() {
 renderMessages() {
         if (!this.messagesContainer) return;
         if (!this.messages.length) {
-            this.messagesContainer.innerHTML = '<div class="text-xs text-gray-500">No conversations.</div>';
+            this.messagesContainer.innerHTML = '<div class="text-xs text-gray-500">No messages yet.</div>';
             this.updateNewChatButtonState();
             return;
         }
