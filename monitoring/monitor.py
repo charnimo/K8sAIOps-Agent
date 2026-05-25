@@ -21,8 +21,15 @@ from typing import Any, Optional
 
 import websockets
 from websockets.server import WebSocketServerProtocol
-from kubernetes_asyncio import client, config, watch
-from kubernetes_asyncio.client import ApiClient
+from fastapi import APIRouter, Request
+from kubernetes_asyncio import client, config
+from kubernetes_asyncio.client import ApiClient, Configuration
+
+# Some kubernetes-asyncio builds reference config.Any from watch.py without
+# exporting it from config.__init__.py. Provide the alias before importing watch.
+if not hasattr(config, "Any"):
+    config.Any = Any
+from kubernetes_asyncio import watch
 
 
 # ─── Configuration (all from env, zero defaults that encode business logic) ───
@@ -30,9 +37,9 @@ from kubernetes_asyncio.client import ApiClient
 LOG_LEVEL     = os.getenv("LOG_LEVEL", "INFO")
 WS_PORT       = int(os.getenv("WS_PORT", "8765"))
 HTTP_PORT     = int(os.getenv("HTTP_PORT", "8080"))
-DEDUP_WINDOW  = int(os.getenv("DEDUP_WINDOW_SECONDS", "60"))
+DEDUP_WINDOW  = int(os.getenv("DEDUP_WINDOW_SECONDS", "300"))
 MAX_HISTORY   = int(os.getenv("MAX_EVENT_HISTORY", "500"))
-BACKEND_API_URL = os.getenv("BACKEND_API_URL", "http://localhost:8000")
+BACKEND_API_URL = os.getenv("BACKEND_API_URL", "")
 
 logging.basicConfig(
     level=getattr(logging, LOG_LEVEL),
@@ -40,6 +47,22 @@ logging.basicConfig(
     datefmt="%Y-%m-%dT%H:%M:%S",
 )
 log = logging.getLogger("aiops.monitor")
+
+
+def _configured_api_client() -> ApiClient:
+    """Build an ApiClient from the loaded config, including async-client auth fixes."""
+    configuration = Configuration.get_default_copy()
+
+    # kubernetes-asyncio can load in-cluster tokens under "authorization" while
+    # generated API methods only send auth declared as "BearerToken".
+    auth_value = configuration.api_key.get("BearerToken") or configuration.api_key.get("authorization")
+    if auth_value:
+        if auth_value.lower().startswith("bearer "):
+            auth_value = auth_value.split(" ", 1)[1]
+        configuration.api_key["BearerToken"] = auth_value
+        configuration.api_key_prefix["BearerToken"] = "Bearer"
+
+    return ApiClient(configuration=configuration)
 
 
 # ─── Enums & Data Models ──────────────────────────────────────────────────────
@@ -112,6 +135,7 @@ _CRITICAL_REASON_PREFIXES = (
 )
 
 _CRITICAL_REASON_EXACT: frozenset[str] = frozenset({
+    "BackOff",
     "CrashLoopBackOff",
     "OOMKilled",
     "ImagePullBackOff",
@@ -212,6 +236,7 @@ class EventProcessor:
             if now < expire:
                 existing.raw_count += 1
                 existing.last_seen = event.timestamp
+                self._dedup_cache[fp] = (existing, now + self._dedup_window)
                 return True
         self._dedup_cache[fp] = (event, now + self._dedup_window)
         return False
@@ -392,6 +417,12 @@ class SubscriptionRegistry:
 
 # ─── Notification Dispatcher ──────────────────────────────────────────────────
 
+def _event_matches_subscription(event: dict, sub: Subscription) -> bool:
+    if event.get("severity") not in sub.severities:
+        return False
+    return not sub.namespaces or event.get("namespace") in sub.namespaces
+
+
 class NotificationDispatcher:
     def __init__(self, registry: SubscriptionRegistry):
         self._registry = registry
@@ -425,8 +456,18 @@ class NotificationDispatcher:
         except Exception as exc:
             log.warning("Failed to send to client: %s", exc)
 
-    def recent_events(self, limit: int = 50) -> list[dict]:
-        return list(self._history)[-limit:]
+    def recent_events(
+        self,
+        limit: int = 50,
+        subscription: Optional[Subscription] = None,
+    ) -> list[dict]:
+        events = list(self._history)
+        if subscription is not None:
+            events = [
+                event for event in events
+                if _event_matches_subscription(event, subscription)
+            ]
+        return events[-limit:]
 
 
 # ─── Kubernetes Watcher ───────────────────────────────────────────────────────
@@ -456,7 +497,7 @@ class KubernetesWatcher:
 
     async def start(self):
         await self._load_config()
-        self._api_client = ApiClient()
+        self._api_client = _configured_api_client()
         log.info("Kubernetes watcher started")
         await asyncio.gather(
             self._watch_events(),
@@ -559,20 +600,33 @@ class WebSocketServer:
                 return
 
             # ── Step 2: build subscription from backend permissions ───────────
+            requested_namespaces = set(data.get("namespaces", []))
+            allowed_namespaces = set(permitted_namespaces)
+            if allowed_namespaces:
+                namespaces = (
+                    requested_namespaces & allowed_namespaces
+                    if requested_namespaces
+                    else allowed_namespaces
+                )
+            else:
+                namespaces = requested_namespaces
+
             sub = Subscription(
                 user_id   = data.get("user_id", "unknown"),
-                namespaces= set(permitted_namespaces),   # empty set = all (god mode)
+                namespaces= namespaces,   # empty set = all
                 severities= set(data.get("severities", ["INFO", "WARNING", "CRITICAL"])),
                 role      = data.get("role", "viewer"),
             )
             self._registry.register(ws, sub)
 
             try:
+                known_namespaces = await _list_known_namespaces()
                 response = {
                     "type":       "SUBSCRIBED",
                     "user_id":    sub.user_id,
                     "message":    "Subscription active",
-                    "history":    self._dispatcher.recent_events(20),
+                    "namespaces":  known_namespaces,
+                    "history":    self._dispatcher.recent_events(MAX_HISTORY, sub),
                 }
                 await ws.send(json.dumps(response, default=str))
             except Exception as exc:
@@ -601,7 +655,13 @@ class WebSocketServer:
                         limit = int(data.get("limit", 50))
                         await ws.send(json.dumps({
                             "type":   "HISTORY",
-                            "events": self._dispatcher.recent_events(limit),
+                            "events": self._dispatcher.recent_events(limit, sub),
+                        }))
+
+                    elif msg_type == "GET_NAMESPACES":
+                        await ws.send(json.dumps({
+                            "type": "NAMESPACES",
+                            "namespaces": await _list_known_namespaces(),
                         }))
 
                 except json.JSONDecodeError:
@@ -640,14 +700,35 @@ async def build_monitor_components() -> dict:
     }
 
 
+async def _list_known_namespaces(api_client: Optional[ApiClient] = None) -> list[str]:
+    """Return namespace names visible to the monitor service."""
+    owned_client = False
+    if api_client is None:
+        try:
+            config.load_incluster_config()
+        except config.ConfigException:
+            await config.load_kube_config()
+        api_client = _configured_api_client()
+        owned_client = True
+
+    try:
+        v1 = client.CoreV1Api(api_client)
+        response = await v1.list_namespace()
+        return sorted(
+            item.metadata.name
+            for item in response.items
+            if item.metadata and item.metadata.name
+        )
+    except Exception as exc:
+        log.warning("Failed to list known namespaces: %s", exc)
+        return []
+    finally:
+        if owned_client:
+            await api_client.close()
+
+
 def get_router():
     """Return a FastAPI APIRouter exposing health/metrics/events/subscribers endpoints."""
-    try:
-        from fastapi import APIRouter, Request
-        from fastapi.responses import JSONResponse
-    except ImportError:
-        raise RuntimeError("fastapi is not installed; install it to use get_router()")
-
     router = APIRouter(prefix="/monitor", tags=["monitor"])
 
     def _state(request: Request) -> dict:
@@ -664,14 +745,20 @@ def get_router():
     @router.get("/metrics")
     async def metrics(request: Request):
         m = _state(request)
+        known_namespaces = await _list_known_namespaces(m["watcher"]._api_client)
         return {
             "connected_clients":  m["registry"].connected_count,
             "event_history_size": len(m["dispatcher"].recent_events(MAX_HISTORY)),
+            "known_namespaces": known_namespaces,
         }
 
     @router.get("/subscribers")
     async def subscribers(request: Request):
         return {"subscribers": _state(request)["registry"].summary()}
+
+    @router.get("/namespaces")
+    async def namespaces(request: Request):
+        return {"namespaces": await _list_known_namespaces(_state(request)["watcher"]._api_client)}
 
     @router.get("/events")
     async def events(request: Request, limit: int = 50):
@@ -695,12 +782,16 @@ async def _main():
         async def _health(_):  return aio_web.json_response({"status": "ok"})
         async def _ready(_):   return aio_web.json_response({"status": "ready"})
         async def _metrics(_):
+            known_namespaces = await _list_known_namespaces(watcher._api_client)
             return aio_web.json_response({
                 "connected_clients":  components["registry"].connected_count,
                 "event_history_size": len(components["dispatcher"].recent_events(MAX_HISTORY)),
+                "known_namespaces": known_namespaces,
             })
         async def _subscribers(_):
             return aio_web.json_response({"subscribers": components["registry"].summary()})
+        async def _namespaces(_):
+            return aio_web.json_response({"namespaces": await _list_known_namespaces(watcher._api_client)})
         async def _events(req):
             limit = int(req.rel_url.query.get("limit", 50))
             return aio_web.json_response({"events": components["dispatcher"].recent_events(limit)})
@@ -715,6 +806,8 @@ async def _main():
         http_app.router.add_get("/monitor/metrics",     _metrics)
         http_app.router.add_get("/subscribers",         _subscribers)
         http_app.router.add_get("/monitor/subscribers", _subscribers)
+        http_app.router.add_get("/namespaces",          _namespaces)
+        http_app.router.add_get("/monitor/namespaces",  _namespaces)
         http_app.router.add_get("/events",              _events)
         http_app.router.add_get("/monitor/events",      _events)
 

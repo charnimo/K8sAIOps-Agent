@@ -17,7 +17,7 @@ from app.database.database import Base, engine, seed_mock_chat_history, seed_per
 
 # Monitor imports
 try:
-    from monitoring.monitor import build_monitor_components, get_router as get_monitor_router
+    from monitoring.monitor import build_monitor_components
     from app.services.monitor_service import register_monitor
     MONITOR_AVAILABLE = True
 except (ImportError, RuntimeError) as e:
@@ -99,6 +99,5 @@ app.include_router(api_router)
 
 # Include monitor router and WebSocket endpoint if available
 if MONITOR_AVAILABLE:
-    app.include_router(get_monitor_router())
     register_monitor(app)
 

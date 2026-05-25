@@ -44,6 +44,7 @@ import websockets
 WS_URL        = os.getenv("MONITOR_WS_URL",   "ws://localhost:8765")
 HTTP_URL      = os.getenv("MONITOR_HTTP_URL", "http://localhost:8080")
 EVENT_WAIT    = int(os.getenv("EVENT_WAIT_SEC", "90"))
+AUTH_TOKEN    = os.getenv("MONITOR_AUTH_TOKEN", "")
 
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -62,14 +63,18 @@ async def _collect_events(
         "user_id":    "test-runner",
         "severities": ["INFO", "WARNING", "CRITICAL"],
         "namespaces": [],   # empty = all
-        "teams":      [],
         "role":       "admin",
+    }
+    auth_message = {
+        "type": "AUTH",
+        "token": AUTH_TOKEN,
+        **sub,
     }
     events: list[dict] = []
     deadline = time.monotonic() + duration
 
     async with websockets.connect(WS_URL) as ws:
-        await ws.send(json.dumps(sub))
+        await ws.send(json.dumps(auth_message))
 
         while time.monotonic() < deadline:
             remaining = deadline - time.monotonic()
@@ -156,6 +161,8 @@ class TestWebSocketProtocol:
         """Monitor must respond with SUBSCRIBED immediately after handshake."""
         async with websockets.connect(WS_URL) as ws:
             await ws.send(json.dumps({
+                "type": "AUTH",
+                "token": AUTH_TOKEN,
                 "user_id": "proto-test",
                 "severities": ["CRITICAL"],
             }))
@@ -169,7 +176,7 @@ class TestWebSocketProtocol:
 
     async def test_ping_pong(self):
         async with websockets.connect(WS_URL) as ws:
-            await ws.send(json.dumps({"user_id": "ping-test", "severities": ["INFO"]}))
+            await ws.send(json.dumps({"type": "AUTH", "token": AUTH_TOKEN, "user_id": "ping-test", "severities": ["INFO"]}))
             await ws.recv()   # SUBSCRIBED
 
             await ws.send(json.dumps({"type": "PING"}))
@@ -181,7 +188,7 @@ class TestWebSocketProtocol:
 
     async def test_get_history(self):
         async with websockets.connect(WS_URL) as ws:
-            await ws.send(json.dumps({"user_id": "history-test", "severities": ["INFO", "WARNING", "CRITICAL"]}))
+            await ws.send(json.dumps({"type": "AUTH", "token": AUTH_TOKEN, "user_id": "history-test", "severities": ["INFO", "WARNING", "CRITICAL"]}))
             await ws.recv()   # SUBSCRIBED
 
             await ws.send(json.dumps({"type": "GET_HISTORY", "limit": 5}))
@@ -193,14 +200,13 @@ class TestWebSocketProtocol:
 
     async def test_update_subscription(self):
         async with websockets.connect(WS_URL) as ws:
-            await ws.send(json.dumps({"user_id": "update-test", "severities": ["INFO"]}))
+            await ws.send(json.dumps({"type": "AUTH", "token": AUTH_TOKEN, "user_id": "update-test", "severities": ["INFO"]}))
             await ws.recv()
 
             await ws.send(json.dumps({
                 "type":       "UPDATE_SUBSCRIPTION",
                 "severities": ["CRITICAL"],
                 "namespaces": ["default"],
-                "teams":      [],
             }))
             raw  = await asyncio.wait_for(ws.recv(), timeout=5)
             data = json.loads(raw)
@@ -209,7 +215,7 @@ class TestWebSocketProtocol:
 
     async def test_get_namespaces(self):
         async with websockets.connect(WS_URL) as ws:
-            await ws.send(json.dumps({"user_id": "ns-test", "severities": ["INFO"]}))
+            await ws.send(json.dumps({"type": "AUTH", "token": AUTH_TOKEN, "user_id": "ns-test", "severities": ["INFO"]}))
             await ws.recv()
 
             await ws.send(json.dumps({"type": "GET_NAMESPACES"}))
@@ -278,15 +284,10 @@ class TestEventDelivery:
     async def test_events_have_required_fields(self, events):
         """Every delivered event must carry the fields the dashboard and agent depend on."""
         required = {"event_id", "severity", "namespace", "resource_name",
-                    "resource_kind", "reason", "message", "timestamp", "teams"}
+                    "resource_kind", "reason", "message", "timestamp"}
         for ev in events:
             missing = required - ev.keys()
             assert not missing, f"Event {ev.get('event_id')} missing fields: {missing}"
-
-    async def test_teams_are_populated(self, events):
-        """teams field must never be empty — fallback team must kick in."""
-        for ev in events:
-            assert ev.get("teams"), f"Event {ev.get('event_id')} has empty teams"
 
     async def test_namespace_filter_works(self):
         """Subscribe to 'default' only — must not receive events from other namespaces."""
@@ -296,7 +297,6 @@ class TestEventDelivery:
                 "user_id":    "ns-filter-test",
                 "severities": ["INFO", "WARNING", "CRITICAL"],
                 "namespaces": ["default"],
-                "teams":      [],
                 "role":       "viewer",
             },
         )
@@ -313,7 +313,6 @@ class TestEventDelivery:
                 "user_id":    "sev-filter-test",
                 "severities": ["CRITICAL"],
                 "namespaces": [],
-                "teams":      [],
                 "role":       "viewer",
             },
         )
@@ -366,7 +365,6 @@ class TestAgentNotifier:
             node          = "minikube",
             labels        = {"app": "crashloop-test"},
             annotations   = {},
-            teams         = ["ops-team"],
             raw_count     = 5,
             first_seen    = "2024-01-01T00:00:00+00:00",
             last_seen     = "2024-01-01T00:01:00+00:00",

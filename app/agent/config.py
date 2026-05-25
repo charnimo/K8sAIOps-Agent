@@ -25,17 +25,15 @@ class LLMConfig:
     timeout: int = 180
 
 
-def _required_env(name: str) -> str:
-    value = os.getenv(name, "").strip()
-    if not value:
-        raise ValueError(f"{name} is required for the live agent")
-    return value
+def _env(name: str, default: str = "") -> str:
+    """Read an environment variable without failing at import time."""
+    return os.getenv(name, default).strip()
 
 
 LLM_CONFIG = LLMConfig(
-    model=_required_env("LLM_MODEL"),
-    api_key=_required_env("NVIDIA_API_KEY"),
-    base_url=_required_env("NVIDIA_API_BASE_URL"),
+    model=_env("LLM_MODEL"),
+    api_key=_env("NVIDIA_API_KEY") or _env("LLM_API_KEY"),
+    base_url=_env("NVIDIA_API_BASE_URL"),
     temperature=float(os.getenv("LLM_TEMPERATURE", "0.2")),
     # max_tokens=int(os.getenv("LLM_MAX_TOKENS", "4096")),
     timeout=int(os.getenv("LLM_TIMEOUT", "180")),
@@ -44,8 +42,17 @@ LLM_CONFIG = LLMConfig(
 
 def get_llm_client():
     """Return the live NVIDIA chat client."""
-    if not LLM_CONFIG.api_key:
-        raise ValueError("NVIDIA_API_KEY is required for the live agent")
+    missing = [
+        name
+        for name, value in {
+            "LLM_MODEL": LLM_CONFIG.model,
+            "NVIDIA_API_KEY or LLM_API_KEY": LLM_CONFIG.api_key,
+            "NVIDIA_API_BASE_URL": LLM_CONFIG.base_url,
+        }.items()
+        if not value
+    ]
+    if missing:
+        raise ValueError(f"Missing live agent LLM configuration: {', '.join(missing)}")
     return NVIDIAChatClient(
         api_key=LLM_CONFIG.api_key,
         model=LLM_CONFIG.model,

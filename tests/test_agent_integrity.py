@@ -58,10 +58,12 @@ def test_agent_tool_registry_uses_existing_tools_functions():
         "describe_deployment": "diagnose_deployment",
     }
 
-    for tool_name, wrapper in registry.items():
+    for tool_name, expected_name in expected_co_names.items():
         assert tool_name in expected_co_names
+        assert tool_name in registry
+        wrapper = registry[tool_name]
         co_names = set(wrapper.func.__code__.co_names)
-        assert expected_co_names[tool_name] in co_names
+        assert expected_name in co_names
 
 
 def test_existing_tools_are_available_from_canonical_package():
