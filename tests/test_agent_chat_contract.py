@@ -14,6 +14,12 @@ from app.services.chat_messages import (
     stored_message_text,
     stored_user_message,
 )
+from app.state.store import (
+    create_action_request,
+    get_action_request,
+    link_action_request_to_chat,
+    list_conversation_action_links,
+)
 
 
 @pytest.mark.unit
@@ -63,3 +69,21 @@ def test_assistant_payload_preserves_action_metadata():
     assert parsed["text"] == "Queued restart."
     assert parsed["action"] == action
     assert parse_stored_message(stored)["action"] == action
+
+
+@pytest.mark.unit
+def test_action_request_can_link_to_chat_message():
+    created = create_action_request({
+        "type": "restart_deployment",
+        "target": {"name": "api", "namespace": "default"},
+        "params": {},
+    })
+
+    link = link_action_request_to_chat(created["id"], conversation_id=12345, message_id=67890)
+    links = list_conversation_action_links(12345)
+    record = get_action_request(created["id"])
+
+    assert link["action_id"] == created["id"]
+    assert links[0]["message_id"] == 67890
+    assert record["conversation_id"] == 12345
+    assert record["message_id"] == 67890

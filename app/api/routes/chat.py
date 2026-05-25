@@ -17,11 +17,13 @@ from app.services.action_context import recent_action_context, safe_action_conte
 from app.services.chat_messages import (
     assistant_payload,
     history_for_agent,
+    parse_stored_message,
     serialize_message,
     serialize_session,
     stored_user_message,
 )
 from app.services.chat_titles import maybe_update_conversation_title
+from app.state.store import link_action_request_to_chat
 
 
 router = APIRouter(dependencies=[Depends(require_permission("agent:chat"))])
@@ -220,6 +222,7 @@ def post_chat_message(
     db.add(assistant_message)
     db.commit()
     db.refresh(assistant_message)
+    _link_assistant_action(session.id, assistant_message.id, assistant_content)
 
     user_msg_count = (
         db.query(ChatHistory)
@@ -290,3 +293,11 @@ def _persist_alert_sync(prompt: str, event_dict: dict) -> None:
         logger.error("Failed to persist agent alert: %s", exc)
     finally:
         db.close()
+
+
+def _link_assistant_action(conversation_id: int, message_id: int, assistant_content: str) -> None:
+    """Link rendered action-card messages to their action request records."""
+    action = parse_stored_message(assistant_content).get("action")
+    if not isinstance(action, dict) or not action.get("id"):
+        return
+    link_action_request_to_chat(action["id"], conversation_id, message_id)

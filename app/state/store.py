@@ -8,6 +8,7 @@ from typing import Optional
 
 _chat_sessions: dict[str, dict] = {}
 _action_requests: dict[str, dict] = {}
+_conversation_action_links: dict[int, list[dict]] = {}
 
 
 def _timestamp() -> str:
@@ -75,6 +76,31 @@ def list_action_requests(status: Optional[str] = None) -> list[dict]:
         records = [record for record in records if record["status"] == status]
     records.sort(key=lambda record: record["created_at"], reverse=True)
     return deepcopy(records)
+
+
+def link_action_request_to_chat(action_id: str, conversation_id: int, message_id: int) -> Optional[dict]:
+    """Attach an action request to the chat message that presented it."""
+    record = _action_requests.get(action_id)
+    if record is None:
+        return None
+
+    record["conversation_id"] = conversation_id
+    record["message_id"] = message_id
+    link = {
+        "action_id": action_id,
+        "conversation_id": conversation_id,
+        "message_id": message_id,
+        "created_at": _timestamp(),
+    }
+    _conversation_action_links.setdefault(conversation_id, []).append(link)
+    return deepcopy(link)
+
+
+def list_conversation_action_links(conversation_id: int) -> list[dict]:
+    """Return action links for a conversation, newest first."""
+    links = list(_conversation_action_links.get(conversation_id, []))
+    links.sort(key=lambda link: link["created_at"], reverse=True)
+    return deepcopy(links)
 
 
 def mark_action_request_executed(action_id: str, result: dict) -> dict:

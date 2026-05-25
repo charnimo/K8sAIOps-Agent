@@ -7,11 +7,15 @@ import json
 from sqlalchemy.orm import Session
 
 from app.database.models import ChatHistory
-from app.state.store import get_action_request
+from app.state.store import get_action_request, list_conversation_action_links
 
 
 def recent_action_context(db: Session, session_id: int, user_content: str) -> tuple[dict | None, dict | None]:
     """Find a recent approval-gated action relevant to this turn."""
+    linked_action = _recent_linked_action_context(session_id, user_content)
+    if linked_action != (None, None):
+        return linked_action
+
     recent = (
         db.query(ChatHistory)
         .filter(ChatHistory.conversation_id == session_id, ChatHistory.sender == "agent")
@@ -34,6 +38,26 @@ def recent_action_context(db: Session, session_id: int, user_content: str) -> tu
         if not request_record:
             continue
 
+        if request_record.get("status") == "pending":
+            return action, request_record
+        if mentions_action_followup(user_content):
+            return action, request_record
+
+    return None, None
+
+
+def _recent_linked_action_context(session_id: int, user_content: str) -> tuple[dict | None, dict | None]:
+    """Find linked actions without scanning rendered message bodies."""
+    for link in list_conversation_action_links(session_id):
+        request_record = get_action_request(link.get("action_id"))
+        if not request_record:
+            continue
+
+        action = {
+            "id": request_record.get("id"),
+            "type": request_record.get("type"),
+            "target": request_record.get("target", {}),
+        }
         if request_record.get("status") == "pending":
             return action, request_record
         if mentions_action_followup(user_content):
