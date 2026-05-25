@@ -159,9 +159,10 @@ def _recent_action_context(db: Session, session_id: int, user_content: str) -> t
 
 def _safe_action_context(action: dict, request_record: dict) -> dict:
     """Trim an action request record into graph context."""
+    action_type = action.get("type")
     return {
         "action": {
-            "type": action.get("type"),
+            "type": action_type,
             "target": action.get("target", {}),
         },
         "request": {
@@ -169,9 +170,53 @@ def _safe_action_context(action: dict, request_record: dict) -> dict:
             "created_at": request_record.get("created_at"),
             "approved_at": request_record.get("approved_at"),
             "completed_at": request_record.get("completed_at"),
-            "result": request_record.get("result"),
+            "result": _safe_action_result(action_type, request_record.get("result")),
         },
     }
+
+
+def _safe_action_result(action_type: str | None, result: object) -> dict | None:
+    """Return an LLM-safe action result summary without command or secret output."""
+    if result is None:
+        return None
+
+    if not isinstance(result, dict):
+        return {"available": True, "redacted": True}
+
+    safe: dict = {"available": True}
+    for key in ("success", "status", "status_code"):
+        if key in result:
+            safe[key] = result[key]
+
+    for key in ("message", "error", "detail"):
+        if key in result and isinstance(result[key], (str, int, float, bool)):
+            safe[key] = _truncate_result_text(str(result[key]))
+
+    sensitive_keys = {
+        "stdout",
+        "stderr",
+        "output",
+        "raw",
+        "data",
+        "values",
+        "secret",
+        "secrets",
+        "token",
+        "password",
+    }
+    redacted_keys = sorted(key for key in result if key.lower() in sensitive_keys)
+    if redacted_keys or action_type in {"exec_pod", "create_secret", "update_secret", "delete_secret"}:
+        safe["redacted"] = True
+        if redacted_keys:
+            safe["redacted_keys"] = redacted_keys
+
+    return safe
+
+
+def _truncate_result_text(value: str, limit: int = 500) -> str:
+    if len(value) <= limit:
+        return value
+    return value[: limit - 15] + "... [truncated]"
 
 
 def _assistant_payload(text: str, action: dict | None = None) -> str:
