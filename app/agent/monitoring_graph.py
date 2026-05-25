@@ -11,10 +11,11 @@ LangGraph DAG that:
 """
 
 import asyncio
+import json
 import logging
+import re
 from datetime import datetime
 from typing import Any, Dict, List, Optional
-import json
 
 from langgraph.graph import StateGraph
 from pydantic import ValidationError
@@ -39,6 +40,13 @@ from app.agent.tools import (
 from app.agent.config import get_llm_client
 
 logger = logging.getLogger(__name__)
+
+ALLOWED_BASIC_ACTION_TOOLS = [
+    "restart_pod",
+    "scale_deployment",
+    "rollout_restart",
+    "patch_resource_limits",
+]
 
 
 # ============================================================================
@@ -110,6 +118,7 @@ async def node_decide_tools(state: MonitoringGraphState) -> MonitoringGraphState
         # Build LLM prompt
         tool_definitions = get_tool_definitions()
         tool_names = {tool.name for tool in tool_definitions}
+        action_tool_names = [name for name in ALLOWED_BASIC_ACTION_TOOLS if name in tool_names]
         # Include category and read-only flag to help the LLM distinguish actions
         tools_description = "\n".join(
             [f"- {t.name} (category={t.category}, read_only={t.is_read_only}): {t.description}" for t in tool_definitions]
@@ -132,6 +141,15 @@ Return two lists:
 1) `tools`: read-only diagnostic/query tools the agent should execute now.
 2) `suggested_actions`: action/mutation tools you would recommend (do not execute without approval).
 Also return `remediation_plan` and `evidence_map`.
+
+Allowed action tools:
+{", ".join(action_tool_names)}
+
+Rules for fixes:
+- Keep fixes basic and practical.
+- Use only the allowed action tool names above.
+- Prefer 1-2 small-scope actions over long or speculative plans.
+- Do not invent new action names, resource kinds, or remediation steps.
 
 Prefer read-only tools for initial diagnostics. If the incident severity is critical, you may include higher-impact diagnostics (e.g., `describe_deployment`) in `tools`.
 
@@ -294,6 +312,8 @@ async def node_classify_severity(state: MonitoringGraphState) -> MonitoringGraph
     try:
         event = state["event"]
         diagnostics = state.get("collected_diagnostics", {})
+        tool_definitions = get_tool_definitions()
+        allowed_action_tools = sorted({tool.name for tool in tool_definitions if not tool.is_read_only})
 
         analysis = await _run_llm_incident_analysis(event, diagnostics)
         severity_value = str(analysis.get("severity", "")).strip()
@@ -325,11 +345,12 @@ async def node_classify_severity(state: MonitoringGraphState) -> MonitoringGraph
             )
             for idx, item in enumerate(suggested_actions_raw, start=1)
             if isinstance(item, dict)
+            and str(item.get("action_type") or item.get("action") or "").strip() in allowed_action_tools
         ]
         state["remediation_plan"] = [
             step
             for idx, item in enumerate(remediation_plan_raw, start=1)
-            if (step := _normalize_remediation_item(item, idx)) is not None
+            if (step := _normalize_remediation_item(item, idx, allowed_action_tools)) is not None
         ]
         state["evidence_map"] = _normalize_evidence_map(evidence_map_raw)
 
@@ -743,13 +764,20 @@ def _extract_json_payload(text: str) -> Dict[str, Any]:
             lines = lines[1:]
         stripped = "\n".join(lines).strip()
 
+    def _load_with_repair(candidate: str) -> Dict[str, Any]:
+        try:
+            return json.loads(candidate)
+        except json.JSONDecodeError:
+            repaired = re.sub(r",(\s*[}\]])", r"\1", candidate)
+            return json.loads(repaired)
+
     if stripped.startswith("{") and stripped.endswith("}"):
-        return json.loads(stripped)
+        return _load_with_repair(stripped)
 
     start = stripped.find("{")
     end = stripped.rfind("}")
     if start != -1 and end != -1 and end > start:
-        return json.loads(stripped[start : end + 1])
+        return _load_with_repair(stripped[start : end + 1])
 
     raise json.JSONDecodeError("No JSON object found", text, 0)
 
@@ -835,13 +863,19 @@ def _normalize_root_cause_analysis(raw_analysis: Any) -> RootCauseAnalysis:
     )
 
 
-def _normalize_remediation_item(item: Any, step_number: int) -> Optional[RemediationStep]:
+def _normalize_remediation_item(
+    item: Any,
+    step_number: int,
+    allowed_action_tools: Optional[List[str]] = None,
+) -> Optional[RemediationStep]:
     """Normalize one LLM remediation step into the typed schema."""
     if not isinstance(item, dict):
         return None
 
     action_type = str(item.get("action_type") or item.get("action") or "").strip()
     if not action_type:
+        return None
+    if allowed_action_tools is not None and action_type not in allowed_action_tools:
         return None
 
     return RemediationStep(
@@ -872,6 +906,8 @@ async def _run_llm_incident_analysis(
 ) -> Dict[str, Any]:
     """Ask the LLM for the full incident analysis payload."""
     llm_client = get_llm_client()
+    tool_definitions = get_tool_definitions()
+    allowed_action_tools = [name for name in ALLOWED_BASIC_ACTION_TOOLS if name in {tool.name for tool in tool_definitions}]
     prompt = f"""
 You are a Kubernetes incident analyst.
 
@@ -884,9 +920,15 @@ Return only JSON with these keys:
 - remediation_plan: an ordered list of handoff steps with keys step_number, action_type, description, target_resource, why, evidence, estimated_risk
 - evidence_map: a mapping from action_type to supporting evidence snippets
 
+Allowed action tools:
+{", ".join(allowed_action_tools)}
+
 Rules:
 - Use only the event details and live diagnostics below.
 - Do not invent facts.
+- Keep fixes basic and practical.
+- Use only the allowed action tool names above.
+- Prefer 1-2 small-scope actions.
 - If evidence is insufficient, say so explicitly in the root cause and summary.
 - Do not output markdown or commentary.
 

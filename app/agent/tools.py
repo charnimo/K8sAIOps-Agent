@@ -11,6 +11,7 @@ import logging
 from datetime import datetime
 from typing import Any, Callable, Dict, List, Optional
 
+from kubernetes.client.exceptions import ApiException
 from Tools.deployments import get_deployment, get_deployment_events
 from Tools.diagnostics import diagnose_deployment, diagnose_pod
 from Tools.hpa import detect_hpa_issues, get_hpa
@@ -93,6 +94,15 @@ class Tool:
 
             execution_time = (datetime.now() - start_time).total_seconds() * 1000
 
+            if isinstance(result, dict) and result.get("error"):
+                return DiagnosticResult(
+                    tool_name=self.name,
+                    success=False,
+                    data=result,
+                    error=str(result.get("error")),
+                    execution_time_ms=execution_time,
+                )
+
             return DiagnosticResult(
                 tool_name=self.name,
                 success=True,
@@ -128,32 +138,104 @@ async def _get_pod_logs(
             tail_lines=lines,
         )
         return {"logs": logs, "container": container, "lines_returned": lines}
+    except ApiException as e:
+        if getattr(e, "status", None) == 404:
+            return {
+                "error": f"Pod {namespace}/{pod_name} not found",
+                "not_found": True,
+                "resource_type": "Pod",
+                "namespace": namespace,
+                "pod_name": pod_name,
+            }
+        return {
+            "error": f"Failed to get pod logs: {str(e)}",
+            "namespace": namespace,
+            "pod_name": pod_name,
+        }
     except Exception as e:
-        raise RuntimeError(f"Failed to get pod logs: {str(e)}")
+        return {
+            "error": f"Failed to get pod logs: {str(e)}",
+            "namespace": namespace,
+            "pod_name": pod_name,
+        }
 
 
 async def _get_pod_events(namespace: str, pod_name: str) -> Dict[str, Any]:
     """Get pod Kubernetes events using the existing Tools implementation."""
     try:
         return {"events": get_pod_events(name=pod_name, namespace=namespace)}
+    except ApiException as e:
+        if getattr(e, "status", None) == 404:
+            return {
+                "error": f"Pod {namespace}/{pod_name} not found",
+                "not_found": True,
+                "resource_type": "Pod",
+                "namespace": namespace,
+                "pod_name": pod_name,
+            }
+        return {
+            "error": f"Failed to get pod events: {str(e)}",
+            "namespace": namespace,
+            "pod_name": pod_name,
+        }
     except Exception as e:
-        raise RuntimeError(f"Failed to get pod events: {str(e)}")
+        return {
+            "error": f"Failed to get pod events: {str(e)}",
+            "namespace": namespace,
+            "pod_name": pod_name,
+        }
 
 
 async def _get_pod_status(namespace: str, pod_name: str) -> Dict[str, Any]:
     """Get pod status and conditions using the existing Tools implementation."""
     try:
         return get_pod_status(name=pod_name, namespace=namespace)
+    except ApiException as e:
+        if getattr(e, "status", None) == 404:
+            return {
+                "error": f"Pod {namespace}/{pod_name} not found",
+                "not_found": True,
+                "resource_type": "Pod",
+                "namespace": namespace,
+                "pod_name": pod_name,
+            }
+        return {
+            "error": f"Failed to get pod status: {str(e)}",
+            "namespace": namespace,
+            "pod_name": pod_name,
+        }
     except Exception as e:
-        raise RuntimeError(f"Failed to get pod status: {str(e)}")
+        return {
+            "error": f"Failed to get pod status: {str(e)}",
+            "namespace": namespace,
+            "pod_name": pod_name,
+        }
 
 
 async def _get_pod_metrics(namespace: str, pod_name: str) -> Dict[str, Any]:
     """Get pod CPU and memory metrics using the existing Tools implementation."""
     try:
         return get_pod_metrics(name=pod_name, namespace=namespace)
+    except ApiException as e:
+        if getattr(e, "status", None) == 404:
+            return {
+                "error": f"Pod {namespace}/{pod_name} not found",
+                "not_found": True,
+                "resource_type": "Pod",
+                "namespace": namespace,
+                "pod_name": pod_name,
+            }
+        return {
+            "error": f"Failed to get pod metrics: {str(e)}",
+            "namespace": namespace,
+            "pod_name": pod_name,
+        }
     except Exception as e:
-        raise RuntimeError(f"Failed to get pod metrics: {str(e)}")
+        return {
+            "error": f"Failed to get pod metrics: {str(e)}",
+            "namespace": namespace,
+            "pod_name": pod_name,
+        }
 
 
 async def _get_deployment_info(
@@ -164,8 +246,26 @@ async def _get_deployment_info(
         deployment = get_deployment(name=deployment_name, namespace=namespace)
         events = get_deployment_events(name=deployment_name, namespace=namespace)
         return {"deployment": deployment, "events": events}
+    except ApiException as e:
+        if getattr(e, "status", None) == 404:
+            return {
+                "error": f"Deployment {namespace}/{deployment_name} not found",
+                "not_found": True,
+                "resource_type": "Deployment",
+                "namespace": namespace,
+                "deployment_name": deployment_name,
+            }
+        return {
+            "error": f"Failed to get deployment info: {str(e)}",
+            "namespace": namespace,
+            "deployment_name": deployment_name,
+        }
     except Exception as e:
-        raise RuntimeError(f"Failed to get deployment info: {str(e)}")
+        return {
+            "error": f"Failed to get deployment info: {str(e)}",
+            "namespace": namespace,
+            "deployment_name": deployment_name,
+        }
 
 
 async def _list_nodes() -> Dict[str, Any]:

@@ -98,7 +98,67 @@ def _resource_exists(kind: str, namespace: str, name: str) -> bool:
     return True
 
 
-async def _run_agent_report(events_to_run: int) -> int:
+def _event_signature(ev: dict) -> tuple[str, str]:
+    involved = ev.get("involved_object", {})
+    kind = involved.get("kind") or "Pod"
+    reason = ev.get("reason") or "Unknown"
+    return kind, reason
+
+
+def _select_diverse_events(warnings: list[dict], events_to_run: int) -> list[dict]:
+    """Prefer unique problem types so the model is tested on different failure modes."""
+    kind_priority = {
+        "HorizontalPodAutoscaler": 0,
+        "Deployment": 1,
+        "StatefulSet": 2,
+        "DaemonSet": 3,
+        "Job": 4,
+        "CronJob": 5,
+        "Pod": 6,
+        "Node": 7,
+        "Service": 8,
+        "Ingress": 9,
+        "Namespace": 10,
+        "ConfigMap": 11,
+        "Secret": 12,
+    }
+
+    ordered = sorted(
+        warnings,
+        key=lambda ev: (
+            kind_priority.get(_event_signature(ev)[0], 99),
+            _event_signature(ev)[0],
+            _event_signature(ev)[1],
+            ev.get("namespace") or "",
+            ev.get("last_time") or "",
+        ),
+    )
+
+    selected: list[dict] = []
+    seen: set[tuple[str, str]] = set()
+    for ev in ordered:
+        signature = _event_signature(ev)
+        if signature in seen:
+            continue
+        selected.append(ev)
+        seen.add(signature)
+        if len(selected) >= events_to_run:
+            break
+
+    if len(selected) < events_to_run:
+        for ev in ordered:
+            if ev in selected:
+                continue
+            selected.append(ev)
+            if len(selected) >= events_to_run:
+                break
+
+    kinds = sorted({(ev.get("involved_object", {}) or {}).get("kind") or "Pod" for ev in selected})
+    print(f"Selected {len(selected)} diverse case(s) across kinds: {', '.join(kinds)}")
+    return selected[:events_to_run]
+
+
+async def _run_agent_report(events_to_run: int, diverse: bool) -> int:
     # Import after env setup so LLM config reflects the selected model override.
     from app.agent.monitoring_graph import build_monitoring_graph
 
@@ -106,14 +166,15 @@ async def _run_agent_report(events_to_run: int) -> int:
     print("AGENT REPORT: LIVE WARNING EVENTS")
     print("=" * 80)
 
-    warnings = list_warning_events(limit=max(events_to_run * 3, 20))
+    warnings = list_warning_events(limit=max(events_to_run * 5, 30))
     if not warnings:
         print("No warning events found. Create failing workloads first.")
         return 1
 
     graph = build_monitoring_graph()
+    source_events = _select_diverse_events(warnings, events_to_run) if diverse else warnings
     selected = []
-    for ev in warnings:
+    for ev in source_events:
         involved = ev.get("involved_object", {})
         kind = involved.get("kind") or "Pod"
         namespace = involved.get("namespace") or ev.get("namespace") or "default"
@@ -241,6 +302,11 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Run tests and print live agent response report.")
     parser.add_argument("--run-tests", action="store_true", help="Run monitor and tools test suites first.")
     parser.add_argument("--events", type=int, default=5, help="Number of warning events to feed to the agent.")
+    parser.add_argument(
+        "--diverse",
+        action="store_true",
+        help="Prefer a varied mix of resource kinds and reasons instead of the newest warnings.",
+    )
     args = parser.parse_args()
 
     # Enforce real LLM usage for this report.
@@ -260,7 +326,7 @@ def main() -> int:
         code2 = _run_pytest(tools_cmd, "tools_integration_slow")
         overall_code = max(overall_code, code1, code2)
 
-    code3 = asyncio.run(_run_agent_report(max(args.events, 1)))
+    code3 = asyncio.run(_run_agent_report(max(args.events, 1), args.diverse))
     overall_code = max(overall_code, code3)
     return overall_code
 

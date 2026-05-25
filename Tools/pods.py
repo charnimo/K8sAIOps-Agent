@@ -85,7 +85,10 @@ def get_pod(name: str, namespace: str = "default"):
     try:
         return core.read_namespaced_pod(name=name, namespace=namespace)
     except ApiException as e:
-        logger.error(f"Pod {namespace}/{name} not found: {e}")
+        if e.status == 404:
+            logger.warning(f"Pod {namespace}/{name} not found")
+        else:
+            logger.error(f"Failed to get pod {namespace}/{name}: {e}")
         raise
 
 
@@ -625,8 +628,11 @@ def exec_pod(
     try:
         # Check pod exists
         core.read_namespaced_pod(name=name, namespace=namespace)
-    except Exception as e:
-        logger.error(f"Pod {namespace}/{name} not found: {e}")
+    except ApiException as e:
+        if e.status == 404:
+            logger.warning(f"Pod {namespace}/{name} not found")
+        else:
+            logger.error(f"Failed to exec in pod {namespace}/{name}: {e}")
         return {
             "success": False,
             "message": f"Pod {namespace}/{name} not found",

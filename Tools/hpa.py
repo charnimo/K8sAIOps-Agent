@@ -64,7 +64,10 @@ def get_hpa(name: str, namespace: str = "default") -> dict:
         hpa = auto_api.read_namespaced_horizontal_pod_autoscaler(name, namespace)
         return _summarize_hpa(hpa)
     except ApiException as e:
-        logger.error(f"Failed to get HPA {namespace}/{name}: {e}")
+        if e.status == 404:
+            logger.warning(f"HPA {namespace}/{name} not found")
+        else:
+            logger.error(f"Failed to get HPA {namespace}/{name}: {e}")
         return {"error": str(e)}
 
 
