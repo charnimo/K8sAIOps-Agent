@@ -103,6 +103,7 @@ class ActiveAgentResult:
     task: str
     tools_called: list[str]
     token_usage: dict[str, int] | None = None
+    trace: dict[str, Any] | None = None
 
 
 _CACHED_ALL_TOOLS: dict[str, list[Any]] = {}
@@ -179,12 +180,24 @@ def run_active_agent(
         assistant_text = str(final_message)
     else:
         assistant_text = _json_dumps(assistant_content, max_chars=8000)
+    tools_called = result.get("tools_called", [])
+    token_usage = _extract_usage(result.get("messages", []))
+    trace = {
+        "task": task,
+        "iterations": int(result.get("iterations", 0)),
+        "max_iterations": max_iterations,
+        "tools_called": tools_called,
+        "action_queued": bool(result.get("action")),
+        "token_usage": token_usage,
+    }
+
     return ActiveAgentResult(
         text=_clean_assistant_text(assistant_text),
         action=result.get("action"),
         task=task,
-        tools_called=result.get("tools_called", []),
-        token_usage=_extract_usage(result.get("messages", [])),
+        tools_called=tools_called,
+        token_usage=token_usage,
+        trace=trace,
     )
 
 

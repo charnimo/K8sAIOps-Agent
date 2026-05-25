@@ -206,11 +206,7 @@ def post_chat_message(
             )
 
             if settings.debug_mode:
-                logger.debug("Agent task: %s", agent_result.task)
-                if agent_result.tools_called:
-                    logger.debug("Agent tools called: %s", ", ".join(dict.fromkeys(agent_result.tools_called)))
-                if agent_result.token_usage:
-                    logger.debug("Agent token usage: %s", agent_result.token_usage)
+                logger.debug("Agent trace: %s", agent_result.trace)
 
             assistant_content = assistant_payload(agent_result.text, agent_result.action)
         except Exception as exc:
