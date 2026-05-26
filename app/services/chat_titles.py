@@ -8,6 +8,7 @@ import re
 from sqlalchemy.orm import Session
 
 from app.database.models import Conversation
+from app.services.llm_client import build_chat_model
 
 
 logger = logging.getLogger(__name__)
@@ -22,19 +23,13 @@ def maybe_update_conversation_title(
     settings,
 ) -> None:
     """Generate a short title for new conversations when the agent is configured."""
-    if user_message_count > 2 or not settings.agent_api_key:
+    if user_message_count > 2 or not settings.agent_api_keys:
         return
 
     try:
         from langchain_core.messages import HumanMessage, SystemMessage
-        from langchain_openai import ChatOpenAI
 
-        title_llm = ChatOpenAI(
-            model=settings.agent_model,
-            api_key=settings.agent_api_key,
-            base_url="https://integrate.api.nvidia.com/v1",
-            temperature=0.3,
-        )
+        title_llm = build_chat_model(settings, temperature=0.3)
         title_res = title_llm.invoke(
             [
                 SystemMessage(content="You generate extremely short, 3-5 word conversation titles."),
