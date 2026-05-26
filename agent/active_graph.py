@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass
-from typing import Any, TypedDict
+from typing import Annotated, Any, TypedDict
 
 from agent.agent_instructions import get_system_instruction
 
@@ -236,8 +236,6 @@ def _build_llm(settings: Any) -> Any:
 
 
 def _build_active_graph(llm: Any, tools: list[Any]) -> Any:
-    from typing import Annotated
-
     from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
     from langgraph.graph import END, StateGraph
     from langgraph.graph.message import add_messages
