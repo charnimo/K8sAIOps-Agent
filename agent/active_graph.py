@@ -108,6 +108,17 @@ class ActiveAgentResult:
     trace: dict[str, Any] | None = None
 
 
+class ActiveAgentState(TypedDict, total=False):
+    """LangGraph state for the active agent loop."""
+
+    messages: Annotated[list[Any], add_messages]
+    iterations: int
+    max_iterations: int
+    task: str
+    tools_called: list[str]
+    action: dict[str, Any] | None
+
+
 _CACHED_ALL_TOOLS: dict[str, list[Any]] = {}
 _CACHED_TOOLS_BY_TASK: dict[tuple[str, str], list[Any]] = {}
 
@@ -240,14 +251,6 @@ def _build_llm(settings: Any) -> Any:
 def _build_active_graph(llm: Any, tools: list[Any]) -> Any:
     from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
     from langgraph.graph import END, StateGraph
-
-    class ActiveAgentState(TypedDict, total=False):
-        messages: Annotated[list[Any], add_messages]
-        iterations: int
-        max_iterations: int
-        task: str
-        tools_called: list[str]
-        action: dict[str, Any] | None
 
     tool_map = {tool.name: tool for tool in tools}
     llm_with_tools = llm.bind_tools(tools) if tools else llm
