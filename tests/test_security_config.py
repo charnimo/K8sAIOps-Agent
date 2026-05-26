@@ -74,10 +74,12 @@ def test_cors_origin_parser_rejects_wildcard():
 
 def test_agent_api_key_parser_deduplicates_multi_and_single_keys():
     """Multi-key configuration should remain compatible with the old single-key env."""
-    assert _as_agent_api_keys(" key-a, key-b ,, key-a ", " key-c ") == (
+    assert _as_agent_api_keys(" key-a, key-b ,, key-a, key-c, key-d ", " key-e ") == (
         "key-a",
         "key-b",
         "key-c",
+        "key-d",
+        "key-e",
     )
 
 

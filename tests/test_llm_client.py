@@ -65,6 +65,31 @@ def test_fallback_chat_model_uses_second_key_after_retryable_failure():
     assert calls == [("invoke", "key-a"), ("invoke", "key-b")]
 
 
+def test_fallback_chat_model_uses_all_configured_keys_until_success():
+    calls: list[object] = []
+    result = SimpleNamespace(content="ok")
+    behaviors = {
+        "key-a": RetryableError("quota exhausted"),
+        "key-b": RetryableError("quota exhausted"),
+        "key-c": RetryableError("quota exhausted"),
+        "key-d": result,
+    }
+    model = FallbackChatModel(
+        model="model-a",
+        api_keys=("key-a", "key-b", "key-c", "key-d"),
+        cooldown_seconds=60,
+        client_factory=lambda api_key: FakeClient(api_key, behaviors, calls),
+    )
+
+    assert model.invoke(["hello"]) is result
+    assert calls == [
+        ("invoke", "key-a"),
+        ("invoke", "key-b"),
+        ("invoke", "key-c"),
+        ("invoke", "key-d"),
+    ]
+
+
 def test_fallback_chat_model_does_not_rotate_nonretryable_errors():
     calls: list[object] = []
     behaviors = {

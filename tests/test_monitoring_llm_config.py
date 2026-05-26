@@ -54,6 +54,29 @@ def test_monitoring_llm_client_uses_second_key_after_retryable_failure():
     assert calls == ["key-a", "key-b"]
 
 
+def test_monitoring_llm_client_uses_all_configured_keys_until_success():
+    calls: list[str] = []
+    payload = {"choices": [{"message": {"content": "ok"}}]}
+
+    def fake_post(*args, **kwargs):
+        key = kwargs["headers"]["Authorization"].removeprefix("Bearer ")
+        calls.append(key)
+        if key in {"key-a", "key-b", "key-c"}:
+            return FakeResponse(429)
+        return FakeResponse(200, payload)
+
+    client = NVIDIAChatClient(
+        api_key="key-a",
+        api_keys=("key-a", "key-b", "key-c", "key-d"),
+        model="model-a",
+        base_url="https://example.test/v1",
+        request_post=fake_post,
+    )
+
+    assert client.invoke([{"role": "user", "content": "hello"}]) == payload
+    assert calls == ["key-a", "key-b", "key-c", "key-d"]
+
+
 def test_monitoring_llm_client_does_not_rotate_nonretryable_bad_request():
     calls: list[str] = []
 
