@@ -28,6 +28,7 @@ DEFAULT_SIGNUP_PERMISSION_KEYS = [
     "storage:pvs:read",
     "storage:classes:read",
     "observability:read",
+    "diagnostics:run",
     "terminal:kubectl:readonly",
     "pods:read",
     "pods:logs",
