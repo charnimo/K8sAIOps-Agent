@@ -238,14 +238,9 @@ def _get_tools_cached(task: str, *, token: str, debug_mode: bool) -> list[Any]:
 
 
 def _build_llm(settings: Any) -> Any:
-    from langchain_openai import ChatOpenAI
+    from app.services.llm_client import build_chat_model
 
-    return ChatOpenAI(
-        model=settings.agent_model,
-        api_key=settings.agent_api_key,
-        base_url="https://integrate.api.nvidia.com/v1",
-        temperature=0.3,
-    )
+    return build_chat_model(settings, temperature=0.3)
 
 
 def _build_active_graph(llm: Any, tools: list[Any]) -> Any:

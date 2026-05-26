@@ -187,8 +187,8 @@ def post_chat_message(
             f"on {target.get('name', 'the target')}. I can't proceed until you approve or deny it."
         )
         assistant_content = assistant_payload(assistant_text, recent_action)
-    elif not settings.agent_api_key:
-        assistant_content = "Agent not configured. Set AIOPS_AGENT_API_KEY in .env"
+    elif not settings.agent_api_keys:
+        assistant_content = "Agent not configured. Set AIOPS_AGENT_API_KEY or AIOPS_AGENT_API_KEYS in .env"
     else:
         try:
             history = history_for_agent(db, session.id, user.username, user_message.id)
