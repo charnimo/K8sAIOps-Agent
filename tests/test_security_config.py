@@ -9,7 +9,7 @@ from app.api.routes import resources as resources_routes
 from app.api.routes.actions import ACTION_PERMISSION_MAP
 from app.auth import security
 from app.auth.security import create_access_token, get_password_hash
-from app.core.settings import DEFAULT_CORS_ORIGINS, _as_cors_origins, get_settings
+from app.core.settings import DEFAULT_CORS_ORIGINS, _as_agent_api_keys, _as_cors_origins, get_settings
 from app.database.database import SessionLocal
 from app.database.models import User
 from app.main import app
@@ -70,6 +70,15 @@ def test_cors_origin_parser_rejects_wildcard():
     """A wildcard origin is unsafe when auth credentials are accepted."""
     with pytest.raises(ValueError):
         _as_cors_origins("*", DEFAULT_CORS_ORIGINS)
+
+
+def test_agent_api_key_parser_deduplicates_multi_and_single_keys():
+    """Multi-key configuration should remain compatible with the old single-key env."""
+    assert _as_agent_api_keys(" key-a, key-b ,, key-a ", " key-c ") == (
+        "key-a",
+        "key-b",
+        "key-c",
+    )
 
 
 def test_namespace_permission_uses_json_body_namespace(monkeypatch):

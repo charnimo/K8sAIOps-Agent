@@ -53,6 +53,7 @@ def authenticated_test_user(monkeypatch):
 
     _delete_test_conversations()
     monkeypatch.delenv("AIOPS_AGENT_API_KEY", raising=False)
+    monkeypatch.delenv("AIOPS_AGENT_API_KEYS", raising=False)
     monkeypatch.setenv("AIOPS_DEBUG_MODE", "false")
     get_settings.cache_clear()
     app.dependency_overrides[get_current_user] = current_user

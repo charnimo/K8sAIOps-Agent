@@ -34,6 +34,18 @@ def _as_cors_origins(value: str | None, default: tuple[str,...]) -> tuple[str,..
         raise ValueError("AIOPS_CORS_ORIGINS must list explicit trusted origins; '*' is not allowed.")
     return origins
 
+def _as_agent_api_keys(value: str | None, fallback: str | None) -> tuple[str,...]:
+    """Parse configured agent API keys without logging or exposing their values."""
+    keys: list[str] = []
+    for source in (value, fallback):
+        if not source:
+            continue
+        for item in source.split(","):
+            key = item.strip()
+            if key and key not in keys:
+                keys.append(key)
+    return tuple(keys)
+
 @dataclass(frozen=True)
 class Settings:
     """Runtime configuration for the FastAPI gateway."""
@@ -46,6 +58,7 @@ class Settings:
     cors_origins: tuple[str,...]
     agent_model: str
     agent_api_key: str
+    agent_api_keys: tuple[str,...]
     debug_mode: bool
 
 @lru_cache(maxsize=1)
@@ -58,6 +71,10 @@ def get_settings() -> Settings:
         default=False,
     )
     debug_mode = _as_bool(os.getenv("AIOPS_DEBUG_MODE"), default=False)
+    agent_api_keys = _as_agent_api_keys(
+        os.getenv("AIOPS_AGENT_API_KEYS"),
+        os.getenv("AIOPS_AGENT_API_KEY"),
+    )
 
     return Settings(
         api_title=os.getenv("AIOPS_API_TITLE", "K8s AIOps Agent API"),
@@ -67,6 +84,7 @@ def get_settings() -> Settings:
         allow_plaintext_secret_reads=allow_plaintext_secret_reads,
         cors_origins=_as_cors_origins(os.getenv("AIOPS_CORS_ORIGINS"), DEFAULT_CORS_ORIGINS),
         agent_model=os.getenv("AIOPS_AGENT_MODEL", "gpt-4o-mini"),
-        agent_api_key=os.getenv("AIOPS_AGENT_API_KEY", ""),
+        agent_api_key=agent_api_keys[0] if agent_api_keys else "",
+        agent_api_keys=agent_api_keys,
         debug_mode=debug_mode,
     )
