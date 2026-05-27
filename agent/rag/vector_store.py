@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 import json
 from pathlib import Path
+from threading import RLock
 from typing import Any, Callable, Iterable
 
 from agent.rag.index_paths import (
@@ -23,6 +24,10 @@ DEFAULT_VECTOR_BATCH_SIZE = 64
 
 ChromaClientFactory = Callable[[str], Any]
 EmbeddingModelFactory = Callable[[str], Any]
+
+_CACHE_LOCK = RLock()
+_CHROMA_CLIENT_CACHE: dict[str, Any] = {}
+_EMBEDDING_MODEL_CACHE: dict[str, Any] = {}
 
 
 @dataclass(frozen=True)
@@ -217,21 +222,50 @@ def search_kubernetes_docs_vector_index(
 def _build_chroma_client(path: str, factory: ChromaClientFactory | None) -> Any:
     if factory:
         return factory(path)
+
+    cache_key = _path_cache_key(path)
+    with _CACHE_LOCK:
+        cached_client = _CHROMA_CLIENT_CACHE.get(cache_key)
+        if cached_client is not None:
+            return cached_client
+
     try:
         import chromadb
     except ImportError as exc:
         raise RuntimeError("chromadb is required to build the Kubernetes docs vector index.") from exc
-    return chromadb.PersistentClient(path=path)
+
+    client = chromadb.PersistentClient(path=path)
+    with _CACHE_LOCK:
+        return _CHROMA_CLIENT_CACHE.setdefault(cache_key, client)
 
 
 def _build_embedding_model(model_name: str, factory: EmbeddingModelFactory | None) -> Any:
     if factory:
         return factory(model_name)
+
+    with _CACHE_LOCK:
+        cached_model = _EMBEDDING_MODEL_CACHE.get(model_name)
+        if cached_model is not None:
+            return cached_model
+
     try:
         from sentence_transformers import SentenceTransformer
     except ImportError as exc:
         raise RuntimeError("sentence-transformers is required to embed Kubernetes docs chunks.") from exc
-    return SentenceTransformer(model_name)
+
+    model = SentenceTransformer(model_name)
+    with _CACHE_LOCK:
+        return _EMBEDDING_MODEL_CACHE.setdefault(model_name, model)
+
+
+def _path_cache_key(path: str) -> str:
+    return str(Path(path).resolve())
+
+
+def _clear_vector_store_caches() -> None:
+    with _CACHE_LOCK:
+        _CHROMA_CLIENT_CACHE.clear()
+        _EMBEDDING_MODEL_CACHE.clear()
 
 
 def _reset_collection(client: Any, name: str) -> Any:

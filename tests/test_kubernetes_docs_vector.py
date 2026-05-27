@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import json
+import sys
+from types import SimpleNamespace
 
 import pytest
 
 from agent.rag.kubernetes_docs import build_kubernetes_docs_index
+from agent.rag import vector_store
 from agent.rag.vector_store import (
     build_kubernetes_docs_vector_index,
     get_kubernetes_docs_vector_status,
@@ -107,3 +110,44 @@ def test_vector_status_reports_missing_index(tmp_path):
 
     assert status["ready"] is False
     assert status["error"] == "vector_index_not_found"
+
+
+@pytest.mark.unit
+def test_default_vector_dependencies_are_cached(tmp_path, monkeypatch):
+    vector_store._clear_vector_store_caches()
+    chroma_clients = []
+    embedding_models = []
+
+    def fake_persistent_client(path: str):
+        client = SimpleNamespace(path=path)
+        chroma_clients.append(client)
+        return client
+
+    class FakeSentenceTransformer:
+        def __init__(self, model_name: str) -> None:
+            self.model_name = model_name
+            embedding_models.append(self)
+
+    monkeypatch.setitem(
+        sys.modules,
+        "chromadb",
+        SimpleNamespace(PersistentClient=fake_persistent_client),
+    )
+    monkeypatch.setitem(
+        sys.modules,
+        "sentence_transformers",
+        SimpleNamespace(SentenceTransformer=FakeSentenceTransformer),
+    )
+
+    try:
+        first_client = vector_store._build_chroma_client(str(tmp_path / "vectors"), None)
+        second_client = vector_store._build_chroma_client(str(tmp_path / "vectors"), None)
+        first_model = vector_store._build_embedding_model("fake-model", None)
+        second_model = vector_store._build_embedding_model("fake-model", None)
+
+        assert first_client is second_client
+        assert first_model is second_model
+        assert len(chroma_clients) == 1
+        assert len(embedding_models) == 1
+    finally:
+        vector_store._clear_vector_store_caches()
