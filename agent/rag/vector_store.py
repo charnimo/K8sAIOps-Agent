@@ -8,7 +8,13 @@ import json
 from pathlib import Path
 from typing import Any, Callable, Iterable
 
-from agent.rag.kubernetes_docs import INDEX_FILENAME, _resolve_index_file, _version_slug
+from agent.rag.index_paths import (
+    available_versioned_files,
+    is_version_fallback,
+    resolve_versioned_file,
+    version_slug,
+)
+from agent.rag.kubernetes_docs import INDEX_FILENAME
 
 
 VECTOR_METADATA_FILENAME = "vector_metadata.json"
@@ -41,7 +47,12 @@ def build_kubernetes_docs_vector_index(
 ) -> dict[str, Any]:
     """Build a persistent Chroma vector index for the versioned docs index."""
     resolved_index_path = Path(index_path)
-    index_file = _resolve_index_file(resolved_index_path, version)
+    index_file = resolve_versioned_file(
+        resolved_index_path,
+        version,
+        INDEX_FILENAME,
+        include_legacy=True,
+    )
     if not index_file.exists():
         raise FileNotFoundError(f"Kubernetes docs index not found under {resolved_index_path}")
 
@@ -51,8 +62,8 @@ def build_kubernetes_docs_vector_index(
     if not chunks:
         raise ValueError(f"Kubernetes docs index has no chunks: {index_file}")
 
-    version_slug = _version_slug(str(metadata.get("version") or version))
-    target_path = Path(vector_path) / version_slug
+    resolved_version_slug = version_slug(str(metadata.get("version") or version))
+    target_path = Path(vector_path) / resolved_version_slug
     target_path.mkdir(parents=True, exist_ok=True)
 
     client = _build_chroma_client(str(target_path), chroma_client_factory)
@@ -80,7 +91,7 @@ def build_kubernetes_docs_vector_index(
     vector_metadata = {
         "ready": True,
         "version": metadata.get("version") or version,
-        "version_slug": version_slug,
+        "version_slug": resolved_version_slug,
         "embedding_model": embedding_model,
         "vector_count": vector_count,
         "source_index_file": str(index_file),
@@ -105,8 +116,8 @@ def get_kubernetes_docs_vector_status(
 ) -> dict[str, Any]:
     """Return lightweight readiness metadata for the vector index."""
     base_path = Path(vector_path)
-    metadata_file = _resolve_vector_metadata_file(base_path, version)
-    available_versions = _available_vector_versions(base_path)
+    metadata_file = resolve_versioned_file(base_path, version, VECTOR_METADATA_FILENAME)
+    available_versions = available_versioned_files(base_path, VECTOR_METADATA_FILENAME)
     if not metadata_file.exists():
         return {
             "ready": False,
@@ -123,8 +134,7 @@ def get_kubernetes_docs_vector_status(
         "metadata_file": str(metadata_file),
         "requested_version": version,
         "version": metadata.get("version"),
-        "fallback": _version_slug(version) != _version_slug(str(metadata.get("version") or ""))
-        if version else False,
+        "fallback": is_version_fallback(version, metadata.get("version")),
         "available_versions": available_versions,
         "embedding_model": metadata.get("embedding_model"),
         "vector_count": metadata.get("vector_count"),
@@ -271,32 +281,6 @@ def _embeddings_to_list(embeddings: Any) -> list[list[float]]:
 def _batched(items: list[Any], batch_size: int) -> Iterable[list[Any]]:
     for start in range(0, len(items), batch_size):
         yield items[start : start + batch_size]
-
-
-def _resolve_vector_metadata_file(base_path: Path, version: str | None) -> Path:
-    for candidate in _candidate_vector_metadata_files(base_path, version):
-        if candidate.exists():
-            return candidate
-    candidates = _candidate_vector_metadata_files(base_path, version)
-    return candidates[0] if candidates else base_path / "latest" / VECTOR_METADATA_FILENAME
-
-
-def _candidate_vector_metadata_files(base_path: Path, version: str | None) -> list[Path]:
-    candidates: list[Path] = []
-    if version:
-        candidates.append(base_path / _version_slug(version) / VECTOR_METADATA_FILENAME)
-    candidates.append(base_path / "latest" / VECTOR_METADATA_FILENAME)
-    return candidates
-
-
-def _available_vector_versions(base_path: Path) -> list[str]:
-    if not base_path.exists():
-        return []
-    return [
-        child.name
-        for child in sorted(base_path.iterdir())
-        if child.is_dir() and (child / VECTOR_METADATA_FILENAME).exists()
-    ]
 
 
 def _first_result_list(value: Any) -> list[Any]:

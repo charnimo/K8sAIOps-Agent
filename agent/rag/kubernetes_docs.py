@@ -17,6 +17,14 @@ import re
 import subprocess
 from typing import Any, Iterable
 
+from agent.rag.index_paths import (
+    available_versioned_files,
+    is_version_fallback,
+    resolve_versioned_file,
+    version_slug,
+    versioned_index_dir,
+)
+
 
 INDEX_FILENAME = "index.json"
 METADATA_FILENAME = "metadata.json"
@@ -112,7 +120,7 @@ def build_kubernetes_docs_index(
         "source_path": str(source_root),
         "source_git_commit": _git_commit(source_root),
         "version": version,
-        "version_slug": _version_slug(version),
+        "version_slug": version_slug(version),
         "chunk_chars": chunk_chars,
         "chunk_count": len(chunks),
         "indexed_file_count": indexed_file_count,
@@ -126,7 +134,7 @@ def build_kubernetes_docs_index(
         "metadata": metadata,
         "chunks": [asdict(chunk) for chunk in chunks],
     }
-    target_dir = _versioned_index_path(Path(index_path), version)
+    target_dir = versioned_index_dir(Path(index_path), version)
     target_dir.mkdir(parents=True, exist_ok=True)
     index_file = target_dir / INDEX_FILENAME
     metadata_file = target_dir / METADATA_FILENAME
@@ -150,8 +158,17 @@ def get_kubernetes_docs_index_status(
 ) -> dict[str, Any]:
     """Return lightweight readiness metadata for the local docs index."""
     resolved_index_path = Path(index_path) if index_path else _default_index_path()
-    index_file = _resolve_index_file(resolved_index_path, version)
-    available_versions = _available_index_versions(resolved_index_path)
+    index_file = resolve_versioned_file(
+        resolved_index_path,
+        version,
+        INDEX_FILENAME,
+        include_legacy=True,
+    )
+    available_versions = available_versioned_files(
+        resolved_index_path,
+        INDEX_FILENAME,
+        legacy_label="legacy",
+    )
 
     if not index_file.exists():
         return {
@@ -169,7 +186,7 @@ def get_kubernetes_docs_index_status(
         "index_file": str(index_file),
         "requested_version": version,
         "version": metadata.get("version"),
-        "fallback": _is_version_fallback(version, metadata.get("version")),
+        "fallback": is_version_fallback(version, metadata.get("version")),
         "available_versions": available_versions,
         "chunk_count": metadata.get("chunk_count"),
         "indexed_file_count": metadata.get("indexed_file_count"),
@@ -197,63 +214,6 @@ def _is_indexable_doc_path(
 def _path_matches_prefix(rel_path: str, prefix: str) -> bool:
     clean_prefix = prefix.strip("/").replace("\\", "/")
     return rel_path == clean_prefix or rel_path.startswith(f"{clean_prefix}/")
-
-
-def _versioned_index_path(index_path: Path, version: str | None) -> Path:
-    return index_path / _version_slug(version)
-
-
-def _version_slug(version: str | None) -> str:
-    normalized = _normalize_version(version)
-    if normalized in {"", "current"}:
-        return "latest"
-    match = re.match(r"v?(1\.\d+)", normalized)
-    if match:
-        return f"v{match.group(1)}"
-    return re.sub(r"[^a-z0-9_.-]+", "-", normalized).strip("-") or "latest"
-
-
-def _candidate_index_files(index_path: Path, version: str | None) -> list[Path]:
-    candidates: list[Path] = []
-    if version:
-        candidates.append(_versioned_index_path(index_path, version) / INDEX_FILENAME)
-    candidates.append(_versioned_index_path(index_path, "latest") / INDEX_FILENAME)
-    candidates.append(index_path / INDEX_FILENAME)
-
-    unique_candidates: list[Path] = []
-    seen: set[Path] = set()
-    for candidate in candidates:
-        if candidate in seen:
-            continue
-        seen.add(candidate)
-        unique_candidates.append(candidate)
-    return unique_candidates
-
-
-def _resolve_index_file(index_path: Path, version: str | None) -> Path:
-    candidates = _candidate_index_files(index_path, version)
-    for candidate in candidates:
-        if candidate.exists():
-            return candidate
-    return candidates[0] if candidates else index_path / INDEX_FILENAME
-
-
-def _is_version_fallback(requested_version: str | None, resolved_version: Any) -> bool:
-    if not requested_version:
-        return False
-    return _version_slug(requested_version) != _version_slug(str(resolved_version or ""))
-
-
-def _available_index_versions(index_path: Path) -> list[str]:
-    versions: list[str] = []
-    if (index_path / INDEX_FILENAME).exists():
-        versions.append("legacy")
-    if not index_path.exists():
-        return versions
-    for child in sorted(index_path.iterdir()):
-        if child.is_dir() and (child / INDEX_FILENAME).exists():
-            versions.append(child.name)
-    return versions
 
 
 def _read_index_metadata(index_file: Path) -> dict[str, Any]:
@@ -306,7 +266,12 @@ def search_kubernetes_docs(
         }
 
     resolved_index_path = Path(index_path) if index_path else _default_index_path()
-    index_file = _resolve_index_file(resolved_index_path, version)
+    index_file = resolve_versioned_file(
+        resolved_index_path,
+        version,
+        INDEX_FILENAME,
+        include_legacy=True,
+    )
     if not index_file.exists():
         return {
             "error": "docs_index_not_found",
@@ -342,13 +307,20 @@ def search_kubernetes_docs(
     retrieval_mode = "bm25"
     vector_payload: dict[str, Any] | None = None
     if vector_config["enabled"]:
-        vector_payload = _search_vector_index(
-            query_text,
-            vector_path=vector_config["vector_path"],
-            version=version,
-            embedding_model=vector_config["embedding_model"],
-            limit=max(max_results * 4, 10),
-        )
+        try:
+            vector_payload = _search_vector_index(
+                query_text,
+                vector_path=vector_config["vector_path"],
+                version=version,
+                embedding_model=vector_config["embedding_model"],
+                limit=max(max_results * 4, 10),
+            )
+        except Exception as exc:
+            vector_payload = {
+                "error": "vector_search_failed",
+                "detail": str(exc),
+                "results": [],
+            }
         if vector_payload.get("results"):
             retrieval_mode = "hybrid"
 
@@ -369,7 +341,7 @@ def search_kubernetes_docs(
         "query": clean_query,
         "requested_version": version,
         "version": payload.get("metadata", {}).get("version"),
-        "fallback": _is_version_fallback(version, payload.get("metadata", {}).get("version")),
+        "fallback": is_version_fallback(version, payload.get("metadata", {}).get("version")),
         "retrieval_mode": retrieval_mode,
         "vector_error": vector_payload.get("error") if vector_payload else None,
         "results": results,

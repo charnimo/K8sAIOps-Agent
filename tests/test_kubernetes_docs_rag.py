@@ -294,6 +294,44 @@ Pods run containers.
 
 
 @pytest.mark.unit
+def test_kubernetes_docs_search_falls_back_to_bm25_when_vector_search_raises(tmp_path, monkeypatch):
+    source_root = tmp_path / "website"
+    index_root = tmp_path / "index"
+    _write_doc(
+        source_root,
+        "concepts/workloads/pods/pod-lifecycle.md",
+        """---
+title: Pod Lifecycle
+---
+
+Pods run containers.
+""",
+    )
+    build_kubernetes_docs_index(
+        source_path=source_root,
+        index_path=index_root,
+        version="latest",
+    )
+
+    def broken_vector_search(*args, **kwargs):
+        raise RuntimeError("vector backend unavailable")
+
+    monkeypatch.setattr(kubernetes_docs, "_search_vector_index", broken_vector_search)
+
+    result = search_kubernetes_docs(
+        "pods containers",
+        index_path=index_root,
+        vector_enabled=True,
+        vector_path=tmp_path / "vectors",
+        embedding_model="fake-model",
+    )
+
+    assert result["retrieval_mode"] == "bm25"
+    assert result["vector_error"] == "vector_search_failed"
+    assert result["results"][0]["title"] == "Pod Lifecycle"
+
+
+@pytest.mark.unit
 def test_kubernetes_docs_search_expands_common_operational_symptoms(tmp_path):
     source_root = tmp_path / "website"
     index_root = tmp_path / "index"
