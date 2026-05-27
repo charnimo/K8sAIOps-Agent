@@ -23,9 +23,18 @@ DEFAULT_RESULT_LIMIT = 5
 _FRONT_MATTER_RE = re.compile(r"\A---\s*\n(?P<body>.*?)\n---\s*\n", re.DOTALL)
 _TITLE_RE = re.compile(r"^title:\s*[\"']?(?P<title>.*?)[\"']?\s*$", re.MULTILINE)
 _SHORTCODE_RE = re.compile(r"\{\{[%<][\s\S]*?[%>]\}\}")
+_SHORTCODE_HEADING_RE = re.compile(r"\{\{[%<]\s*heading\s+\"(?P<name>[^\"]+)\"\s*[%>]\}\}")
+_HEADING_ANCHOR_RE = re.compile(r"\s*\{#[^}]+\}\s*$")
+_IMAGE_RE = re.compile(r"!\[[^\]]*\]\([^)]+\)")
 _LINK_RE = re.compile(r"\[([^\]]+)\]\([^)]+\)")
 _HEADING_RE = re.compile(r"^(#{1,4})\s+(.+)$", re.MULTILINE)
 _TOKEN_RE = re.compile(r"[a-z0-9][a-z0-9_.-]*")
+_HEADING_SHORTCODE_LABELS = {
+    "objectives": "Objectives",
+    "prerequisites": "Before you begin",
+    "cleanup": "Clean up",
+    "whatsnext": "What's next",
+}
 
 
 @dataclass(frozen=True)
@@ -237,11 +246,15 @@ def _split_sections(markdown: str, title: str) -> Iterable[tuple[str, str]]:
 
 def _clean_markdown(markdown: str) -> str:
     text = _SHORTCODE_RE.sub(" ", markdown)
+    text = _IMAGE_RE.sub(" ", text)
+    text = re.sub(r"^\s*#{1,6}\s+", "", text, flags=re.MULTILINE)
+    text = re.sub(r"\s*\{#[^}]+\}", "", text)
     text = _LINK_RE.sub(r"\1", text)
     text = text.replace("```", " ")
     text = text.replace("`", "")
-    text = re.sub(r"!\[[^\]]*\]\([^)]+\)", " ", text)
-    text = re.sub(r"<[^>]+>", " ", text)
+    text = re.sub(r"</?[A-Za-z][A-Za-z0-9-]*(\s+[^>]*)?>", " ", text)
+    text = re.sub(r"(\*\*|__)(.*?)\1", r"\2", text)
+    text = re.sub(r"(^|\s)([*_])([^*_]+)\2(?=[\s.,;:!?)]|$)", r"\1\3", text)
     text = re.sub(r"^\s*[-*+]\s+", "- ", text, flags=re.MULTILINE)
     text = re.sub(r"\n{3,}", "\n\n", text)
     text = re.sub(r"[ \t]+", " ", text)
@@ -384,7 +397,18 @@ def _title_from_path(path: Path) -> str:
 
 
 def _clean_heading(value: str) -> str:
-    return re.sub(r"\s+#*$", "", value).strip()
+    shortcode_match = _SHORTCODE_HEADING_RE.fullmatch(value.strip())
+    if shortcode_match:
+        name = shortcode_match.group("name").strip().lower()
+        return _HEADING_SHORTCODE_LABELS.get(name, name.replace("-", " ").title())
+
+    text = _SHORTCODE_RE.sub(" ", value)
+    text = _HEADING_ANCHOR_RE.sub("", text)
+    text = _LINK_RE.sub(r"\1", text)
+    text = text.replace("`", "")
+    text = re.sub(r"(\*\*|__)(.*?)\1", r"\2", text)
+    text = re.sub(r"\s+#*$", "", text)
+    return re.sub(r"\s+", " ", text).strip()
 
 
 def _normalize_version(version: str | None) -> str:

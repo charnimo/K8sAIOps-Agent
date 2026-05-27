@@ -66,6 +66,53 @@ Services provide stable virtual IP addresses for pod traffic.
 
 
 @pytest.mark.unit
+def test_kubernetes_docs_index_cleans_markup_artifacts(tmp_path):
+    source_root = tmp_path / "website"
+    index_root = tmp_path / "index"
+    _write_doc(
+        source_root,
+        "concepts/cluster-administration/logging.md",
+        """---
+title: Logging Architecture
+---
+
+# Logging Architecture
+
+## How nodes handle container logs {#node-logs}
+
+![Node level logging](/images/docs/logging.png)
+
+A container runtime redirects stdout and stderr.
+
+##### CRI details {#cri-details}
+
+The kubelet uses the _CRI logging format_.
+
+## {{% heading "whatsnext" %}}
+
+Read [debugging docs](/docs/tasks/debug/).
+""",
+    )
+
+    build_kubernetes_docs_index(
+        source_path=source_root,
+        index_path=index_root,
+        version="latest",
+        chunk_chars=500,
+    )
+    result = search_kubernetes_docs("node container logs stdout stderr", index_path=index_root)
+    serialized = str(result)
+
+    assert "{#node-logs}" not in serialized
+    assert "{{%" not in serialized
+    assert "!Node level logging" not in serialized
+    assert "{#cri-details}" not in serialized
+    assert "##### CRI details" not in serialized
+    assert "_CRI logging format_" not in serialized
+    assert result["results"][0]["section"] == "How nodes handle container logs"
+
+
+@pytest.mark.unit
 def test_kubernetes_docs_search_reports_missing_index(tmp_path):
     result = search_kubernetes_docs("pods", index_path=tmp_path / "missing")
 
