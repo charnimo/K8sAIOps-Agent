@@ -115,9 +115,6 @@ def register_monitor(app: FastAPI):
                 role=sub_data.get("role", "viewer"),
             )
    
-            registry.register(ws, sub)
-            logger.info("[MONITOR/WS] User %s subscribed", sub.user_id)
-
             # Send subscription confirmation with history
             await ws.send_text(json.dumps({
                 "type": "SUBSCRIBED",
@@ -125,6 +122,8 @@ def register_monitor(app: FastAPI):
                 "message": "Subscription active",
                 "history": dispatcher.recent_events(MAX_HISTORY, sub),
             }))
+            registry.register(ws, sub)
+            logger.info("[MONITOR/WS] User %s subscribed", sub.user_id)
             logger.info("[MONITOR/WS] Subscription confirmation sent")
 
             # Listen for client messages (PING, UPDATE_SUBSCRIPTION, etc.)

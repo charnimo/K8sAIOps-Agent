@@ -59,7 +59,9 @@ class AgentNotifier:
         original_dispatch = self._dispatcher.dispatch
 
         async def patched_dispatch(event):
-            await original_dispatch(event)
+            delivered = await original_dispatch(event)
+            if delivered is False:
+                return False
             if event.severity.value in self.AGENT_SEVERITIES:
                 # Generalized Deduplication: Categorize K8s reasons into broad failure domains
                 try:
@@ -72,7 +74,7 @@ class AgentNotifier:
                 last = self._recent_events.get(fingerprint)
                 if last and now - last < self._dedupe_window:
                     log.debug("Suppressing duplicate event for %s (seen %.1fs ago)", fingerprint, now - last)
-                    return
+                    return delivered
 
                 self._recent_events[fingerprint] = now
 
@@ -80,6 +82,8 @@ class AgentNotifier:
                     self._queue.put_nowait(event)
                 except asyncio.QueueFull:
                     log.warning("Agent notification queue full — dropping event %s", getattr(event, "event_id", fingerprint))
+
+            return delivered
 
         self._dispatcher.dispatch = patched_dispatch
         self._task = asyncio.create_task(self._worker())

@@ -172,6 +172,69 @@ class TestEventProcessorDedup:
         assert processor.from_k8s_event(first_event) is None
 
 
+@pytest.mark.asyncio
+async def test_dispatcher_suppresses_duplicate_delivery_and_history():
+    from monitoring.monitor import EnrichedEvent, NotificationDispatcher, Severity, Subscription, SubscriptionRegistry
+
+    sent_payloads = []
+
+    class FakeWebSocket:
+        async def send(self, payload: str):
+            sent_payloads.append(json.loads(payload))
+
+    registry = SubscriptionRegistry()
+    ws = FakeWebSocket()
+    registry.register(
+        ws,
+        Subscription(
+            user_id="dedup-test",
+            namespaces=set(),
+            severities={"INFO", "WARNING", "CRITICAL"},
+            role="admin",
+        ),
+    )
+    dispatcher = NotificationDispatcher(registry, dedup_window=300)
+
+    first = EnrichedEvent(
+        event_id="evt-1",
+        severity=Severity.CRITICAL,
+        namespace="default",
+        resource_name="crashloop-test",
+        resource_kind="Pod",
+        reason="CrashLoopBackOff",
+        message="first",
+        timestamp="2026-05-27T18:00:00+00:00",
+        node="minikube",
+        labels={},
+        annotations={},
+        raw_count=1,
+    )
+    duplicate = EnrichedEvent(
+        event_id="evt-2",
+        severity=Severity.CRITICAL,
+        namespace="default",
+        resource_name="crashloop-test",
+        resource_kind="Pod",
+        reason="CrashLoopBackOff",
+        message="second",
+        timestamp="2026-05-27T18:00:05+00:00",
+        node="minikube",
+        labels={},
+        annotations={},
+        raw_count=2,
+    )
+
+    assert await dispatcher.dispatch(first) is True
+    assert await dispatcher.dispatch(duplicate) is False
+
+    history = dispatcher.recent_events(10)
+    assert len(history) == 1
+    assert history[0]["raw_count"] == 3
+    assert history[0]["message"] == "second"
+    assert len(sent_payloads) == 1
+    assert sent_payloads[0]["event_id"] == "evt-1"
+
+
 # ═════════════════════════════════════════════════════════════════════════════
 # SECTION 1 – HTTP health checks  (fast, no waiting)
 # ═════════════════════════════════════════════════════════════════════════════

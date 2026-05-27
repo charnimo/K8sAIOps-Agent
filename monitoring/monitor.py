@@ -439,19 +439,38 @@ def _event_matches_subscription(event: dict, sub: Subscription) -> bool:
     return not sub.namespaces or event.get("namespace") in sub.namespaces
 
 
+def _event_history_key(event: dict) -> tuple[str, str, str]:
+    return (
+        str(event.get("namespace") or ""),
+        str(event.get("resource_name") or ""),
+        str(event.get("reason") or ""),
+    )
+
+
 class NotificationDispatcher:
-    def __init__(self, registry: SubscriptionRegistry):
+    def __init__(self, registry: SubscriptionRegistry, dedup_window: int = DEDUP_WINDOW):
         self._registry = registry
         self._history: deque[dict] = deque(maxlen=MAX_HISTORY)
+        self._dedup_window = dedup_window
+        self._delivered_until: dict[tuple[str, str, str], float] = {}
 
-    async def dispatch(self, event: EnrichedEvent):
+    async def dispatch(self, event: EnrichedEvent) -> bool:
+        if self._is_recent_duplicate(event):
+            log.debug(
+                "Suppressed duplicate delivery for %s/%s/%s",
+                event.namespace,
+                event.resource_name,
+                event.reason,
+            )
+            return False
+
         targets = self._registry.get_subscribers(event)
         self._history.append(event.to_dict())   # always store, even if no live subscribers
 
         if not targets:
             log.debug("No live subscribers for event %s (ns=%s )",
                       event.event_id, event.namespace)
-            return
+            return True
 
         payload = event.to_json()
         log.info("[%s] %s · %s/%s → %d subscriber(s)",
@@ -462,6 +481,35 @@ class NotificationDispatcher:
             *[self._send(ws, payload) for ws in targets],
             return_exceptions=True,
         )
+        return True
+
+    def _is_recent_duplicate(self, event: EnrichedEvent) -> bool:
+        now = time.monotonic()
+        expired = [key for key, expire_at in self._delivered_until.items() if expire_at <= now]
+        for key in expired:
+            del self._delivered_until[key]
+
+        event_dict = event.to_dict()
+        key = _event_history_key(event_dict)
+        if key in self._delivered_until:
+            self._merge_duplicate_history_event(key, event_dict)
+            self._delivered_until[key] = now + self._dedup_window
+            return True
+
+        self._delivered_until[key] = now + self._dedup_window
+        return False
+
+    def _merge_duplicate_history_event(self, key: tuple[str, str, str], duplicate: dict) -> None:
+        for existing in reversed(self._history):
+            if _event_history_key(existing) != key:
+                continue
+
+            existing["raw_count"] = int(existing.get("raw_count") or 1) + int(duplicate.get("raw_count") or 1)
+            existing["last_seen"] = duplicate.get("last_seen") or duplicate.get("timestamp") or existing.get("last_seen")
+            existing["timestamp"] = duplicate.get("timestamp") or existing.get("timestamp")
+            if duplicate.get("message"):
+                existing["message"] = duplicate["message"]
+            return
 
     async def _send(self, ws: WebSocketServerProtocol, payload: str):
         try:
@@ -483,7 +531,21 @@ class NotificationDispatcher:
                 event for event in events
                 if _event_matches_subscription(event, subscription)
             ]
+        events = self._dedupe_recent_events(events)
         return events[-limit:]
+
+    @staticmethod
+    def _dedupe_recent_events(events: list[dict]) -> list[dict]:
+        seen: set[tuple[str, str, str]] = set()
+        deduped: list[dict] = []
+        for event in reversed(events):
+            key = _event_history_key(event)
+            if key in seen:
+                continue
+            seen.add(key)
+            deduped.append(event)
+        deduped.reverse()
+        return deduped
 
 
 # ─── Kubernetes Watcher ───────────────────────────────────────────────────────
@@ -633,7 +695,6 @@ class WebSocketServer:
                 severities= set(data.get("severities", ["INFO", "WARNING", "CRITICAL"])),
                 role      = data.get("role", "viewer"),
             )
-            self._registry.register(ws, sub)
 
             try:
                 known_namespaces = await _list_known_namespaces()
@@ -645,6 +706,7 @@ class WebSocketServer:
                     "history":    self._dispatcher.recent_events(MAX_HISTORY, sub),
                 }
                 await ws.send(json.dumps(response, default=str))
+                self._registry.register(ws, sub)
             except Exception as exc:
                 log.error("Failed to send SUBSCRIBED response: %s", exc)
                 raise
