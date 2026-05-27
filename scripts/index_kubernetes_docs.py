@@ -46,10 +46,10 @@ def main() -> int:
         chunk_chars=args.chunk_chars,
     )
     print(
-        "Indexed {chunk_count} Kubernetes docs chunks into {index_path} "
+        "Indexed {chunk_count} Kubernetes docs chunks into {index_file} "
         "for version {version}.".format(
             chunk_count=metadata["chunk_count"],
-            index_path=args.index_path,
+            index_file=metadata.get("index_file", args.index_path),
             version=metadata["version"],
         )
     )

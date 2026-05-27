@@ -13,8 +13,9 @@ python scripts/index_kubernetes_docs.py
 ```
 
 The script clones or updates `https://github.com/kubernetes/website.git`, parses
-`content/en/docs`, and writes a local retrieval index to `data/k8s-docs-index`.
-The `data/` directory is ignored by Git.
+operational documentation from `content/en/docs`, and writes a versioned local
+retrieval index under `data/k8s-docs-index`. The `data/` directory is ignored by
+Git.
 
 For an existing checkout:
 
@@ -28,11 +29,19 @@ For a specific docs version label:
 python scripts/index_kubernetes_docs.py --version v1.36
 ```
 
+Indexes are stored by version:
+
+```text
+data/k8s-docs-index/latest/index.json
+data/k8s-docs-index/v1.36/index.json
+```
+
 ## Runtime Behavior
 
 - The active agent loads `search_kubernetes_docs` for inspect, triage, action, and full tasks.
 - The docs tool first tries `/cluster/version` and uses `docs_version` such as `v1.36`.
-- If the cluster version cannot be read, it falls back to `AIOPS_K8S_DOCS_VERSION`.
+- If the matching versioned index does not exist, retrieval falls back to the latest index.
+- If the cluster version cannot be read, it uses `AIOPS_K8S_DOCS_VERSION`.
 - If the index is missing, the tool returns `docs_index_not_found` instead of failing the chat request.
 - Documentation results include page title, section, URL, version, score, and excerpt.
 

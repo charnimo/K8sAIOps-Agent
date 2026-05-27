@@ -65,6 +65,7 @@ Services provide stable virtual IP addresses for pod traffic.
     assert result["results"][0]["url"] == (
         "https://v1-36.docs.kubernetes.io/docs/concepts/workloads/pods/pod-lifecycle/"
     )
+    assert (index_root / "v1.36" / "index.json").exists()
 
 
 @pytest.mark.unit
@@ -144,13 +145,41 @@ Edit this page in the Kubernetes website repository.
         index_path=index_root,
         version="latest",
     )
-    payload = json.loads((index_root / "index.json").read_text(encoding="utf-8"))
+    payload = json.loads((index_root / "latest" / "index.json").read_text(encoding="utf-8"))
     indexed_paths = {chunk["path"] for chunk in payload["chunks"]}
 
     assert "concepts/workloads/pods/pod-lifecycle.md" in indexed_paths
     assert "contribute/new-content/open-a-pr.md" not in indexed_paths
     assert "contribute" in metadata["excluded_paths"]
     assert metadata["skipped_file_count"] == 1
+
+
+@pytest.mark.unit
+def test_kubernetes_docs_search_falls_back_to_latest_index(tmp_path):
+    source_root = tmp_path / "website"
+    index_root = tmp_path / "index"
+    _write_doc(
+        source_root,
+        "concepts/workloads/pods/pod-lifecycle.md",
+        """---
+title: Pod Lifecycle
+---
+
+Pods run containers.
+""",
+    )
+
+    build_kubernetes_docs_index(
+        source_path=source_root,
+        index_path=index_root,
+        version="latest",
+    )
+    result = search_kubernetes_docs("pods containers", index_path=index_root, version="v1.35")
+
+    assert result["version"] == "latest"
+    assert result["requested_version"] == "v1.35"
+    assert result["fallback"] is True
+    assert result["results"][0]["title"] == "Pod Lifecycle"
 
 
 @pytest.mark.unit

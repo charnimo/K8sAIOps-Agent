@@ -104,6 +104,7 @@ def build_kubernetes_docs_index(
         "metadata": {
             "source": "kubernetes/website",
             "version": version,
+            "version_slug": _version_slug(version),
             "chunk_chars": chunk_chars,
             "chunk_count": len(chunks),
             "included_paths": list(include_paths),
@@ -113,9 +114,11 @@ def build_kubernetes_docs_index(
         },
         "chunks": [asdict(chunk) for chunk in chunks],
     }
-    target_dir = Path(index_path)
+    target_dir = _versioned_index_path(Path(index_path), version)
     target_dir.mkdir(parents=True, exist_ok=True)
-    (target_dir / INDEX_FILENAME).write_text(
+    index_file = target_dir / INDEX_FILENAME
+    payload["metadata"]["index_file"] = str(index_file)
+    index_file.write_text(
         json.dumps(payload, ensure_ascii=True, indent=2),
         encoding="utf-8",
     )
@@ -139,6 +142,51 @@ def _path_matches_prefix(rel_path: str, prefix: str) -> bool:
     return rel_path == clean_prefix or rel_path.startswith(f"{clean_prefix}/")
 
 
+def _versioned_index_path(index_path: Path, version: str | None) -> Path:
+    return index_path / _version_slug(version)
+
+
+def _version_slug(version: str | None) -> str:
+    normalized = _normalize_version(version)
+    if normalized in {"", "current"}:
+        return "latest"
+    match = re.match(r"v?(1\.\d+)", normalized)
+    if match:
+        return f"v{match.group(1)}"
+    return re.sub(r"[^a-z0-9_.-]+", "-", normalized).strip("-") or "latest"
+
+
+def _candidate_index_files(index_path: Path, version: str | None) -> list[Path]:
+    candidates: list[Path] = []
+    if version:
+        candidates.append(_versioned_index_path(index_path, version) / INDEX_FILENAME)
+    candidates.append(_versioned_index_path(index_path, "latest") / INDEX_FILENAME)
+    candidates.append(index_path / INDEX_FILENAME)
+
+    unique_candidates: list[Path] = []
+    seen: set[Path] = set()
+    for candidate in candidates:
+        if candidate in seen:
+            continue
+        seen.add(candidate)
+        unique_candidates.append(candidate)
+    return unique_candidates
+
+
+def _resolve_index_file(index_path: Path, version: str | None) -> Path:
+    candidates = _candidate_index_files(index_path, version)
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    return candidates[0] if candidates else index_path / INDEX_FILENAME
+
+
+def _is_version_fallback(requested_version: str | None, resolved_version: Any) -> bool:
+    if not requested_version:
+        return False
+    return _version_slug(requested_version) != _version_slug(str(resolved_version or ""))
+
+
 def search_kubernetes_docs(
     query: str,
     *,
@@ -157,12 +205,12 @@ def search_kubernetes_docs(
         }
 
     resolved_index_path = Path(index_path) if index_path else _default_index_path()
-    index_file = resolved_index_path / INDEX_FILENAME
+    index_file = _resolve_index_file(resolved_index_path, version)
     if not index_file.exists():
         return {
             "error": "docs_index_not_found",
             "detail": (
-                f"Kubernetes docs index not found at {index_file}. "
+                f"Kubernetes docs index not found under {resolved_index_path}. "
                 "Run: python scripts/index_kubernetes_docs.py"
             ),
             "results": [],
@@ -170,13 +218,6 @@ def search_kubernetes_docs(
 
     payload = json.loads(index_file.read_text(encoding="utf-8"))
     chunks = [_chunk_from_dict(item) for item in payload.get("chunks", [])]
-    if version:
-        preferred = _normalize_version(version)
-        version_matches = [
-            chunk for chunk in chunks if _normalize_version(chunk.version) == preferred
-        ]
-        if version_matches:
-            chunks = version_matches
 
     if not chunks:
         return {
@@ -207,7 +248,9 @@ def search_kubernetes_docs(
 
     return {
         "query": clean_query,
-        "version": version or payload.get("metadata", {}).get("version"),
+        "requested_version": version,
+        "version": payload.get("metadata", {}).get("version"),
+        "fallback": _is_version_fallback(version, payload.get("metadata", {}).get("version")),
         "results": results,
     }
 
