@@ -9,7 +9,7 @@ from app.api.routes import resources as resources_routes
 from app.api.routes.actions import ACTION_PERMISSION_MAP
 from app.auth import security
 from app.auth.security import create_access_token, get_password_hash
-from app.core.settings import DEFAULT_CORS_ORIGINS, _as_agent_api_keys, _as_cors_origins, get_settings
+from app.core.settings import DEFAULT_CORS_ORIGINS, _as_agent_api_keys, _as_cors_origins, _as_int, get_settings
 from app.database.database import SessionLocal
 from app.database.models import User
 from app.main import app
@@ -81,6 +81,13 @@ def test_agent_api_key_parser_deduplicates_multi_and_single_keys():
         "key-d",
         "key-e",
     )
+
+
+def test_int_parser_uses_safe_fallbacks():
+    """Integer configuration should reject invalid or too-small values."""
+    assert _as_int("7", 5, minimum=1) == 7
+    assert _as_int("nope", 5, minimum=1) == 5
+    assert _as_int("0", 5, minimum=1) == 5
 
 
 def test_namespace_permission_uses_json_body_namespace(monkeypatch):

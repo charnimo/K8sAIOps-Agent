@@ -10,3 +10,4 @@ app.db
 **/images/profiles/
 audit.jsonl
 .vs/
+data/

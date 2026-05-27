@@ -12,6 +12,9 @@ DEFAULT_CORS_ORIGINS = (
     "http://127.0.0.1:3000",
     "http://localhost:3000",
 )
+DEFAULT_K8S_DOCS_REPO_URL = "https://github.com/kubernetes/website.git"
+DEFAULT_K8S_DOCS_SOURCE_PATH = "data/kubernetes-website"
+DEFAULT_K8S_DOCS_INDEX_PATH = "data/k8s-docs-index"
 
 def _as_bool(value: str, default: bool) -> bool:
     """Parse a boolean environment variable safely."""
@@ -26,6 +29,18 @@ def _as_csv(value: str | None, default: tuple[str,...]) -> tuple[str,...]:
 
     items = tuple(item.strip() for item in value.split(",") if item.strip())
     return items or default
+
+def _as_int(value: str | None, default: int, *, minimum: int | None = None) -> int:
+    """Parse a positive integer environment variable with a bounded fallback."""
+    if value is None:
+        return default
+    try:
+        parsed = int(value.strip())
+    except (TypeError, ValueError):
+        return default
+    if minimum is not None and parsed < minimum:
+        return default
+    return parsed
 
 def _as_cors_origins(value: str | None, default: tuple[str,...]) -> tuple[str,...]:
     """Parse trusted CORS origins without allowing credentialed wildcards."""
@@ -60,6 +75,13 @@ class Settings:
     agent_api_key: str
     agent_api_keys: tuple[str,...]
     debug_mode: bool
+    k8s_docs_rag_enabled: bool
+    k8s_docs_repo_url: str
+    k8s_docs_source_path: str
+    k8s_docs_index_path: str
+    k8s_docs_version: str
+    k8s_docs_top_k: int
+    k8s_docs_chunk_chars: int
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
@@ -71,6 +93,7 @@ def get_settings() -> Settings:
         default=False,
     )
     debug_mode = _as_bool(os.getenv("AIOPS_DEBUG_MODE"), default=False)
+    k8s_docs_rag_enabled = _as_bool(os.getenv("AIOPS_K8S_DOCS_RAG_ENABLED"), default=True)
     agent_api_keys = _as_agent_api_keys(
         os.getenv("AIOPS_AGENT_API_KEYS"),
         os.getenv("AIOPS_AGENT_API_KEY"),
@@ -87,4 +110,11 @@ def get_settings() -> Settings:
         agent_api_key=agent_api_keys[0] if agent_api_keys else "",
         agent_api_keys=agent_api_keys,
         debug_mode=debug_mode,
+        k8s_docs_rag_enabled=k8s_docs_rag_enabled,
+        k8s_docs_repo_url=os.getenv("AIOPS_K8S_DOCS_REPO_URL", DEFAULT_K8S_DOCS_REPO_URL),
+        k8s_docs_source_path=os.getenv("AIOPS_K8S_DOCS_SOURCE_PATH", DEFAULT_K8S_DOCS_SOURCE_PATH),
+        k8s_docs_index_path=os.getenv("AIOPS_K8S_DOCS_INDEX_PATH", DEFAULT_K8S_DOCS_INDEX_PATH),
+        k8s_docs_version=os.getenv("AIOPS_K8S_DOCS_VERSION", "latest"),
+        k8s_docs_top_k=_as_int(os.getenv("AIOPS_K8S_DOCS_TOP_K"), 5, minimum=1),
+        k8s_docs_chunk_chars=_as_int(os.getenv("AIOPS_K8S_DOCS_CHUNK_CHARS"), 1800, minimum=500),
     )
