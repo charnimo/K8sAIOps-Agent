@@ -8,6 +8,7 @@ EXPECTED_TOOL_PATHS = {
     "/",
     "/dashboard/summary",
     "/events",
+    "/cluster/version",
     "/resources/pods",
     "/resources/deployments",
     "/resources/services",

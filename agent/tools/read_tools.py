@@ -556,6 +556,17 @@ def build_read_tools(token: str) -> list:
     # ── NODES ─────────────────────────────────────────────────────────────────
 
     @tool
+    def get_cluster_version() -> dict:
+        """
+        Get Kubernetes API server version metadata.
+
+        Returns major/minor version, git version, platform, and docs_version
+        in the form v1.xx. Use docs_version when searching Kubernetes
+        documentation for version-specific behavior.
+        """
+        return client.get("/cluster/version")
+
+    @tool
     def list_nodes() -> list:
         """
         List all nodes in the cluster.
@@ -722,7 +733,7 @@ def build_read_tools(token: str) -> list:
         list_network_policies, get_network_policy,
         list_hpas, get_hpa, get_hpa_issues,
         list_resource_quotas, list_limit_ranges,
-        list_nodes, get_node, get_node_issues, get_node_events,
+        get_cluster_version, list_nodes, get_node, get_node_issues, get_node_events,
         list_namespaces, get_namespace, get_namespace_resource_count,
         list_pvs, get_pv, list_pvcs, get_pvc, get_pvc_issues,
         list_storage_classes,

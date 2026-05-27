@@ -4,6 +4,7 @@ import asyncio
 from dataclasses import dataclass
 import json
 import os
+import re
 import shlex
 import shutil
 import tempfile
@@ -14,7 +15,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, WebSocket
 from jose import ExpiredSignatureError, JWTError, jwt
 from sqlalchemy.orm import Session
 
-from Tools import namespaces, nodes, storage
+from Tools import client as k8s_client, namespaces, nodes, storage
 from app.api.mutations import run_direct_action
 from app.auth.dependencies import require_permission
 from app.auth.security import ALGORITHM, SECRET_KEY
@@ -530,6 +531,31 @@ def list_nodes(user: User = Depends(require_permission("cluster:nodes:read"))) -
     """List cluster nodes."""
     try:
         return nodes.list_nodes()
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.get("/version")
+def get_cluster_version(user: User = Depends(require_permission("dashboard:read"))) -> dict:
+    """Return Kubernetes API server version metadata for docs matching."""
+    try:
+        info = k8s_client.get_version_api().get_code()
+        major = str(getattr(info, "major", "") or "")
+        minor = str(getattr(info, "minor", "") or "")
+        clean_minor = re.sub(r"\D.*$", "", minor)
+        docs_version = f"v{major}.{clean_minor}" if major and clean_minor else None
+        return {
+            "major": major,
+            "minor": minor,
+            "git_version": getattr(info, "git_version", None),
+            "git_commit": getattr(info, "git_commit", None),
+            "git_tree_state": getattr(info, "git_tree_state", None),
+            "build_date": getattr(info, "build_date", None),
+            "go_version": getattr(info, "go_version", None),
+            "compiler": getattr(info, "compiler", None),
+            "platform": getattr(info, "platform", None),
+            "docs_version": docs_version,
+        }
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 

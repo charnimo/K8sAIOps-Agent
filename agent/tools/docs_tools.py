@@ -6,6 +6,7 @@ from langchain_core.tools import tool
 
 from agent.rag import search_kubernetes_docs as _search_kubernetes_docs
 from app.core.settings import get_settings
+from ._client import AgentApiClient
 
 
 def build_docs_tools(token: str | None = None) -> list:
@@ -14,6 +15,8 @@ def build_docs_tools(token: str | None = None) -> list:
     The token argument is accepted for consistency with the other tool builders.
     Documentation search does not call the cluster API and does not require RBAC.
     """
+
+    client = AgentApiClient(token) if token else None
 
     @tool
     def search_kubernetes_docs(
@@ -45,7 +48,7 @@ def build_docs_tools(token: str | None = None) -> list:
             }
 
         bounded_limit = min(max(int(limit or settings.k8s_docs_top_k), 1), 10)
-        requested_version = version or settings.k8s_docs_version
+        requested_version = version or _cluster_docs_version(client) or settings.k8s_docs_version
         return _search_kubernetes_docs(
             query,
             index_path=settings.k8s_docs_index_path,
@@ -55,3 +58,16 @@ def build_docs_tools(token: str | None = None) -> list:
         )
 
     return [search_kubernetes_docs]
+
+
+def _cluster_docs_version(client: AgentApiClient | None) -> str | None:
+    if client is None:
+        return None
+    try:
+        payload = client.get("/cluster/version")
+    except Exception:
+        return None
+    if not isinstance(payload, dict) or payload.get("error"):
+        return None
+    docs_version = payload.get("docs_version")
+    return str(docs_version) if docs_version else None
