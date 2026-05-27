@@ -9,14 +9,17 @@ from __future__ import annotations
 
 from collections import Counter
 from dataclasses import asdict, dataclass
+from datetime import datetime, timezone
 import json
 import math
 from pathlib import Path
 import re
+import subprocess
 from typing import Any, Iterable
 
 
 INDEX_FILENAME = "index.json"
+METADATA_FILENAME = "metadata.json"
 KUBERNETES_DOCS_CONTENT_ROOT = Path("content") / "en" / "docs"
 DEFAULT_RESULT_LIMIT = 5
 DEFAULT_INCLUDED_DOC_PATHS = (
@@ -69,6 +72,7 @@ def build_kubernetes_docs_index(
     chunk_chars: int = 1800,
     include_paths: tuple[str, ...] = DEFAULT_INCLUDED_DOC_PATHS,
     exclude_paths: tuple[str, ...] = DEFAULT_EXCLUDED_DOC_PATHS,
+    source_repo_url: str | None = None,
 ) -> dict[str, Any]:
     """Parse Kubernetes Markdown docs and persist a local retrieval index."""
     source_root = Path(source_path)
@@ -81,6 +85,7 @@ def build_kubernetes_docs_index(
 
     chunks: list[KubernetesDocsChunk] = []
     skipped_file_count = 0
+    indexed_file_count = 0
     for markdown_path in sorted(content_root.rglob("*.md")):
         rel_path = markdown_path.relative_to(content_root).as_posix()
         if not _is_indexable_doc_path(
@@ -91,6 +96,7 @@ def build_kubernetes_docs_index(
             skipped_file_count += 1
             continue
 
+        indexed_file_count += 1
         chunks.extend(
             _chunks_for_markdown_file(
                 markdown_path=markdown_path,
@@ -100,29 +106,80 @@ def build_kubernetes_docs_index(
             )
         )
 
+    metadata = {
+        "source": "kubernetes/website",
+        "source_repo_url": source_repo_url,
+        "source_path": str(source_root),
+        "source_git_commit": _git_commit(source_root),
+        "version": version,
+        "version_slug": _version_slug(version),
+        "chunk_chars": chunk_chars,
+        "chunk_count": len(chunks),
+        "indexed_file_count": indexed_file_count,
+        "included_paths": list(include_paths),
+        "excluded_paths": list(exclude_paths),
+        "skipped_file_count": skipped_file_count,
+        "built_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        "format": 1,
+    }
     payload = {
-        "metadata": {
-            "source": "kubernetes/website",
-            "version": version,
-            "version_slug": _version_slug(version),
-            "chunk_chars": chunk_chars,
-            "chunk_count": len(chunks),
-            "included_paths": list(include_paths),
-            "excluded_paths": list(exclude_paths),
-            "skipped_file_count": skipped_file_count,
-            "format": 1,
-        },
+        "metadata": metadata,
         "chunks": [asdict(chunk) for chunk in chunks],
     }
     target_dir = _versioned_index_path(Path(index_path), version)
     target_dir.mkdir(parents=True, exist_ok=True)
     index_file = target_dir / INDEX_FILENAME
+    metadata_file = target_dir / METADATA_FILENAME
     payload["metadata"]["index_file"] = str(index_file)
+    payload["metadata"]["metadata_file"] = str(metadata_file)
+    metadata_file.write_text(
+        json.dumps(payload["metadata"], ensure_ascii=True, indent=2),
+        encoding="utf-8",
+    )
     index_file.write_text(
         json.dumps(payload, ensure_ascii=True, indent=2),
         encoding="utf-8",
     )
     return payload["metadata"]
+
+
+def get_kubernetes_docs_index_status(
+    *,
+    index_path: str | Path | None = None,
+    version: str | None = None,
+) -> dict[str, Any]:
+    """Return lightweight readiness metadata for the local docs index."""
+    resolved_index_path = Path(index_path) if index_path else _default_index_path()
+    index_file = _resolve_index_file(resolved_index_path, version)
+    available_versions = _available_index_versions(resolved_index_path)
+
+    if not index_file.exists():
+        return {
+            "ready": False,
+            "index_path": str(resolved_index_path),
+            "requested_version": version,
+            "available_versions": available_versions,
+            "error": "docs_index_not_found",
+        }
+
+    metadata = _read_index_metadata(index_file)
+    return {
+        "ready": True,
+        "index_path": str(resolved_index_path),
+        "index_file": str(index_file),
+        "requested_version": version,
+        "version": metadata.get("version"),
+        "fallback": _is_version_fallback(version, metadata.get("version")),
+        "available_versions": available_versions,
+        "chunk_count": metadata.get("chunk_count"),
+        "indexed_file_count": metadata.get("indexed_file_count"),
+        "skipped_file_count": metadata.get("skipped_file_count"),
+        "included_paths": metadata.get("included_paths", []),
+        "excluded_paths": metadata.get("excluded_paths", []),
+        "source_git_commit": metadata.get("source_git_commit"),
+        "built_at": metadata.get("built_at"),
+        "format": metadata.get("format"),
+    }
 
 
 def _is_indexable_doc_path(
@@ -185,6 +242,45 @@ def _is_version_fallback(requested_version: str | None, resolved_version: Any) -
     if not requested_version:
         return False
     return _version_slug(requested_version) != _version_slug(str(resolved_version or ""))
+
+
+def _available_index_versions(index_path: Path) -> list[str]:
+    versions: list[str] = []
+    if (index_path / INDEX_FILENAME).exists():
+        versions.append("legacy")
+    if not index_path.exists():
+        return versions
+    for child in sorted(index_path.iterdir()):
+        if child.is_dir() and (child / INDEX_FILENAME).exists():
+            versions.append(child.name)
+    return versions
+
+
+def _read_index_metadata(index_file: Path) -> dict[str, Any]:
+    metadata_file = index_file.parent / METADATA_FILENAME
+    if metadata_file.exists():
+        return json.loads(metadata_file.read_text(encoding="utf-8"))
+
+    payload = json.loads(index_file.read_text(encoding="utf-8"))
+    metadata = payload.get("metadata", {})
+    return metadata if isinstance(metadata, dict) else {}
+
+
+def _git_commit(source_root: Path) -> str | None:
+    git_dir = source_root / ".git"
+    if not git_dir.exists():
+        return None
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(source_root), "rev-parse", "HEAD"],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except (FileNotFoundError, subprocess.CalledProcessError):
+        return None
+    commit = result.stdout.strip()
+    return commit or None
 
 
 def search_kubernetes_docs(

@@ -44,6 +44,7 @@ def main() -> int:
         index_path=args.index_path,
         version=args.version,
         chunk_chars=args.chunk_chars,
+        source_repo_url=args.repo_url,
     )
     print(
         "Indexed {chunk_count} Kubernetes docs chunks into {index_file} "

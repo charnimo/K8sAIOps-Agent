@@ -6,7 +6,11 @@ import json
 
 import pytest
 
-from agent.rag.kubernetes_docs import build_kubernetes_docs_index, search_kubernetes_docs
+from agent.rag.kubernetes_docs import (
+    build_kubernetes_docs_index,
+    get_kubernetes_docs_index_status,
+    search_kubernetes_docs,
+)
 
 
 def _write_doc(source_root, relative_path: str, content: str) -> None:
@@ -180,6 +184,42 @@ Pods run containers.
     assert result["requested_version"] == "v1.35"
     assert result["fallback"] is True
     assert result["results"][0]["title"] == "Pod Lifecycle"
+
+
+@pytest.mark.unit
+def test_kubernetes_docs_index_writes_metadata_and_status(tmp_path):
+    source_root = tmp_path / "website"
+    index_root = tmp_path / "index"
+    _write_doc(
+        source_root,
+        "concepts/workloads/pods/pod-lifecycle.md",
+        """---
+title: Pod Lifecycle
+---
+
+Pods run containers.
+""",
+    )
+
+    metadata = build_kubernetes_docs_index(
+        source_path=source_root,
+        index_path=index_root,
+        version="v1.36",
+        source_repo_url="https://github.com/kubernetes/website.git",
+    )
+    metadata_path = index_root / "v1.36" / "metadata.json"
+    stored_metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    status = get_kubernetes_docs_index_status(index_path=index_root, version="v1.36")
+
+    assert metadata_path.exists()
+    assert metadata["metadata_file"] == str(metadata_path)
+    assert stored_metadata["source_repo_url"] == "https://github.com/kubernetes/website.git"
+    assert stored_metadata["built_at"].endswith("Z")
+    assert status["ready"] is True
+    assert status["version"] == "v1.36"
+    assert status["chunk_count"] == metadata["chunk_count"]
+    assert status["fallback"] is False
+    assert "v1.36" in status["available_versions"]
 
 
 @pytest.mark.unit

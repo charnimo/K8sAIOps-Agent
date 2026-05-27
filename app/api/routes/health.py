@@ -2,6 +2,7 @@
 
 from fastapi import APIRouter, Response
 
+from agent.rag import get_kubernetes_docs_index_status
 from app.core.settings import get_settings
 
 
@@ -27,4 +28,8 @@ def health_check() -> dict:
         "version": settings.api_version,
         "read_only_mode": settings.read_only_mode,
         "mutations_enabled": settings.mutations_enabled,
+        "kubernetes_docs_rag": {
+            "enabled": settings.k8s_docs_rag_enabled,
+            **get_kubernetes_docs_index_status(version=settings.k8s_docs_version),
+        },
     }

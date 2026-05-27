@@ -33,7 +33,9 @@ Indexes are stored by version:
 
 ```text
 data/k8s-docs-index/latest/index.json
+data/k8s-docs-index/latest/metadata.json
 data/k8s-docs-index/v1.36/index.json
+data/k8s-docs-index/v1.36/metadata.json
 ```
 
 ## Runtime Behavior
@@ -44,6 +46,18 @@ data/k8s-docs-index/v1.36/index.json
 - If the cluster version cannot be read, it uses `AIOPS_K8S_DOCS_VERSION`.
 - If the index is missing, the tool returns `docs_index_not_found` instead of failing the chat request.
 - Documentation results include page title, section, URL, version, score, and excerpt.
+- `/health` reports whether the configured Kubernetes docs index is ready.
+
+## Index Metadata
+
+Each versioned index writes `metadata.json` with:
+
+- docs version and version slug
+- Kubernetes website git commit, when available
+- build timestamp
+- indexed and skipped file counts
+- chunk count
+- included and excluded path filters
 
 ## Configuration
 
