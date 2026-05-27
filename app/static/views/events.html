@@ -54,7 +54,7 @@
 	.evnt-event.selected-ai .evnt-btn-ai { background: rgba(6, 182, 212, 0.25); border-color: #06b6d4; color: #fff; box-shadow: 0 0 8px rgba(6, 182, 212, 0.3); }
 
 	.evnt-delete-btn { position: absolute; right: 14px; bottom: 12px; color: #475569; background: transparent; border: none; cursor: pointer; padding: 4px; border-radius: 4px; opacity: 0; transition: all 0.15s; }
-	.evnt-event:hover .evnt-delete-btn { position: absolute; right: 14px; bottom: 12px; color: #475569; background: transparent; border: none; cursor: pointer; padding: 4px; border-radius: 4px; opacity: 0; transition: all 0.15s; }
+	.evnt-event:hover .evnt-delete-btn { opacity: 1; }
 	.evnt-delete-btn:hover { color: #f43f5e; background: rgba(244, 63, 94, 0.1); }
 
 	.evnt-detail-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; color: #475569; gap: 8px; padding: 48px; text-align: center; }
@@ -69,7 +69,6 @@
 	.evnt-log-snapshot { background: #020617; border: 1px solid #1e293b; border-radius: 6px; padding: 12px; font-family: monospace; font-size: 11px; color: #94a3b8; line-height: 1.6; overflow-x: auto; white-space: pre-wrap; }
 	.evnt-confidence-bar { height: 4px; background: #1e293b; border-radius: 2px; overflow: hidden; width: 80px; display: inline-block; vertical-align: middle; margin-left: 6px; }
 	.evnt-confidence-fill { height: 100%; background: #06b6d4; }
-
 
 	.raw-event-item { background: #090d16; border: 1px solid #1e293b; padding: 12px; border-radius: 6px; margin-bottom: 8px; }
 	.raw-event-reason { font-size: 11px; font-weight: 700; color: #e2e8f0; margin-bottom: 4px; display: flex; justify-content: space-between; }
@@ -165,6 +164,7 @@
 			const container = document.getElementById('evntFeed');
 			if (!container) return;
 
+			// Hide INFO level
 			const filtered = events.filter(e => {
 				if (!showInfoEvents && e.severity === 'INFO') return false;
 				if (filterLevel !== 'ALL' && e.severity !== filterLevel) return false;
@@ -347,7 +347,13 @@
 					</div>
 
 					<div>
-						<div class="evnt-section-title">Remediation Blueprint</div>
+						<div class="flex items-center justify-between mb-3 border-b border-[#1e293b] pb-2">
+							<div class="evnt-section-title" style="border:none; margin:0; padding:0;">Remediation Blueprint</div>
+							<button onclick="window.evntCtrl.fixWithAI('${evt.incident_id}')" class="bg-cyan-600 hover:bg-cyan-500 text-white px-3 py-1.5 rounded text-[10px] font-bold uppercase tracking-wide flex items-center gap-1.5 transition-colors">
+								<svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+								Fix with AI
+							</button>
+						</div>
 						<div class="space-y-2">${remediationHtml}</div>
 					</div>
 
@@ -461,6 +467,19 @@
 				} else {
 					renderDetailAi(evt);
 				}
+			},
+			fixWithAI(incidentId) {
+				const openBtn = document.getElementById('openAiChatBtn');
+				if (openBtn) openBtn.click();
+				
+				setTimeout(() => {
+					const input = document.getElementById('chatDrawerInput');
+					const sendBtn = document.getElementById('chatDrawerSendBtn');
+					if (input && sendBtn) {
+						input.value = `Please review incident ${incidentId}. Read its remediation plan and execute the recommended fix.`;
+						sendBtn.click();
+					}
+				}, 400); // small delay to allow drawer to animate open
 			},
 			async deleteEvent(id, evtObj) {
 				if (evtObj) evtObj.stopPropagation();

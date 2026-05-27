@@ -49,6 +49,7 @@ class AgentNotifier:
         self._state      = app_state
         self._queue: asyncio.Queue = asyncio.Queue(maxsize=200)
         self._task: asyncio.Task | None = None
+        self._janitor_task: asyncio.Task | None = None
         self._recent_events: dict[str, float] = {}
         self._dedupe_window = 300 # 5-minute cooldown
         self._processing_semaphore = asyncio.Semaphore(1)
@@ -82,11 +83,14 @@ class AgentNotifier:
 
         self._dispatcher.dispatch = patched_dispatch
         self._task = asyncio.create_task(self._worker())
+        self._janitor_task = asyncio.create_task(self._cooldown_janitor())
         log.info("AgentNotifier attached to dispatcher")
 
     def detach(self):
         if self._task:
             self._task.cancel()
+        if self._janitor_task:
+            self._janitor_task.cancel()
 
     async def _worker(self):
         while True:
@@ -102,6 +106,51 @@ class AgentNotifier:
                 log.error("Agent notification failed for %s: %s", event.event_id, exc)
             finally:
                 self._queue.task_done()
+
+    async def _cooldown_janitor(self):
+        """Scans for expired cooldown windows and automatically marks open incidents as RESOLVED."""
+        while True:
+            await asyncio.sleep(30) # scan every 30 seconds
+            try:
+                now = time.time()
+                expired_keys = []
+                for key, last_seen_ts in list(self._recent_events.items()):
+                    if now - last_seen_ts >= self._dedupe_window:
+                        expired_keys.append(key)
+                        
+                if expired_keys:
+                    from app.database.database import SessionLocal
+                    from app.database.models import IncidentRecord as IncidentRecordModel
+                    from datetime import datetime
+                    
+                    db = SessionLocal()
+                    try:
+                        for key in expired_keys:
+                            del self._recent_events[key]
+                            # Key signature: namespace/resource_name/category
+                            parts = key.split("/")
+                            if len(parts) >= 2:
+                                namespace, resource_name = parts[0], parts[1]
+                                # Find the latest open/investigating incident and close it as RESOLVED
+                                record = db.query(IncidentRecordModel).filter(
+                                    IncidentRecordModel.namespace == namespace,
+                                    IncidentRecordModel.resource_name == resource_name,
+                                    IncidentRecordModel.status.in_(["OPEN", "INVESTIGATING"])
+                                ).order_by(IncidentRecordModel.created_at.desc()).first()
+                                
+                                if record:
+                                    record.status = "RESOLVED"
+                                    record.closed_at = datetime.utcnow()
+                                    db.commit()
+                                    log.info("Incident %s automatically resolved after 5-minute cooldown expired", record.incident_id)
+                    except Exception as e:
+                        log.error("Janitor failed to auto-resolve incidents: %s", e)
+                    finally:
+                        db.close()
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                log.error("Janitor background task crash: %s", exc)
 
     async def _notify_agent(self, event):
         from app.api.routes.chat import handle_agent_event

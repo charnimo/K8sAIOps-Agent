@@ -1,4 +1,3 @@
-
 from sqlalchemy.orm import Session
 from app.database.database import get_db
 from app.database.models import IncidentRecord as IncidentRecordModel
@@ -69,18 +68,23 @@ from sqlalchemy.orm import Session
 from app.database.database import get_db
 from app.database.models import IncidentRecord as IncidentRecordModel
 from app.auth.dependencies import get_current_user
-
 @router.get("/events/incidents")
 def list_incidents(
     namespace: Optional[str] = Query(default=None),
+    status: Optional[str] = Query(default=None),
+    severity: Optional[str] = Query(default=None),
     limit: int = Query(default=50, ge=1, le=100),
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> list[dict]:
     """List incidents, excluding ones the user has dismissed."""
     query = db.query(IncidentRecordModel)
+    if status:
+        query = query.filter(IncidentRecordModel.status == status)
     if namespace:
         query = query.filter(IncidentRecordModel.namespace == namespace)
+    if severity:
+        query = query.filter(IncidentRecordModel.severity == severity.upper())
         
     records = query.order_by(IncidentRecordModel.created_at.desc()).limit(limit).all()
     
@@ -104,7 +108,7 @@ def list_incidents(
             "detailed_summary": r.detailed_summary,
             "collected_diagnostics": r.collected_diagnostics,
             "root_cause_analysis": r.root_cause_analysis,
-            "remediation_plan": r.suggested_actions, # Map to suggested or remediation
+            "remediation_plan": r.suggested_actions,
             "status": r.status,
             "created_at": r.created_at.isoformat() if r.created_at else None,
             "_is_viewed": is_viewed
@@ -188,5 +192,28 @@ def dismiss_all_incidents(
             dismiss_list.append(user.username)
             record.dismissed_by = dismiss_list
             
+    db.commit()
+    return {"success": True}
+
+@router.delete("/events/incidents")
+def delete_all_incidents(
+    namespace: Optional[str] = Query(default=None),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> dict:
+    query = db.query(IncidentRecordModel)
+    if namespace:
+        query = query.filter(IncidentRecordModel.namespace == namespace)
+    query.delete(synchronize_session=False)
+    db.commit()
+    return {"success": True}
+
+@router.delete("/events/incidents/{incident_id}")
+def delete_single_incident(
+    incident_id: str,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> dict:
+    db.query(IncidentRecordModel).filter(IncidentRecordModel.incident_id == incident_id).delete(synchronize_session=False)
     db.commit()
     return {"success": True}

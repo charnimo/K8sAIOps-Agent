@@ -139,8 +139,56 @@ def build_diagnostic_tools(token: str) -> list:
         """
         return client.get("/dashboard/summary", {"namespace": namespace})
 
+
+    @tool
+    def get_recent_incidents(severity: str = None, limit: int = 5, namespace: str = None) -> list:
+        """
+        Get a list of recent automated incidents detected by the passive AI monitor.
+        Use this to find out what went wrong in the cluster recently.
+        Returns a compact summary (ID, resource, severity, summary, status).
+        
+        Args:
+            severity: Filter by 'CRITICAL' or 'WARNING' (optional).
+            limit: Number of incidents to return. Defaults to 5.
+            namespace: Filter by namespace (optional).
+        """
+        params = {"limit": limit}
+        if severity: params["severity"] = severity
+        if namespace: params["namespace"] = namespace
+        
+        res = client.get("/events/incidents", params)
+        if isinstance(res, list):
+            # Condense the payload to save tokens
+            return [{
+                "incident_id": r.get("incident_id"),
+                "severity": r.get("severity"),
+                "resource": f"{r.get('namespace')}/{r.get('resource_name')}",
+                "status": r.get("status"),
+                "summary": r.get("summary")
+            } for r in res]
+        return res
+
+    @tool
+    def get_incident_details(incident_id: str) -> dict:
+        """
+        Get the full AI diagnostic report, root cause analysis, and remediation plan 
+        for a specific incident ID (e.g. 'inc_1234567890').
+        
+        Use this before attempting to fix an incident to understand exactly what the 
+        background monitor discovered and what steps it recommends.
+        """
+        res = client.get(f"/events/incidents/{incident_id}")
+        if isinstance(res, dict):
+            # Drop the massive log snapshot to save LLM context window space;
+            # The root_cause_analysis already summarizes the log findings.
+            res.pop("log_snapshot", None)
+            res.pop("collected_diagnostics", None)
+        return res
+
     return [
-        diagnose_pod,
+        diagnose_pod,        get_recent_incidents,
+        get_incident_details,
+
         diagnose_deployment,
         diagnose_service,
         diagnose_cluster,
