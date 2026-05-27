@@ -55,6 +55,11 @@ def build_docs_tools(token: str | None = None) -> list:
             version=requested_version,
             resource_kind=resource_kind,
             limit=bounded_limit,
+            vector_enabled=settings.k8s_docs_vector_enabled,
+            vector_path=settings.k8s_docs_vector_path,
+            embedding_model=settings.k8s_docs_embedding_model,
+            bm25_weight=settings.k8s_docs_hybrid_bm25_weight,
+            vector_weight=settings.k8s_docs_hybrid_vector_weight,
         )
 
     return [search_kubernetes_docs]

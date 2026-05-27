@@ -290,6 +290,11 @@ def search_kubernetes_docs(
     version: str | None = None,
     resource_kind: str | None = None,
     limit: int | None = None,
+    vector_enabled: bool | None = None,
+    vector_path: str | Path | None = None,
+    embedding_model: str | None = None,
+    bm25_weight: float | None = None,
+    vector_weight: float | None = None,
 ) -> dict[str, Any]:
     """Search the local Kubernetes documentation index."""
     clean_query = (query or "").strip()
@@ -328,27 +333,211 @@ def search_kubernetes_docs(
     query_tokens = _tokenize(query_text)
     scored = _score_chunks(query_tokens, chunks)
     max_results = limit or _default_limit()
+    vector_config = _resolve_vector_config(
+        vector_enabled=vector_enabled,
+        vector_path=vector_path,
+        embedding_model=embedding_model,
+        bm25_weight=bm25_weight,
+        vector_weight=vector_weight,
+    )
 
-    results = []
-    for score, chunk in scored[:max_results]:
-        results.append(
-            {
-                "title": chunk.title,
-                "section": chunk.section,
-                "url": chunk.url,
-                "version": chunk.version,
-                "score": round(score, 4),
-                "excerpt": _excerpt(chunk.text, query_tokens),
-            }
+    retrieval_mode = "bm25"
+    vector_payload: dict[str, Any] | None = None
+    if vector_config["enabled"]:
+        vector_payload = _search_vector_index(
+            query_text,
+            vector_path=vector_config["vector_path"],
+            version=version,
+            embedding_model=vector_config["embedding_model"],
+            limit=max(max_results * 4, 10),
         )
+        if vector_payload.get("results"):
+            retrieval_mode = "hybrid"
+
+    if retrieval_mode == "hybrid":
+        results = _hybrid_results(
+            bm25_scored=scored,
+            vector_results=vector_payload.get("results", []) if vector_payload else [],
+            chunks=chunks,
+            query_tokens=query_tokens,
+            limit=max_results,
+            bm25_weight=float(vector_config["bm25_weight"]),
+            vector_weight=float(vector_config["vector_weight"]),
+        )
+    else:
+        results = _bm25_results(scored, query_tokens=query_tokens, limit=max_results)
 
     return {
         "query": clean_query,
         "requested_version": version,
         "version": payload.get("metadata", {}).get("version"),
         "fallback": _is_version_fallback(version, payload.get("metadata", {}).get("version")),
+        "retrieval_mode": retrieval_mode,
+        "vector_error": vector_payload.get("error") if vector_payload else None,
         "results": results,
     }
+
+
+def _bm25_results(
+    scored: list[tuple[float, KubernetesDocsChunk]],
+    *,
+    query_tokens: list[str],
+    limit: int,
+) -> list[dict[str, Any]]:
+    return [
+        _result_from_chunk(
+            chunk,
+            query_tokens=query_tokens,
+            score=score,
+            bm25_score=score,
+            vector_score=None,
+        )
+        for score, chunk in scored[:limit]
+    ]
+
+
+def _hybrid_results(
+    *,
+    bm25_scored: list[tuple[float, KubernetesDocsChunk]],
+    vector_results: list[dict[str, Any]],
+    chunks: list[KubernetesDocsChunk],
+    query_tokens: list[str],
+    limit: int,
+    bm25_weight: float,
+    vector_weight: float,
+) -> list[dict[str, Any]]:
+    chunks_by_id = {chunk.id: chunk for chunk in chunks}
+    merged: dict[str, dict[str, Any]] = {}
+
+    for rank, (bm25_score, chunk) in enumerate(bm25_scored[: max(limit * 4, 10)], start=1):
+        item = merged.setdefault(
+            chunk.id,
+            {"chunk": chunk, "hybrid_score": 0.0, "bm25_score": bm25_score, "vector_score": None},
+        )
+        item["hybrid_score"] += bm25_weight / rank
+        item["bm25_score"] = bm25_score
+
+    for rank, vector_result in enumerate(vector_results, start=1):
+        chunk_id = str(vector_result.get("id") or "")
+        if not chunk_id:
+            continue
+        chunk = chunks_by_id.get(chunk_id) or _chunk_from_vector_result(chunk_id, vector_result)
+        item = merged.setdefault(
+            chunk_id,
+            {"chunk": chunk, "hybrid_score": 0.0, "bm25_score": None, "vector_score": None},
+        )
+        item["hybrid_score"] += vector_weight / rank
+        item["vector_score"] = _safe_float(vector_result.get("score"))
+
+    ranked = sorted(merged.values(), key=lambda item: item["hybrid_score"], reverse=True)
+    return [
+        _result_from_chunk(
+            item["chunk"],
+            query_tokens=query_tokens,
+            score=item["hybrid_score"],
+            bm25_score=item["bm25_score"],
+            vector_score=item["vector_score"],
+        )
+        for item in ranked[:limit]
+    ]
+
+
+def _result_from_chunk(
+    chunk: KubernetesDocsChunk,
+    *,
+    query_tokens: list[str],
+    score: float,
+    bm25_score: float | None,
+    vector_score: float | None,
+) -> dict[str, Any]:
+    return {
+        "title": chunk.title,
+        "section": chunk.section,
+        "url": chunk.url,
+        "version": chunk.version,
+        "score": round(score, 4),
+        "bm25_score": round(bm25_score, 4) if bm25_score is not None else None,
+        "vector_score": round(vector_score, 4) if vector_score is not None else None,
+        "excerpt": _excerpt(chunk.text, query_tokens),
+    }
+
+
+def _chunk_from_vector_result(chunk_id: str, vector_result: dict[str, Any]) -> KubernetesDocsChunk:
+    metadata = vector_result.get("metadata") if isinstance(vector_result.get("metadata"), dict) else {}
+    document = str(vector_result.get("document") or "")
+    return KubernetesDocsChunk(
+        id=chunk_id,
+        title=str(metadata.get("title") or "Kubernetes documentation"),
+        section=str(metadata.get("section") or ""),
+        url=str(metadata.get("url") or "https://kubernetes.io/docs/"),
+        version=str(metadata.get("version") or "latest"),
+        path=str(metadata.get("path") or ""),
+        text=document,
+        tokens=_tokenize(document),
+    )
+
+
+def _resolve_vector_config(
+    *,
+    vector_enabled: bool | None,
+    vector_path: str | Path | None,
+    embedding_model: str | None,
+    bm25_weight: float | None,
+    vector_weight: float | None,
+) -> dict[str, Any]:
+    if (
+        vector_enabled is not None
+        and vector_path is not None
+        and embedding_model is not None
+        and bm25_weight is not None
+        and vector_weight is not None
+    ):
+        return {
+            "enabled": bool(vector_enabled),
+            "vector_path": str(vector_path),
+            "embedding_model": embedding_model,
+            "bm25_weight": float(bm25_weight),
+            "vector_weight": float(vector_weight),
+        }
+
+    from app.core.settings import get_settings
+
+    settings = get_settings()
+    return {
+        "enabled": bool(settings.k8s_docs_vector_enabled if vector_enabled is None else vector_enabled),
+        "vector_path": str(vector_path or settings.k8s_docs_vector_path),
+        "embedding_model": embedding_model or settings.k8s_docs_embedding_model,
+        "bm25_weight": float(bm25_weight if bm25_weight is not None else settings.k8s_docs_hybrid_bm25_weight),
+        "vector_weight": float(
+            vector_weight if vector_weight is not None else settings.k8s_docs_hybrid_vector_weight
+        ),
+    }
+
+
+def _search_vector_index(
+    query: str,
+    *,
+    vector_path: str | Path,
+    version: str | None,
+    embedding_model: str,
+    limit: int,
+) -> dict[str, Any]:
+    from agent.rag.vector_store import search_kubernetes_docs_vector_index
+
+    return search_kubernetes_docs_vector_index(
+        query,
+        vector_path=vector_path,
+        version=version,
+        embedding_model=embedding_model,
+        limit=limit,
+    )
+
+
+def _safe_float(value: Any) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return 0.0
 
 
 def _chunks_for_markdown_file(

@@ -134,6 +134,76 @@ def get_kubernetes_docs_vector_status(
     }
 
 
+def search_kubernetes_docs_vector_index(
+    query: str,
+    *,
+    vector_path: str | Path,
+    version: str | None = None,
+    embedding_model: str,
+    limit: int,
+    chroma_client_factory: ChromaClientFactory | None = None,
+    embedding_model_factory: EmbeddingModelFactory | None = None,
+) -> dict[str, Any]:
+    """Search the Chroma vector index for Kubernetes documentation chunks."""
+    clean_query = (query or "").strip()
+    if not clean_query:
+        return {"error": "empty_query", "results": []}
+
+    status = get_kubernetes_docs_vector_status(vector_path=vector_path, version=version)
+    if not status.get("ready"):
+        return {
+            "error": status.get("error", "vector_index_not_found"),
+            "detail": "Kubernetes docs vector index is not available.",
+            "results": [],
+        }
+
+    try:
+        client = _build_chroma_client(str(Path(status["vector_path"])), chroma_client_factory)
+        collection = client.get_collection(VECTOR_COLLECTION_NAME)
+        model = _build_embedding_model(str(status["embedding_model"] or embedding_model), embedding_model_factory)
+        embeddings = model.encode(
+            [clean_query],
+            batch_size=1,
+            normalize_embeddings=True,
+            show_progress_bar=False,
+        )
+        payload = collection.query(
+            query_embeddings=_embeddings_to_list(embeddings),
+            n_results=max(int(limit), 1),
+            include=["documents", "metadatas", "distances"],
+        )
+    except Exception as exc:
+        return {
+            "error": "vector_search_failed",
+            "detail": str(exc),
+            "results": [],
+        }
+
+    ids = _first_result_list(payload.get("ids"))
+    documents = _first_result_list(payload.get("documents"))
+    metadatas = _first_result_list(payload.get("metadatas"))
+    distances = _first_result_list(payload.get("distances"))
+    results: list[dict[str, Any]] = []
+    for index, chunk_id in enumerate(ids):
+        distance = _safe_float(distances[index] if index < len(distances) else None)
+        results.append(
+            {
+                "id": str(chunk_id),
+                "score": round(1.0 - distance, 6),
+                "distance": distance,
+                "document": str(documents[index]) if index < len(documents) else "",
+                "metadata": metadatas[index] if index < len(metadatas) and isinstance(metadatas[index], dict) else {},
+            }
+        )
+
+    return {
+        "version": status.get("version"),
+        "fallback": status.get("fallback", False),
+        "embedding_model": status.get("embedding_model"),
+        "results": results,
+    }
+
+
 def _build_chroma_client(path: str, factory: ChromaClientFactory | None) -> Any:
     if factory:
         return factory(path)
@@ -227,3 +297,20 @@ def _available_vector_versions(base_path: Path) -> list[str]:
         for child in sorted(base_path.iterdir())
         if child.is_dir() and (child / VECTOR_METADATA_FILENAME).exists()
     ]
+
+
+def _first_result_list(value: Any) -> list[Any]:
+    if not value:
+        return []
+    if isinstance(value, list) and value and isinstance(value[0], list):
+        return value[0]
+    if isinstance(value, list):
+        return value
+    return []
+
+
+def _safe_float(value: Any) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return 1.0

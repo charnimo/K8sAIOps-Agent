@@ -8,6 +8,7 @@ from .kubernetes_docs import (
 from .vector_store import (
     build_kubernetes_docs_vector_index,
     get_kubernetes_docs_vector_status,
+    search_kubernetes_docs_vector_index,
 )
 
 __all__ = [
@@ -16,4 +17,5 @@ __all__ = [
     "get_kubernetes_docs_index_status",
     "get_kubernetes_docs_vector_status",
     "search_kubernetes_docs",
+    "search_kubernetes_docs_vector_index",
 ]

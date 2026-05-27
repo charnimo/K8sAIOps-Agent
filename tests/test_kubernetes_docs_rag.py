@@ -6,6 +6,7 @@ import json
 
 import pytest
 
+from agent.rag import kubernetes_docs
 from agent.rag.kubernetes_docs import (
     build_kubernetes_docs_index,
     get_kubernetes_docs_index_status,
@@ -183,6 +184,112 @@ Pods run containers.
     assert result["version"] == "latest"
     assert result["requested_version"] == "v1.35"
     assert result["fallback"] is True
+    assert result["results"][0]["title"] == "Pod Lifecycle"
+
+
+@pytest.mark.unit
+def test_kubernetes_docs_search_merges_vector_results(tmp_path, monkeypatch):
+    source_root = tmp_path / "website"
+    index_root = tmp_path / "index"
+    _write_doc(
+        source_root,
+        "concepts/workloads/pods/pod-lifecycle.md",
+        """---
+title: Pod Lifecycle
+---
+
+Pods run containers and may restart after failures.
+""",
+    )
+    _write_doc(
+        source_root,
+        "tasks/debug/debug-application/debug-running-pod.md",
+        """---
+title: Debug Running Pods
+---
+
+Use logs and events to debug applications running in Pods.
+""",
+    )
+    build_kubernetes_docs_index(
+        source_path=source_root,
+        index_path=index_root,
+        version="latest",
+    )
+
+    def fake_vector_search(query, *, vector_path, version, embedding_model, limit):
+        return {
+            "version": "latest",
+            "results": [
+                {
+                    "id": "tasks/debug/debug-application/debug-running-pod.md:0:0",
+                    "score": 0.98,
+                    "document": "Debug Running Pods\n\nUse logs and events to debug applications running in Pods.",
+                    "metadata": {
+                        "title": "Debug Running Pods",
+                        "section": "Debug Running Pods",
+                        "url": "https://kubernetes.io/docs/tasks/debug/debug-application/debug-running-pod/",
+                        "version": "latest",
+                        "path": "tasks/debug/debug-application/debug-running-pod.md",
+                    },
+                }
+            ],
+        }
+
+    monkeypatch.setattr(kubernetes_docs, "_search_vector_index", fake_vector_search)
+
+    result = search_kubernetes_docs(
+        "app keeps failing where should I look",
+        index_path=index_root,
+        vector_enabled=True,
+        vector_path=tmp_path / "vectors",
+        embedding_model="fake-model",
+        bm25_weight=0.1,
+        vector_weight=0.9,
+    )
+
+    assert result["retrieval_mode"] == "hybrid"
+    assert result["vector_error"] is None
+    assert result["results"][0]["title"] == "Debug Running Pods"
+    assert result["results"][0]["vector_score"] == 0.98
+
+
+@pytest.mark.unit
+def test_kubernetes_docs_search_falls_back_to_bm25_when_vector_missing(tmp_path, monkeypatch):
+    source_root = tmp_path / "website"
+    index_root = tmp_path / "index"
+    _write_doc(
+        source_root,
+        "concepts/workloads/pods/pod-lifecycle.md",
+        """---
+title: Pod Lifecycle
+---
+
+Pods run containers.
+""",
+    )
+    build_kubernetes_docs_index(
+        source_path=source_root,
+        index_path=index_root,
+        version="latest",
+    )
+
+    monkeypatch.setattr(
+        kubernetes_docs,
+        "_search_vector_index",
+        lambda *args, **kwargs: {"error": "vector_index_not_found", "results": []},
+    )
+
+    result = search_kubernetes_docs(
+        "pods containers",
+        index_path=index_root,
+        vector_enabled=True,
+        vector_path=tmp_path / "vectors",
+        embedding_model="fake-model",
+    )
+
+    assert result["retrieval_mode"] == "bm25"
+    assert result["vector_error"] == "vector_index_not_found"
     assert result["results"][0]["title"] == "Pod Lifecycle"
 
 
