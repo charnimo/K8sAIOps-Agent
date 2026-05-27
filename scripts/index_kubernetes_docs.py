@@ -17,6 +17,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from agent.rag.kubernetes_docs import build_kubernetes_docs_index
+from agent.rag.vector_store import build_kubernetes_docs_vector_index
 from app.core.settings import get_settings
 
 
@@ -28,6 +29,21 @@ def main() -> int:
     parser.add_argument("--index-path", default=settings.k8s_docs_index_path)
     parser.add_argument("--version", default=settings.k8s_docs_version)
     parser.add_argument("--chunk-chars", type=int, default=settings.k8s_docs_chunk_chars)
+    parser.add_argument("--vector-path", default=settings.k8s_docs_vector_path)
+    parser.add_argument("--embedding-model", default=settings.k8s_docs_embedding_model)
+    parser.add_argument("--vector-batch-size", type=int, default=64)
+    parser.add_argument(
+        "--build-vectors",
+        action="store_true",
+        default=settings.k8s_docs_vector_enabled,
+        help="Build the Chroma vector index after the lexical docs index.",
+    )
+    parser.add_argument(
+        "--no-build-vectors",
+        action="store_false",
+        dest="build_vectors",
+        help="Skip vector index generation even if enabled by configuration.",
+    )
     parser.add_argument(
         "--skip-fetch",
         action="store_true",
@@ -54,6 +70,22 @@ def main() -> int:
             version=metadata["version"],
         )
     )
+    if args.build_vectors:
+        vector_metadata = build_kubernetes_docs_vector_index(
+            index_path=args.index_path,
+            vector_path=args.vector_path,
+            version=args.version,
+            embedding_model=args.embedding_model,
+            batch_size=args.vector_batch_size,
+        )
+        print(
+            "Indexed {vector_count} Kubernetes docs vectors into {vector_path} "
+            "with {embedding_model}.".format(
+                vector_count=vector_metadata["vector_count"],
+                vector_path=vector_metadata["vector_path"],
+                embedding_model=vector_metadata["embedding_model"],
+            )
+        )
     return 0
 
 

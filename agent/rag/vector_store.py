@@ -1,0 +1,229 @@
+"""Chroma-backed vector index for Kubernetes documentation chunks."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from datetime import datetime, timezone
+import json
+from pathlib import Path
+from typing import Any, Callable, Iterable
+
+from agent.rag.kubernetes_docs import INDEX_FILENAME, _resolve_index_file, _version_slug
+
+
+VECTOR_METADATA_FILENAME = "vector_metadata.json"
+VECTOR_COLLECTION_NAME = "kubernetes_docs"
+DEFAULT_VECTOR_BATCH_SIZE = 64
+
+ChromaClientFactory = Callable[[str], Any]
+EmbeddingModelFactory = Callable[[str], Any]
+
+
+@dataclass(frozen=True)
+class VectorSearchResult:
+    """One vector search hit."""
+
+    id: str
+    score: float
+    document: str
+    metadata: dict[str, Any]
+
+
+def build_kubernetes_docs_vector_index(
+    *,
+    index_path: str | Path,
+    vector_path: str | Path,
+    version: str = "latest",
+    embedding_model: str,
+    batch_size: int = DEFAULT_VECTOR_BATCH_SIZE,
+    chroma_client_factory: ChromaClientFactory | None = None,
+    embedding_model_factory: EmbeddingModelFactory | None = None,
+) -> dict[str, Any]:
+    """Build a persistent Chroma vector index for the versioned docs index."""
+    resolved_index_path = Path(index_path)
+    index_file = _resolve_index_file(resolved_index_path, version)
+    if not index_file.exists():
+        raise FileNotFoundError(f"Kubernetes docs index not found under {resolved_index_path}")
+
+    payload = json.loads(index_file.read_text(encoding="utf-8"))
+    chunks = payload.get("chunks", [])
+    metadata = payload.get("metadata", {})
+    if not chunks:
+        raise ValueError(f"Kubernetes docs index has no chunks: {index_file}")
+
+    version_slug = _version_slug(str(metadata.get("version") or version))
+    target_path = Path(vector_path) / version_slug
+    target_path.mkdir(parents=True, exist_ok=True)
+
+    client = _build_chroma_client(str(target_path), chroma_client_factory)
+    collection = _reset_collection(client, VECTOR_COLLECTION_NAME)
+    model = _build_embedding_model(embedding_model, embedding_model_factory)
+
+    vector_count = 0
+    for batch in _batched(chunks, max(int(batch_size), 1)):
+        ids = [str(item["id"]) for item in batch]
+        documents = [_document_text(item) for item in batch]
+        embeddings = model.encode(
+            documents,
+            batch_size=max(int(batch_size), 1),
+            normalize_embeddings=True,
+            show_progress_bar=False,
+        )
+        collection.add(
+            ids=ids,
+            documents=documents,
+            embeddings=_embeddings_to_list(embeddings),
+            metadatas=[_chunk_metadata(item) for item in batch],
+        )
+        vector_count += len(batch)
+
+    vector_metadata = {
+        "ready": True,
+        "version": metadata.get("version") or version,
+        "version_slug": version_slug,
+        "embedding_model": embedding_model,
+        "vector_count": vector_count,
+        "source_index_file": str(index_file),
+        "vector_path": str(target_path),
+        "collection": VECTOR_COLLECTION_NAME,
+        "built_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        "format": 1,
+    }
+    metadata_file = target_path / VECTOR_METADATA_FILENAME
+    metadata_file.write_text(
+        json.dumps(vector_metadata, ensure_ascii=True, indent=2),
+        encoding="utf-8",
+    )
+    vector_metadata["metadata_file"] = str(metadata_file)
+    return vector_metadata
+
+
+def get_kubernetes_docs_vector_status(
+    *,
+    vector_path: str | Path,
+    version: str | None = None,
+) -> dict[str, Any]:
+    """Return lightweight readiness metadata for the vector index."""
+    base_path = Path(vector_path)
+    metadata_file = _resolve_vector_metadata_file(base_path, version)
+    available_versions = _available_vector_versions(base_path)
+    if not metadata_file.exists():
+        return {
+            "ready": False,
+            "vector_path": str(base_path),
+            "requested_version": version,
+            "available_versions": available_versions,
+            "error": "vector_index_not_found",
+        }
+
+    metadata = json.loads(metadata_file.read_text(encoding="utf-8"))
+    return {
+        "ready": True,
+        "vector_path": str(metadata_file.parent),
+        "metadata_file": str(metadata_file),
+        "requested_version": version,
+        "version": metadata.get("version"),
+        "fallback": _version_slug(version) != _version_slug(str(metadata.get("version") or ""))
+        if version else False,
+        "available_versions": available_versions,
+        "embedding_model": metadata.get("embedding_model"),
+        "vector_count": metadata.get("vector_count"),
+        "source_index_file": metadata.get("source_index_file"),
+        "built_at": metadata.get("built_at"),
+        "format": metadata.get("format"),
+    }
+
+
+def _build_chroma_client(path: str, factory: ChromaClientFactory | None) -> Any:
+    if factory:
+        return factory(path)
+    try:
+        import chromadb
+    except ImportError as exc:
+        raise RuntimeError("chromadb is required to build the Kubernetes docs vector index.") from exc
+    return chromadb.PersistentClient(path=path)
+
+
+def _build_embedding_model(model_name: str, factory: EmbeddingModelFactory | None) -> Any:
+    if factory:
+        return factory(model_name)
+    try:
+        from sentence_transformers import SentenceTransformer
+    except ImportError as exc:
+        raise RuntimeError("sentence-transformers is required to embed Kubernetes docs chunks.") from exc
+    return SentenceTransformer(model_name)
+
+
+def _reset_collection(client: Any, name: str) -> Any:
+    try:
+        client.delete_collection(name)
+    except Exception:
+        pass
+    return client.get_or_create_collection(
+        name,
+        metadata={"hnsw:space": "cosine"},
+    )
+
+
+def _document_text(chunk: dict[str, Any]) -> str:
+    return "\n\n".join(
+        item
+        for item in [
+            str(chunk.get("title") or "").strip(),
+            str(chunk.get("section") or "").strip(),
+            str(chunk.get("text") or "").strip(),
+        ]
+        if item
+    )
+
+
+def _chunk_metadata(chunk: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "title": str(chunk.get("title") or ""),
+        "section": str(chunk.get("section") or ""),
+        "url": str(chunk.get("url") or ""),
+        "version": str(chunk.get("version") or ""),
+        "path": str(chunk.get("path") or ""),
+        "doc_area": _doc_area(str(chunk.get("path") or "")),
+    }
+
+
+def _doc_area(path: str) -> str:
+    return path.split("/", 1)[0] if path else ""
+
+
+def _embeddings_to_list(embeddings: Any) -> list[list[float]]:
+    if hasattr(embeddings, "tolist"):
+        return embeddings.tolist()
+    return [list(item) for item in embeddings]
+
+
+def _batched(items: list[Any], batch_size: int) -> Iterable[list[Any]]:
+    for start in range(0, len(items), batch_size):
+        yield items[start : start + batch_size]
+
+
+def _resolve_vector_metadata_file(base_path: Path, version: str | None) -> Path:
+    for candidate in _candidate_vector_metadata_files(base_path, version):
+        if candidate.exists():
+            return candidate
+    candidates = _candidate_vector_metadata_files(base_path, version)
+    return candidates[0] if candidates else base_path / "latest" / VECTOR_METADATA_FILENAME
+
+
+def _candidate_vector_metadata_files(base_path: Path, version: str | None) -> list[Path]:
+    candidates: list[Path] = []
+    if version:
+        candidates.append(base_path / _version_slug(version) / VECTOR_METADATA_FILENAME)
+    candidates.append(base_path / "latest" / VECTOR_METADATA_FILENAME)
+    return candidates
+
+
+def _available_vector_versions(base_path: Path) -> list[str]:
+    if not base_path.exists():
+        return []
+    return [
+        child.name
+        for child in sorted(base_path.iterdir())
+        if child.is_dir() and (child / VECTOR_METADATA_FILENAME).exists()
+    ]
