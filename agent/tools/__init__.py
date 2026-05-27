@@ -33,6 +33,7 @@ from enum import Enum
 from .action_tools import build_action_tools
 from .cluster_tools import build_cluster_tools
 from .diagnostic_tools import build_diagnostic_tools
+from .docs_tools import build_docs_tools
 from .observability_tools import build_observability_tools
 from .read_tools import build_read_tools
 
@@ -43,6 +44,7 @@ class ToolGroup(str, Enum):
     DIAGNOSTIC = "diagnostic"
     ACTION = "action"
     CLUSTER = "cluster"
+    DOCS = "docs"
 
 
 _BUILDERS = {
@@ -51,6 +53,7 @@ _BUILDERS = {
     ToolGroup.DIAGNOSTIC: build_diagnostic_tools,
     ToolGroup.ACTION: build_action_tools,
     ToolGroup.CLUSTER: build_cluster_tools,
+    ToolGroup.DOCS: build_docs_tools,
 }
 
 
@@ -62,7 +65,7 @@ def get_tool_group(group: ToolGroup, token: str) -> list:
     return builder(token)
 
 
-def get_tools_for_task(task: str, token: str) -> list:
+def get_tools_for_task(task: str, token: str, include_docs: bool = True) -> list:
     """
     Return the recommended tool set for a given task type.
 
@@ -70,6 +73,8 @@ def get_tools_for_task(task: str, token: str) -> list:
     implementation can call this instead of manually composing groups.
 
     task options:
+        Documentation retrieval is included for inspect, triage, act, and full
+        unless include_docs is False.
         'inspect'     — READ only. User wants to list or describe resources.
         'triage'      — READ + OBSERVABILITY + DIAGNOSTIC. User reports a problem.
         'act'         — READ + OBSERVABILITY + DIAGNOSTIC + ACTION. User wants a change.
@@ -77,9 +82,9 @@ def get_tools_for_task(task: str, token: str) -> list:
         'full'        — All groups. God-mode sessions or open-ended investigation.
     """
     task_map: dict[str, list[ToolGroup]] = {
-        "inspect": [ToolGroup.READ],
-        "triage":  [ToolGroup.READ, ToolGroup.OBSERVABILITY, ToolGroup.DIAGNOSTIC],
-        "act":     [ToolGroup.READ, ToolGroup.OBSERVABILITY, ToolGroup.DIAGNOSTIC, ToolGroup.ACTION],
+        "inspect": [ToolGroup.READ, ToolGroup.DOCS],
+        "triage":  [ToolGroup.READ, ToolGroup.OBSERVABILITY, ToolGroup.DIAGNOSTIC, ToolGroup.DOCS],
+        "act":     [ToolGroup.READ, ToolGroup.OBSERVABILITY, ToolGroup.DIAGNOSTIC, ToolGroup.DOCS, ToolGroup.ACTION],
         "audit":   [ToolGroup.CLUSTER],
         "full":    list(ToolGroup),
     }
@@ -89,6 +94,8 @@ def get_tools_for_task(task: str, token: str) -> list:
 
     tools = []
     for group in groups:
+        if group == ToolGroup.DOCS and not include_docs:
+            continue
         tools.extend(get_tool_group(group, token))
     return tools
 
@@ -102,4 +109,5 @@ __all__ = [
     "build_diagnostic_tools",
     "build_action_tools",
     "build_cluster_tools",
+    "build_docs_tools",
 ]

@@ -119,8 +119,8 @@ class ActiveAgentState(TypedDict, total=False):
     action: dict[str, Any] | None
 
 
-_CACHED_ALL_TOOLS: dict[str, list[Any]] = {}
-_CACHED_TOOLS_BY_TASK: dict[tuple[str, str], list[Any]] = {}
+_CACHED_ALL_TOOLS: dict[tuple[str, bool], list[Any]] = {}
+_CACHED_TOOLS_BY_TASK: dict[tuple[str, str, bool], list[Any]] = {}
 
 
 def classify_task_for_content(content: str, action_context: dict[str, Any] | None = None) -> str:
@@ -156,7 +156,12 @@ def run_active_agent(
 ) -> ActiveAgentResult:
     """Run the interactive Kubernetes agent through a LangGraph loop."""
     task = classify_task_for_content(content, action_context=action_context)
-    tools = _get_tools_cached(task, token=token, debug_mode=bool(settings.debug_mode))
+    tools = _get_tools_cached(
+        task,
+        token=token,
+        debug_mode=bool(settings.debug_mode),
+        docs_enabled=bool(getattr(settings, "k8s_docs_rag_enabled", True)),
+    )
 
     if not tools:
         raise ValueError(f"No tools returned for task '{task}'")
@@ -214,25 +219,28 @@ def run_active_agent(
     )
 
 
-def _get_tools_cached(task: str, *, token: str, debug_mode: bool) -> list[Any]:
+def _get_tools_cached(task: str, *, token: str, debug_mode: bool, docs_enabled: bool) -> list[Any]:
     """Build tool closures lazily so the app can boot without agent deps installed."""
     from agent.tools import ToolGroup, get_tool_group, get_tools_for_task
 
     if debug_mode:
-        if token in _CACHED_ALL_TOOLS:
-            return _CACHED_ALL_TOOLS[token]
+        all_tools_key = (token, docs_enabled)
+        if all_tools_key in _CACHED_ALL_TOOLS:
+            return _CACHED_ALL_TOOLS[all_tools_key]
 
         tools: list[Any] = []
         for group in ToolGroup:
+            if group == ToolGroup.DOCS and not docs_enabled:
+                continue
             tools.extend(get_tool_group(group, token))
-        _CACHED_ALL_TOOLS[token] = tools
+        _CACHED_ALL_TOOLS[all_tools_key] = tools
         return tools
 
-    key = (task, token)
+    key = (task, token, docs_enabled)
     if key in _CACHED_TOOLS_BY_TASK:
         return _CACHED_TOOLS_BY_TASK[key]
 
-    tools = get_tools_for_task(task, token)
+    tools = get_tools_for_task(task, token, include_docs=docs_enabled)
     _CACHED_TOOLS_BY_TASK[key] = tools
     return tools
 

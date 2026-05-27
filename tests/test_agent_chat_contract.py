@@ -7,6 +7,7 @@ import json
 import pytest
 
 from agent.active_graph import classify_task_for_content
+from agent.tools import get_tools_for_task
 from app.services.action_context import safe_action_result
 from app.services.chat_messages import (
     assistant_payload,
@@ -29,6 +30,25 @@ def test_action_followup_classification_uses_operational_path():
     assert classify_task_for_content("I denied the restart action. Let's find another way.", context) == "triage"
     assert classify_task_for_content("I approved the restart action. Please confirm the result.", context) == "inspect"
     assert classify_task_for_content("Who approved the last action?", context) == "audit"
+
+
+@pytest.mark.unit
+def test_docs_retrieval_tool_is_loaded_for_operational_tasks():
+    operational_tasks = {"inspect", "triage", "act", "full"}
+
+    for task in operational_tasks:
+        tool_names = {tool.name for tool in get_tools_for_task(task, "token", include_docs=True)}
+        assert "search_kubernetes_docs" in tool_names
+
+    audit_tool_names = {tool.name for tool in get_tools_for_task("audit", "token", include_docs=True)}
+    assert "search_kubernetes_docs" not in audit_tool_names
+
+
+@pytest.mark.unit
+def test_docs_retrieval_tool_can_be_disabled():
+    tool_names = {tool.name for tool in get_tools_for_task("triage", "token", include_docs=False)}
+
+    assert "search_kubernetes_docs" not in tool_names
 
 
 @pytest.mark.unit
