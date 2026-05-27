@@ -33,6 +33,17 @@ def test_action_followup_classification_uses_operational_path():
 
 
 @pytest.mark.unit
+def test_change_word_without_audit_intent_does_not_route_to_audit():
+    assert (
+        classify_task_for_content(
+            "Explain Deployment rolling updates, maxSurge, and maxUnavailable. Do not change anything."
+        )
+        == "inspect"
+    )
+    assert classify_task_for_content("Show recent changes in the audit log.") == "audit"
+
+
+@pytest.mark.unit
 def test_docs_retrieval_tool_is_loaded_for_operational_tasks():
     operational_tasks = {"inspect", "triage", "act", "full"}
 

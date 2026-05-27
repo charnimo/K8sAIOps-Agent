@@ -139,9 +139,26 @@ def classify_task_for_content(content: str, action_context: dict[str, Any] | Non
         return "act"
     if words & _TRIAGE_WORDS:
         return "triage"
-    if words & _AUDIT_WORDS:
+    if _has_audit_intent(words, text):
         return "audit"
     return "inspect"
+
+
+def _has_audit_intent(words: set[str], text: str) -> bool:
+    if "audit" in words or "history" in words:
+        return True
+    if {"who", "changed"} <= words:
+        return True
+    audit_phrases = (
+        "who changed",
+        "what changed",
+        "recent changes",
+        "change history",
+        "approved actions",
+        "denied actions",
+        "action result",
+    )
+    return any(phrase in text for phrase in audit_phrases)
 
 
 def run_active_agent(
