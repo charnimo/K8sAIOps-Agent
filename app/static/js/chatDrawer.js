@@ -350,12 +350,21 @@ renderMessages() {
                 </details>
             ` : '';
 
-            const actionHtml = (!isUser && action && !msg._actionHandled) ? `
-                <div class="mt-4 flex gap-2 items-center border-t border-white/5 pt-3" data-action-id="${this.escapeHtml(action.id)}" data-action-type="${this.escapeHtml(action.type)}">
-                    <button class="approve-btn bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] uppercase font-black px-3 py-1.5 rounded-md transition-all active:scale-95">Approve</button>
-                    <button class="reject-btn bg-rose-600 hover:bg-rose-500 text-white text-[10px] uppercase font-black px-3 py-1.5 rounded-md transition-all active:scale-95">Deny</button>
-                </div>
-            ` : '';
+            let actionHtml = '';
+            if (!isUser && action && !msg._actionHandled) {
+                if (action.status === 'completed' || action.status === 'approved' || action.status === 'executed') {
+                    actionHtml = '<div class="mt-4 border-t border-white/5 pt-3"><div class="text-[10px] text-emerald-400 font-black uppercase tracking-widest py-1">Action Approved</div></div>';
+                } else if (action.status === 'rejected') {
+                    actionHtml = '<div class="mt-4 border-t border-white/5 pt-3"><div class="text-[10px] text-rose-400 font-black uppercase tracking-widest py-1">Action Denied</div></div>';
+                } else {
+                    actionHtml = `
+                        <div class="mt-4 flex gap-2 items-center border-t border-white/5 pt-3" data-action-id="${this.escapeHtml(action.id)}" data-action-type="${this.escapeHtml(action.type)}">
+                            <button class="approve-btn bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] uppercase font-black px-3 py-1.5 rounded-md transition-all active:scale-95">Approve</button>
+                            <button class="reject-btn bg-rose-600 hover:bg-rose-500 text-white text-[10px] uppercase font-black px-3 py-1.5 rounded-md transition-all active:scale-95">Deny</button>
+                        </div>
+                    `;
+                }
+            }
 
             const durationHtml = msg._duration ? `
                 <div class="text-[9px] text-gray-600 mt-2 font-mono text-right uppercase tracking-tighter">

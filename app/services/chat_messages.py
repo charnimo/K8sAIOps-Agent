@@ -16,10 +16,24 @@ INTERNAL_FIELD = "internal"
 
 def serialize_message(row: ChatHistory) -> dict:
     """Serialize one chat history row for API responses."""
+    msg_str = row.message
+    try:
+        data = json.loads(msg_str)
+        if isinstance(data, dict) and ACTION_FIELD in data and isinstance(data[ACTION_FIELD], dict):
+            from app.state.store import get_action_request
+            action_id = data[ACTION_FIELD].get("id")
+            if action_id:
+                action_record = get_action_request(action_id)
+                if action_record:
+                    data[ACTION_FIELD]["status"] = action_record.get("status", "pending")
+                    msg_str = json.dumps(data)
+    except Exception:
+        pass
+
     return {
         "id": row.id,
         "sender": row.sender,
-        "message": row.message,
+        "message": msg_str,
         "timestamp": row.timestamp.isoformat() if row.timestamp else None,
     }
 

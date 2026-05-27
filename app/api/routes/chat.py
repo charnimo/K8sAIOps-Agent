@@ -184,7 +184,7 @@ def post_chat_message(
         target = recent_action.get("target", {}) if recent_action else {}
         assistant_text = (
             f"I've proposed {recent_action.get('type') if recent_action else 'an action'} "
-            f"on {target.get('name', 'the target')}. I can't proceed until you approve or deny it."
+            f"on {target.get('name', 'the target')}."
         )
         assistant_content = assistant_payload(assistant_text, recent_action)
     elif not settings.agent_api_keys:

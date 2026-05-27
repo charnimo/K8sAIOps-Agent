@@ -135,6 +135,8 @@ def classify_task_for_content(content: str, action_context: dict[str, Any] | Non
             return "triage"
         if words & _ACTION_RESULT_WORDS:
             return "inspect"
+    if words & _ACTION_RESULT_WORDS or words & _ACTION_DENIAL_WORDS:
+        return "inspect"
     if words & _MUTATION_WORDS:
         return "act"
     if words & _TRIAGE_WORDS:
@@ -463,8 +465,12 @@ def _extract_action(output: Any) -> dict[str, Any] | None:
     if isinstance(output, str):
         try:
             payload = json.loads(output)
-        except json.JSONDecodeError:
-            return None
+        except (json.JSONDecodeError, TypeError):
+            try:
+                import ast
+                payload = ast.literal_eval(output)
+            except Exception:
+                return None
 
     if not isinstance(payload, dict):
         return None
@@ -494,8 +500,7 @@ def _action_response_text(action: dict[str, Any]) -> str:
     )
 
     return (
-        f"I've queued {type_label} for {target_label}. {impact}\n\n"
-        "Use the options below to approve or deny it. I will wait before taking another action."
+        f"I've queued {type_label} for {target_label}. {impact}"
     )
 
 
