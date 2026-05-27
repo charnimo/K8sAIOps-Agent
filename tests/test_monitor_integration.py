@@ -31,6 +31,8 @@ import asyncio
 import json
 import os
 import time
+from datetime import datetime, timezone
+from types import SimpleNamespace
 from typing import Optional
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -45,6 +47,25 @@ WS_URL        = os.getenv("MONITOR_WS_URL",   "ws://localhost:8765")
 HTTP_URL      = os.getenv("MONITOR_HTTP_URL", "http://localhost:8080")
 EVENT_WAIT    = int(os.getenv("EVENT_WAIT_SEC", "90"))
 AUTH_TOKEN    = os.getenv("MONITOR_AUTH_TOKEN", "")
+
+
+def _monitor_is_reachable() -> bool:
+    """Return whether live monitor endpoints are available for integration tests."""
+    try:
+        response = httpx.get(f"{HTTP_URL}/monitor/health", timeout=1)
+    except httpx.HTTPError:
+        return False
+    return response.status_code == 200
+
+
+_LIVE_MONITOR_AVAILABLE = _monitor_is_reachable()
+_requires_live_monitor = pytest.mark.skipif(
+    not _LIVE_MONITOR_AVAILABLE,
+    reason=(
+        "live monitor is not reachable; start the monitoring deployment and "
+        "port-forward MONITOR_HTTP_URL/MONITOR_WS_URL to run these integration tests"
+    ),
+)
 
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -112,10 +133,51 @@ def _find(events: list[dict], **filters) -> list[dict]:
     return result
 
 
+class TestEventProcessorDedup:
+    """Regression coverage for monitor-side Kubernetes event deduplication."""
+
+    def _k8s_event(self, timestamp: datetime) -> SimpleNamespace:
+        return SimpleNamespace(
+            metadata=SimpleNamespace(namespace="default", labels={}, annotations={}),
+            involved_object=SimpleNamespace(name="demo-pod", kind="Pod"),
+            reason="Started",
+            type="Normal",
+            message="Started container",
+            source=SimpleNamespace(host="minikube"),
+            count=1,
+            first_timestamp=timestamp,
+            last_timestamp=timestamp,
+        )
+
+    def test_replayed_event_timestamp_is_suppressed_after_window(self):
+        from monitoring.monitor import EventProcessor
+
+        processor = EventProcessor(dedup_window=1)
+        first_event = self._k8s_event(datetime(2026, 5, 27, 18, 0, tzinfo=timezone.utc))
+        later_event = self._k8s_event(datetime(2026, 5, 27, 18, 5, tzinfo=timezone.utc))
+
+        first = processor.from_k8s_event(first_event)
+        assert first is not None
+
+        fp = processor._fingerprint("default", "demo-pod", "Started")
+        cached_event, _ = processor._dedup_cache[fp]
+        processor._dedup_cache[fp] = (cached_event, time.monotonic() - 1)
+
+        later = processor.from_k8s_event(later_event)
+        assert later is not None
+
+        cached_event, _ = processor._dedup_cache[fp]
+        processor._dedup_cache[fp] = (cached_event, time.monotonic() - 1)
+
+        assert processor.from_k8s_event(first_event) is None
+
+
 # ═════════════════════════════════════════════════════════════════════════════
 # SECTION 1 – HTTP health checks  (fast, no waiting)
 # ═════════════════════════════════════════════════════════════════════════════
 
+@pytest.mark.integration
+@_requires_live_monitor
 class TestHTTPEndpoints:
     """Verify the monitor's REST API is reachable and returns valid data."""
 
@@ -154,7 +216,9 @@ class TestHTTPEndpoints:
 # SECTION 2 – WebSocket protocol
 # ═════════════════════════════════════════════════════════════════════════════
 
+@pytest.mark.integration
 @pytest.mark.asyncio
+@_requires_live_monitor
 class TestWebSocketProtocol:
 
     async def test_subscribed_frame_on_connect(self):
@@ -239,7 +303,10 @@ class TestWebSocketProtocol:
 # SECTION 3 – Real event delivery from test-workloads.yaml
 # ═════════════════════════════════════════════════════════════════════════════
 
+@pytest.mark.integration
+@pytest.mark.slow
 @pytest.mark.asyncio
+@_requires_live_monitor
 class TestEventDelivery:
     """
     Collect live events for EVENT_WAIT seconds and assert the expected signals

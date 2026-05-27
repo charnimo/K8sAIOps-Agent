@@ -13,7 +13,7 @@ import json
 import logging
 import os
 import time
-from collections import deque
+from collections import OrderedDict, deque
 from dataclasses import dataclass, field, asdict
 from datetime import datetime, timezone
 from enum import Enum
@@ -221,6 +221,7 @@ class EventProcessor:
         self._dedup_window = dedup_window
         # fingerprint → (EnrichedEvent, expire_time)
         self._dedup_cache: dict[str, tuple[EnrichedEvent, float]] = {}
+        self._seen_timestamp_keys: OrderedDict[tuple[str, str], None] = OrderedDict()
 
     # ── Fingerprint & dedup ───────────────────────────────────────────────────
 
@@ -237,9 +238,24 @@ class EventProcessor:
                 existing.raw_count += 1
                 existing.last_seen = event.timestamp
                 self._dedup_cache[fp] = (existing, now + self._dedup_window)
+                self._remember_event_timestamp(fp, event.timestamp)
                 return True
+
+        if event.timestamp and (fp, event.timestamp) in self._seen_timestamp_keys:
+            return True
+
         self._dedup_cache[fp] = (event, now + self._dedup_window)
+        self._remember_event_timestamp(fp, event.timestamp)
         return False
+
+    def _remember_event_timestamp(self, fp: str, timestamp: Optional[str]):
+        if not timestamp:
+            return
+        key = (fp, timestamp)
+        self._seen_timestamp_keys[key] = None
+        self._seen_timestamp_keys.move_to_end(key)
+        while len(self._seen_timestamp_keys) > MAX_HISTORY * 8:
+            self._seen_timestamp_keys.popitem(last=False)
 
     def _evict_expired(self):
         now = time.monotonic()
