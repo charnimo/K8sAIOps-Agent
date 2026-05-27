@@ -36,6 +36,14 @@ data/k8s-docs-index/latest/index.json
 data/k8s-docs-index/latest/metadata.json
 data/k8s-docs-index/v1.36/index.json
 data/k8s-docs-index/v1.36/metadata.json
+data/k8s-docs-vectors/latest/
+data/k8s-docs-vectors/latest/vector_metadata.json
+```
+
+To skip vector generation during development:
+
+```bash
+python scripts/index_kubernetes_docs.py --no-build-vectors
 ```
 
 ## Runtime Behavior
@@ -46,7 +54,9 @@ data/k8s-docs-index/v1.36/metadata.json
 - If the cluster version cannot be read, it uses `AIOPS_K8S_DOCS_VERSION`.
 - If the index is missing, the tool returns `docs_index_not_found` instead of failing the chat request.
 - Documentation results include page title, section, URL, version, score, and excerpt.
-- `/health` reports whether the configured Kubernetes docs index is ready.
+- Retrieval uses hybrid BM25 + vector search when a matching vector index is available.
+- If the vector index or vector dependencies are missing, retrieval falls back to BM25.
+- `/health` reports whether the configured Kubernetes docs lexical and vector indexes are ready.
 
 ## Index Metadata
 
@@ -71,6 +81,11 @@ AIOPS_K8S_DOCS_INDEX_PATH=data/k8s-docs-index
 AIOPS_K8S_DOCS_VERSION=latest
 AIOPS_K8S_DOCS_TOP_K=5
 AIOPS_K8S_DOCS_CHUNK_CHARS=1800
+AIOPS_K8S_DOCS_VECTOR_ENABLED=true
+AIOPS_K8S_DOCS_VECTOR_PATH=data/k8s-docs-vectors
+AIOPS_K8S_DOCS_EMBEDDING_MODEL=sentence-transformers/all-MiniLM-L6-v2
+AIOPS_K8S_DOCS_HYBRID_BM25_WEIGHT=0.55
+AIOPS_K8S_DOCS_HYBRID_VECTOR_WEIGHT=0.45
 ```
 
 ## Safety Rules

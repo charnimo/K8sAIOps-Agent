@@ -91,6 +91,9 @@ def test_health_endpoint():
     assert payload["status"] == "ok"
     assert "read_only_mode" in payload
     assert "mutations_enabled" in payload
+    assert "kubernetes_docs_rag" in payload
+    assert "vector" in payload["kubernetes_docs_rag"]
+    assert "ready" in payload["kubernetes_docs_rag"]["vector"]
 
 
 def test_create_and_fetch_chat_session():
