@@ -144,7 +144,7 @@ def get_settings() -> Settings:
         k8s_docs_version=os.getenv("AIOPS_K8S_DOCS_VERSION", "latest"),
         k8s_docs_top_k=_as_int(os.getenv("AIOPS_K8S_DOCS_TOP_K"), 5, minimum=1),
         k8s_docs_chunk_chars=_as_int(os.getenv("AIOPS_K8S_DOCS_CHUNK_CHARS"), 1800, minimum=500),
-        k8s_docs_vector_enabled=_as_bool(os.getenv("AIOPS_K8S_DOCS_VECTOR_ENABLED"), default=True),
+        k8s_docs_vector_enabled=_as_bool(os.getenv("AIOPS_K8S_DOCS_VECTOR_ENABLED"), default=False),
         k8s_docs_vector_path=os.getenv("AIOPS_K8S_DOCS_VECTOR_PATH", DEFAULT_K8S_DOCS_VECTOR_PATH),
         k8s_docs_embedding_model=os.getenv(
             "AIOPS_K8S_DOCS_EMBEDDING_MODEL",

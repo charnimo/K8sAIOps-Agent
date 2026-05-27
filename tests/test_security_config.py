@@ -97,6 +97,16 @@ def test_float_parser_uses_safe_fallbacks():
     assert _as_float("1.5", 0.5, minimum=0.0, maximum=1.0) == 0.5
 
 
+def test_k8s_docs_vector_retrieval_is_optional_by_default(monkeypatch):
+    """Prototype defaults should not require vector dependencies or a vector DB."""
+    monkeypatch.delenv("AIOPS_K8S_DOCS_VECTOR_ENABLED", raising=False)
+    get_settings.cache_clear()
+    try:
+        assert get_settings().k8s_docs_vector_enabled is False
+    finally:
+        get_settings.cache_clear()
+
+
 def test_namespace_permission_uses_json_body_namespace(monkeypatch):
     """Body-scoped mutating routes must authorize against the body namespace."""
     username = "body_namespace_security_probe"
