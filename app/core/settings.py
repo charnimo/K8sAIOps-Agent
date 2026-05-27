@@ -15,6 +15,8 @@ DEFAULT_CORS_ORIGINS = (
 DEFAULT_K8S_DOCS_REPO_URL = "https://github.com/kubernetes/website.git"
 DEFAULT_K8S_DOCS_SOURCE_PATH = "data/kubernetes-website"
 DEFAULT_K8S_DOCS_INDEX_PATH = "data/k8s-docs-index"
+DEFAULT_K8S_DOCS_VECTOR_PATH = "data/k8s-docs-vectors"
+DEFAULT_K8S_DOCS_EMBEDDING_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
 
 def _as_bool(value: str, default: bool) -> bool:
     """Parse a boolean environment variable safely."""
@@ -39,6 +41,26 @@ def _as_int(value: str | None, default: int, *, minimum: int | None = None) -> i
     except (TypeError, ValueError):
         return default
     if minimum is not None and parsed < minimum:
+        return default
+    return parsed
+
+def _as_float(
+    value: str | None,
+    default: float,
+    *,
+    minimum: float | None = None,
+    maximum: float | None = None,
+) -> float:
+    """Parse a float environment variable with optional bounds."""
+    if value is None:
+        return default
+    try:
+        parsed = float(value.strip())
+    except (TypeError, ValueError):
+        return default
+    if minimum is not None and parsed < minimum:
+        return default
+    if maximum is not None and parsed > maximum:
         return default
     return parsed
 
@@ -82,6 +104,11 @@ class Settings:
     k8s_docs_version: str
     k8s_docs_top_k: int
     k8s_docs_chunk_chars: int
+    k8s_docs_vector_enabled: bool
+    k8s_docs_vector_path: str
+    k8s_docs_embedding_model: str
+    k8s_docs_hybrid_bm25_weight: float
+    k8s_docs_hybrid_vector_weight: float
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
@@ -117,4 +144,22 @@ def get_settings() -> Settings:
         k8s_docs_version=os.getenv("AIOPS_K8S_DOCS_VERSION", "latest"),
         k8s_docs_top_k=_as_int(os.getenv("AIOPS_K8S_DOCS_TOP_K"), 5, minimum=1),
         k8s_docs_chunk_chars=_as_int(os.getenv("AIOPS_K8S_DOCS_CHUNK_CHARS"), 1800, minimum=500),
+        k8s_docs_vector_enabled=_as_bool(os.getenv("AIOPS_K8S_DOCS_VECTOR_ENABLED"), default=True),
+        k8s_docs_vector_path=os.getenv("AIOPS_K8S_DOCS_VECTOR_PATH", DEFAULT_K8S_DOCS_VECTOR_PATH),
+        k8s_docs_embedding_model=os.getenv(
+            "AIOPS_K8S_DOCS_EMBEDDING_MODEL",
+            DEFAULT_K8S_DOCS_EMBEDDING_MODEL,
+        ),
+        k8s_docs_hybrid_bm25_weight=_as_float(
+            os.getenv("AIOPS_K8S_DOCS_HYBRID_BM25_WEIGHT"),
+            0.55,
+            minimum=0.0,
+            maximum=1.0,
+        ),
+        k8s_docs_hybrid_vector_weight=_as_float(
+            os.getenv("AIOPS_K8S_DOCS_HYBRID_VECTOR_WEIGHT"),
+            0.45,
+            minimum=0.0,
+            maximum=1.0,
+        ),
     )
