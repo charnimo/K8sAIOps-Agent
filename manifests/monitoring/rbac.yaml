@@ -9,6 +9,19 @@ metadata:
 
 ---
 apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: aiops-monitor-config
+  namespace: aiops-system
+  labels:
+    app.kubernetes.io/name: aiops-monitor
+    app.kubernetes.io/component: config
+data:
+  config.yaml: |
+    logLevel: INFO
+
+---
+apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: aiops-monitor-sa
