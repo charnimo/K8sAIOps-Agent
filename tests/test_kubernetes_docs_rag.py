@@ -294,6 +294,47 @@ Pods run containers.
 
 
 @pytest.mark.unit
+def test_kubernetes_docs_search_expands_common_operational_symptoms(tmp_path):
+    source_root = tmp_path / "website"
+    index_root = tmp_path / "index"
+    _write_doc(
+        source_root,
+        "concepts/workloads/pods/pod-lifecycle.md",
+        """---
+title: Pod Lifecycle
+---
+
+Kubernetes reports CrashLoopBackOff when a Pod container repeatedly restarts.
+Check container logs, events, liveness probes, and OOMKilled status.
+""",
+    )
+    _write_doc(
+        source_root,
+        "concepts/services-networking/service.md",
+        """---
+title: Service
+---
+
+Services use selectors and EndpointSlices.
+""",
+    )
+    build_kubernetes_docs_index(
+        source_path=source_root,
+        index_path=index_root,
+        version="latest",
+    )
+
+    result = search_kubernetes_docs(
+        "my app keeps restarting",
+        index_path=index_root,
+        vector_enabled=False,
+    )
+
+    assert result["retrieval_mode"] == "bm25"
+    assert result["results"][0]["title"] == "Pod Lifecycle"
+
+
+@pytest.mark.unit
 def test_kubernetes_docs_index_writes_metadata_and_status(tmp_path):
     source_root = tmp_path / "website"
     index_root = tmp_path / "index"

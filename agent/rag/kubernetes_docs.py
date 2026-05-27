@@ -327,9 +327,7 @@ def search_kubernetes_docs(
             "results": [],
         }
 
-    query_text = clean_query
-    if resource_kind:
-        query_text = f"{resource_kind} {clean_query}"
+    query_text = _expanded_query_text(clean_query, resource_kind=resource_kind)
     query_tokens = _tokenize(query_text)
     scored = _score_chunks(query_tokens, chunks)
     max_results = limit or _default_limit()
@@ -414,7 +412,7 @@ def _hybrid_results(
             chunk.id,
             {"chunk": chunk, "hybrid_score": 0.0, "bm25_score": bm25_score, "vector_score": None},
         )
-        item["hybrid_score"] += bm25_weight / rank
+        item["hybrid_score"] += bm25_weight / (60 + rank)
         item["bm25_score"] = bm25_score
 
     for rank, vector_result in enumerate(vector_results, start=1):
@@ -426,7 +424,7 @@ def _hybrid_results(
             chunk_id,
             {"chunk": chunk, "hybrid_score": 0.0, "bm25_score": None, "vector_score": None},
         )
-        item["hybrid_score"] += vector_weight / rank
+        item["hybrid_score"] += vector_weight / (60 + rank)
         item["vector_score"] = _safe_float(vector_result.get("score"))
 
     ranked = sorted(merged.values(), key=lambda item: item["hybrid_score"], reverse=True)
@@ -531,6 +529,26 @@ def _search_vector_index(
         embedding_model=embedding_model,
         limit=limit,
     )
+
+
+def _expanded_query_text(query: str, *, resource_kind: str | None = None) -> str:
+    parts = [resource_kind or "", query]
+    lowered = query.lower()
+    expansions = {
+        "restart": "pod container restart crashloopbackoff logs events liveness probe oomkilled",
+        "restarting": "pod container restart crashloopbackoff logs events liveness probe oomkilled",
+        "keeps crashing": "pod container restart crashloopbackoff logs events liveness probe oomkilled",
+        "no traffic": "service selector endpoints endpointslice targetport port labels",
+        "not reaching": "service selector endpoints endpointslice targetport port labels",
+        "pending": "pod scheduling pending node taints tolerations affinity resources insufficient",
+        "not scheduled": "pod scheduling pending node taints tolerations affinity resources insufficient",
+        "image pull": "imagepullbackoff errimagepull registry image pull secret",
+        "permission": "rbac role rolebinding serviceaccount forbidden permission denied",
+    }
+    for trigger, expansion in expansions.items():
+        if trigger in lowered:
+            parts.append(expansion)
+    return " ".join(part for part in parts if part).strip()
 
 
 def _safe_float(value: Any) -> float:
