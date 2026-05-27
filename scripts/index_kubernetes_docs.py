@@ -12,6 +12,10 @@ from pathlib import Path
 import subprocess
 import sys
 
+REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
 from agent.rag.kubernetes_docs import build_kubernetes_docs_index
 from app.core.settings import get_settings
 
