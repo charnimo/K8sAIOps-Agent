@@ -5,6 +5,7 @@ export class EventsController {
 
     mount() {
         console.log('[EventsController] mount() called');
+        window.api = this.api; // Expose ApiClient to the evaluated page scripts
 
         // nav.js injects HTML via innerHTML which does NOT run <script> tags.
         // We handle it here by eval()-ing the script synchronously ourselves,

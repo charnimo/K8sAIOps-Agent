@@ -1254,6 +1254,50 @@ export class ApiClient {
         }
         return await res.json();
     }
+
+    async getIncidentRecords(status = null, namespace = null) {
+        const params = new URLSearchParams();
+        if (status) params.set('status', status);
+        if (namespace) params.set('namespace', namespace);
+        const url = `/events/incidents?${params.toString()}`;
+        const res = await fetch(url, { headers: this.headers });
+        if (!res.ok) throw new Error('Failed to fetch incident records');
+        return await res.json();
+    }
+
+    async getIncidentRecord(incidentId) {
+        const res = await fetch(`/events/incidents/${encodeURIComponent(incidentId)}`, { headers: this.headers });
+        if (!res.ok) throw new Error('Failed to fetch incident record details');
+        return await res.json();
+    }
+
+
+    async getIncidentRecords(namespace = null) {
+        const url = namespace ? `/events/incidents?namespace=${namespace}` : '/events/incidents';
+        const res = await fetch(url, { headers: this.headers });
+        if (!res.ok) throw new Error('Failed to fetch incident records');
+        return await res.json();
+    }
+
+    async getIncidentRecord(incidentId) {
+        const res = await fetch(`/events/incidents/${encodeURIComponent(incidentId)}`, { headers: this.headers });
+        if (!res.ok) throw new Error('Failed to fetch incident record details');
+        return await res.json();
+    }
+
+    async markIncidentViewed(incidentId) {
+        await fetch(`/events/incidents/${encodeURIComponent(incidentId)}/view`, { method: 'POST', headers: this.headers });
+    }
+
+    async dismissIncident(incidentId) {
+        await fetch(`/events/incidents/${encodeURIComponent(incidentId)}/dismiss`, { method: 'POST', headers: this.headers });
+    }
+
+    async dismissAllIncidents(namespace = null) {
+        const url = namespace ? `/events/incidents/dismiss-all?namespace=${namespace}` : '/events/incidents/dismiss-all';
+        await fetch(url, { method: 'POST', headers: this.headers });
+    }
+
 }
 
 installApiPermissionGuards(ApiClient);

@@ -96,6 +96,8 @@ class IncidentRecord(Base):
 
     # Lifecycle
     status = Column(String, default="OPEN")  # OPEN, INVESTIGATING, RESOLVED, CLOSED
+    viewed_by = Column(JSON, default=list)
+    dismissed_by = Column(JSON, default=list)
     created_at = Column(DateTime, default=datetime.utcnow, index=True)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     closed_at = Column(DateTime, nullable=True)
