@@ -91,3 +91,9 @@ def get_storage_v1() -> StorageV1Api:
     """Return a StorageV1Api client (PersistentVolumes, StorageClasses)."""
     _init_client()
     return client.StorageV1Api()
+
+
+def get_version_api() -> client.VersionApi:
+    """Return a VersionApi client for read-only server version metadata."""
+    _init_client()
+    return client.VersionApi()

@@ -362,6 +362,21 @@ def build_read_tools(token: str) -> list:
         """
         return client.get(f"/config/configmaps/{name}", {"namespace": namespace})
 
+    # ── RBAC / PERMISSIONS ────────────────────────────────────────────────────
+
+    @tool
+    def get_my_permissions() -> dict:
+        """
+        Get the exact Kubernetes RBAC permissions assigned to you (the agent/user).
+        
+        Returns a dictionary showing if you are in 'god_mode' (full access),
+        along with lists of specific permissions granted globally or per-namespace.
+        
+        Use this tool immediately if a user asks what you are allowed to do,
+        or if you want to verify your permissions before proposing a complex action.
+        """
+        # The /auth/me endpoint returns the effective permissions of the token
+        return client.get("/auth/me")
     # ── SECRETS ───────────────────────────────────────────────────────────────
 
     @tool
@@ -541,6 +556,17 @@ def build_read_tools(token: str) -> list:
     # ── NODES ─────────────────────────────────────────────────────────────────
 
     @tool
+    def get_cluster_version() -> dict:
+        """
+        Get Kubernetes API server version metadata.
+
+        Returns major/minor version, git version, platform, and docs_version
+        in the form v1.xx. Use docs_version when searching Kubernetes
+        documentation for version-specific behavior.
+        """
+        return client.get("/cluster/version")
+
+    @tool
     def list_nodes() -> list:
         """
         List all nodes in the cluster.
@@ -707,8 +733,9 @@ def build_read_tools(token: str) -> list:
         list_network_policies, get_network_policy,
         list_hpas, get_hpa, get_hpa_issues,
         list_resource_quotas, list_limit_ranges,
-        list_nodes, get_node, get_node_issues, get_node_events,
+        get_cluster_version, list_nodes, get_node, get_node_issues, get_node_events,
         list_namespaces, get_namespace, get_namespace_resource_count,
         list_pvs, get_pv, list_pvcs, get_pvc, get_pvc_issues,
         list_storage_classes,
+        get_my_permissions,
     ]

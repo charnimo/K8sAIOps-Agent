@@ -26,8 +26,8 @@ spec:
         fsGroup: 1000
       containers:
         - name: aiops-monitor
-          image: dou3a2/aiops-monitor:v1
-          imagePullPolicy: IfNotPresent
+          image: aiops-monitor:local
+          imagePullPolicy: Never
           ports:
             - containerPort: 8765
               name: websocket
@@ -47,7 +47,7 @@ spec:
             - name: HTTP_PORT
               value: "8080"
             - name: BACKEND_API_URL
-              value: "http://aiops-backend.aiops-system.svc.cluster.local:8000"
+              value: ""
           volumeMounts:
             - name: config-volume
               mountPath: /etc/aiops

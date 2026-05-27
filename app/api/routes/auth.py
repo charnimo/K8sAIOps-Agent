@@ -21,12 +21,14 @@ UPLOAD_DIR = "app/static/images/profiles"
 DEFAULT_PERMISSION_NAMESPACE = "default"
 
 DEFAULT_SIGNUP_PERMISSION_KEYS = [
+    "agent:chat",
     "dashboard:read",
     "cluster:nodes:read",
     "cluster:namespaces:read",
     "storage:pvs:read",
     "storage:classes:read",
     "observability:read",
+    "diagnostics:run",
     "terminal:kubectl:readonly",
     "pods:read",
     "pods:logs",

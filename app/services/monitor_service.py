@@ -9,7 +9,13 @@ import json
 import logging
 from fastapi import FastAPI, WebSocket
 
-from monitoring.monitor import build_monitor_components, get_router, Subscription, _fetch_permitted_namespaces
+from monitoring.monitor import (
+    MAX_HISTORY,
+    Subscription,
+    _fetch_permitted_namespaces,
+    build_monitor_components,
+    get_router,
+)
 from app.services.agent_notifier import AgentNotifier
 
 logger = logging.getLogger(__name__)
@@ -91,23 +97,33 @@ def register_monitor(app: FastAPI):
             
             # Create and register subscription
             from monitoring.monitor import Subscription
+            requested_namespaces = set(sub_data.get("namespaces", []))
+            allowed_namespaces = set(permitted_namespaces)
+            if allowed_namespaces:
+                namespaces = (
+                    requested_namespaces & allowed_namespaces
+                    if requested_namespaces
+                    else allowed_namespaces
+                )
+            else:
+                namespaces = requested_namespaces
+
             sub = Subscription(
                 user_id=sub_data.get("user_id", "anonymous"),
-                namespaces=set(permitted_namespaces),
+                namespaces=namespaces,
                 severities=set(sub_data.get("severities", ["INFO", "WARNING", "CRITICAL"])),
                 role=sub_data.get("role", "viewer"),
             )
    
-            registry.register(ws, sub)
-            logger.info("[MONITOR/WS] User %s subscribed", sub.user_id)
-
             # Send subscription confirmation with history
             await ws.send_text(json.dumps({
                 "type": "SUBSCRIBED",
                 "user_id": sub.user_id,
                 "message": "Subscription active",
-                "history": dispatcher.recent_events(20),
+                "history": dispatcher.recent_events(MAX_HISTORY, sub),
             }))
+            registry.register(ws, sub)
+            logger.info("[MONITOR/WS] User %s subscribed", sub.user_id)
             logger.info("[MONITOR/WS] Subscription confirmation sent")
 
             # Listen for client messages (PING, UPDATE_SUBSCRIPTION, etc.)
@@ -132,7 +148,7 @@ def register_monitor(app: FastAPI):
 
                     elif msg_type == "GET_HISTORY":
                         limit = int(data.get("limit", 50))
-                        await ws.send(json.dumps({"type": "HISTORY", "events": dispatcher.recent_events(limit)}))
+                        await ws.send(json.dumps({"type": "HISTORY", "events": dispatcher.recent_events(limit, sub)}))
 
                 except json.JSONDecodeError:
                     logger.warning("[MONITOR/WS] JSON decode error from %s", sub.user_id)

@@ -13,11 +13,11 @@ from app.api.router import api_router
 from app.core.settings import get_settings
 
 # Database imports
-from app.database.database import Base, engine, seed_mock_chat_history, seed_permission_catalog
+from app.database.database import Base, engine, ensure_sqlite_schema, seed_mock_chat_history, seed_permission_catalog
 
 # Monitor imports
 try:
-    from monitoring.monitor import build_monitor_components, get_router as get_monitor_router
+    from monitoring.monitor import build_monitor_components
     from app.services.monitor_service import register_monitor
     MONITOR_AVAILABLE = True
 except (ImportError, RuntimeError) as e:
@@ -26,6 +26,7 @@ except (ImportError, RuntimeError) as e:
 
 # Initialize the SQLite tables
 Base.metadata.create_all(bind=engine)
+ensure_sqlite_schema()
 seed_permission_catalog()
 seed_mock_chat_history()
 
@@ -99,6 +100,5 @@ app.include_router(api_router)
 
 # Include monitor router and WebSocket endpoint if available
 if MONITOR_AVAILABLE:
-    app.include_router(get_monitor_router())
     register_monitor(app)
 

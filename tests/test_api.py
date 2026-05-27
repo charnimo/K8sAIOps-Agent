@@ -13,7 +13,8 @@ from app.api.routes import diagnostics as diagnostics_routes
 from app.api.routes import governance as governance_routes
 from app.api.routes import resources as resources_routes
 from app.api.routes import workloads as workloads_routes
-from app.auth.dependencies import get_current_user
+from app.auth.dependencies import get_current_user, oauth2_scheme
+from app.core.settings import get_settings
 from app.database.database import SessionLocal
 from app.database.models import Conversation
 from fastapi.testclient import TestClient
@@ -39,7 +40,7 @@ def _delete_test_conversations() -> None:
 
 
 @pytest.fixture(autouse=True)
-def authenticated_test_user():
+def authenticated_test_user(monkeypatch):
     """Run API tests as a god-mode user while route auth is tested elsewhere."""
 
     def current_user():
@@ -51,9 +52,16 @@ def authenticated_test_user():
         )
 
     _delete_test_conversations()
+    monkeypatch.delenv("AIOPS_AGENT_API_KEY", raising=False)
+    monkeypatch.delenv("AIOPS_AGENT_API_KEYS", raising=False)
+    monkeypatch.setenv("AIOPS_DEBUG_MODE", "false")
+    get_settings.cache_clear()
     app.dependency_overrides[get_current_user] = current_user
+    app.dependency_overrides[oauth2_scheme] = lambda: "test-token"
     yield
     app.dependency_overrides.pop(get_current_user, None)
+    app.dependency_overrides.pop(oauth2_scheme, None)
+    get_settings.cache_clear()
     _delete_test_conversations()
 
 
@@ -83,6 +91,9 @@ def test_health_endpoint():
     assert payload["status"] == "ok"
     assert "read_only_mode" in payload
     assert "mutations_enabled" in payload
+    assert "kubernetes_docs_rag" in payload
+    assert "vector" in payload["kubernetes_docs_rag"]
+    assert "ready" in payload["kubernetes_docs_rag"]["vector"]
 
 
 def test_create_and_fetch_chat_session():
@@ -113,7 +124,7 @@ def test_post_chat_message_leaves_assistant_empty():
     assert payload["user_message"]["sender"] == TEST_USERNAME
     assert payload["user_message"]["message"] == "Why is my pod crashing?"
     assert payload["assistant_message"]["sender"] == "agent"
-    assert "Template response" in payload["assistant_message"]["message"]
+    assert "Agent not configured" in payload["assistant_message"]["message"]
     assert len(payload["session"]["messages"]) == 2
 
 

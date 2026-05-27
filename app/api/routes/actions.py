@@ -2,7 +2,7 @@
 
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 from app.auth.dependencies import get_current_user, get_permission_label, require_permission, user_has_permission
 from app.core.settings import get_settings
@@ -76,11 +76,16 @@ def _authorize_action_permission(action_type: str, target: dict, user: User) -> 
 @router.post("/action-requests")
 def create_action(
     payload: ActionRequestCreate,
+    request: Request,
     user: User = Depends(get_current_user),
 ) -> dict:
     """Create a pending action request."""
     _authorize_action_permission(payload.type, payload.target.model_dump(), user)
-    return create_action_request(payload.model_dump())
+    # If triggered_by wasn't provided in the request body, read from X-Triggered-By header
+    triggered_by = payload.triggered_by or request.headers.get("X-Triggered-By", "dashboard")
+    payload_dict = payload.model_dump()
+    payload_dict["triggered_by"] = triggered_by
+    return create_action_request(payload_dict)
 
 
 @router.get("/action-requests")
@@ -132,7 +137,9 @@ def approve_action(
         )
 
     try:
-        return execute_action_request(action_id)
+        # Read triggered_by from action record if it was stored when created
+        triggered_by = record.get("triggered_by", "dashboard")
+        return execute_action_request(action_id, user_id=user.username, triggered_by=triggered_by)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:

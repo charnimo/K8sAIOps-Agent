@@ -71,13 +71,25 @@ export class ApiClient {
         return await res.json();
     }
 
-    async sendChatMessage(sessionId, payload) {
-        const res = await fetch(`/chat/sessions/${encodeURIComponent(sessionId)}/messages`, {
+    async sendChatMessage(sessionId, payload, signal = null) {
+        const options = {
             method: 'POST',
             headers: { ...this.headers, 'Content-Type': 'application/json' },
             body: JSON.stringify(payload),
-        });
+        };
+        if (signal) options.signal = signal;
+
+        const res = await fetch(`/chat/sessions/${encodeURIComponent(sessionId)}/messages`, options);
         if (!res.ok) throw new Error('Failed to send chat message');
+        return await res.json();
+    }
+
+    async deleteChatSession(sessionId) {
+        const res = await fetch(`/chat/sessions/${encodeURIComponent(sessionId)}`, {
+            method: 'DELETE',
+            headers: this.headers
+        });
+        if (!res.ok) throw new Error('Failed to delete chat session');
         return await res.json();
     }
 
@@ -1202,6 +1214,90 @@ export class ApiClient {
         }
         return await res.json();
     }
+        async getActionRequests(status = null) {
+        const params = new URLSearchParams();
+        if (status) params.set('status', status);
+        const url = `/action-requests${params.toString() ? `?${params.toString()}` : ''}`;
+        const res = await fetch(url, { headers: this.headers });
+        if (!res.ok) throw new Error('Failed to fetch action requests');
+        return await res.json();
+    }
+
+    async getActionRequest(actionId) {
+        const res = await fetch(`/action-requests/${encodeURIComponent(actionId)}`, { headers: this.headers });
+        if (!res.ok) throw new Error('Failed to fetch action request');
+        return await res.json();
+    }
+
+    async approveActionRequest(actionId) {
+        const res = await fetch(`/action-requests/${encodeURIComponent(actionId)}/approve`, {
+            method: 'POST',
+            headers: this.headers,
+        });
+        if (!res.ok) {
+            let errorMsg = 'Failed to approve action';
+            try { errorMsg = (await res.json()).detail || errorMsg; } catch(e) {}
+            throw new Error(errorMsg);
+        }
+        return await res.json();
+    }
+
+    async rejectActionRequest(actionId) {
+        const res = await fetch(`/action-requests/${encodeURIComponent(actionId)}/reject`, {
+            method: 'POST',
+            headers: this.headers,
+        });
+        if (!res.ok) {
+            let errorMsg = 'Failed to reject action';
+            try { errorMsg = (await res.json()).detail || errorMsg; } catch(e) {}
+            throw new Error(errorMsg);
+        }
+        return await res.json();
+    }
+
+    async getIncidentRecords(status = null, namespace = null) {
+        const params = new URLSearchParams();
+        if (status) params.set('status', status);
+        if (namespace) params.set('namespace', namespace);
+        const url = `/events/incidents?${params.toString()}`;
+        const res = await fetch(url, { headers: this.headers });
+        if (!res.ok) throw new Error('Failed to fetch incident records');
+        return await res.json();
+    }
+
+    async getIncidentRecord(incidentId) {
+        const res = await fetch(`/events/incidents/${encodeURIComponent(incidentId)}`, { headers: this.headers });
+        if (!res.ok) throw new Error('Failed to fetch incident record details');
+        return await res.json();
+    }
+
+
+    async getIncidentRecords(namespace = null) {
+        const url = namespace ? `/events/incidents?namespace=${namespace}` : '/events/incidents';
+        const res = await fetch(url, { headers: this.headers });
+        if (!res.ok) throw new Error('Failed to fetch incident records');
+        return await res.json();
+    }
+
+    async getIncidentRecord(incidentId) {
+        const res = await fetch(`/events/incidents/${encodeURIComponent(incidentId)}`, { headers: this.headers });
+        if (!res.ok) throw new Error('Failed to fetch incident record details');
+        return await res.json();
+    }
+
+    async markIncidentViewed(incidentId) {
+        await fetch(`/events/incidents/${encodeURIComponent(incidentId)}/view`, { method: 'POST', headers: this.headers });
+    }
+
+    async dismissIncident(incidentId) {
+        await fetch(`/events/incidents/${encodeURIComponent(incidentId)}/dismiss`, { method: 'POST', headers: this.headers });
+    }
+
+    async dismissAllIncidents(namespace = null) {
+        const url = namespace ? `/events/incidents/dismiss-all?namespace=${namespace}` : '/events/incidents/dismiss-all';
+        await fetch(url, { method: 'POST', headers: this.headers });
+    }
+
 }
 
 installApiPermissionGuards(ApiClient);

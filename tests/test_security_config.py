@@ -9,7 +9,7 @@ from app.api.routes import resources as resources_routes
 from app.api.routes.actions import ACTION_PERMISSION_MAP
 from app.auth import security
 from app.auth.security import create_access_token, get_password_hash
-from app.core.settings import DEFAULT_CORS_ORIGINS, _as_cors_origins, get_settings
+from app.core.settings import DEFAULT_CORS_ORIGINS, _as_agent_api_keys, _as_cors_origins, _as_float, _as_int, get_settings
 from app.database.database import SessionLocal
 from app.database.models import User
 from app.main import app
@@ -70,6 +70,41 @@ def test_cors_origin_parser_rejects_wildcard():
     """A wildcard origin is unsafe when auth credentials are accepted."""
     with pytest.raises(ValueError):
         _as_cors_origins("*", DEFAULT_CORS_ORIGINS)
+
+
+def test_agent_api_key_parser_deduplicates_multi_and_single_keys():
+    """Multi-key configuration should remain compatible with the old single-key env."""
+    assert _as_agent_api_keys(" key-a, key-b ,, key-a, key-c, key-d ", " key-e ") == (
+        "key-a",
+        "key-b",
+        "key-c",
+        "key-d",
+        "key-e",
+    )
+
+
+def test_int_parser_uses_safe_fallbacks():
+    """Integer configuration should reject invalid or too-small values."""
+    assert _as_int("7", 5, minimum=1) == 7
+    assert _as_int("nope", 5, minimum=1) == 5
+    assert _as_int("0", 5, minimum=1) == 5
+
+
+def test_float_parser_uses_safe_fallbacks():
+    """Float configuration should reject invalid or out-of-bound values."""
+    assert _as_float("0.7", 0.5, minimum=0.0, maximum=1.0) == 0.7
+    assert _as_float("nope", 0.5, minimum=0.0, maximum=1.0) == 0.5
+    assert _as_float("1.5", 0.5, minimum=0.0, maximum=1.0) == 0.5
+
+
+def test_k8s_docs_vector_retrieval_is_optional_by_default(monkeypatch):
+    """Prototype defaults should not require vector dependencies or a vector DB."""
+    monkeypatch.delenv("AIOPS_K8S_DOCS_VECTOR_ENABLED", raising=False)
+    get_settings.cache_clear()
+    try:
+        assert get_settings().k8s_docs_vector_enabled is False
+    finally:
+        get_settings.cache_clear()
 
 
 def test_namespace_permission_uses_json_body_namespace(monkeypatch):

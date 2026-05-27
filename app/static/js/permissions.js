@@ -12,6 +12,7 @@ export class PermissionDeniedError extends Error {
 }
 
 export const PERMISSION_SCOPES = {
+    'agent:chat': 'cluster',
     'dashboard:read': 'cluster',
     'events:read': 'namespace',
     'audit:read': 'cluster',
@@ -86,13 +87,13 @@ export const PERMISSION_SCOPES = {
 };
 
 export const API_PERMISSION_MAP = {
-    getCurrentUser: { permission: 'dashboard:read', scope: 'cluster' },
-    getPermissionCatalog: { permission: 'dashboard:read', scope: 'cluster' },
+    getCurrentUser: { permission: null },
+    getPermissionCatalog: { permission: null },
     getHealth: { permission: null },
-    getChatSessions: { permission: 'dashboard:read', scope: 'cluster' },
-    createChatSession: { permission: 'dashboard:read', scope: 'cluster' },
-    getChatSession: { permission: 'dashboard:read', scope: 'cluster' },
-    sendChatMessage: { permission: 'dashboard:read', scope: 'cluster' },
+    getChatSessions: { permission: null },
+    createChatSession: { permission: null },
+    getChatSession: { permission: null },
+    sendChatMessage: { permission: null },
     getPods: { permission: 'pods:read', namespaceArg: 0 },
     getPodMetrics: { permission: 'observability:read', scope: 'cluster' },
     getPodLogs: { permission: 'pods:logs', namespaceArg: 2 },
@@ -207,6 +208,11 @@ export const API_PERMISSION_MAP = {
     getQuotaPressure: { permission: 'resource_quotas:read', namespaceArg: 0 },
     getAuditLogs: { permission: 'audit:read', scope: 'cluster' },
     cleanupAuditLogs: { permission: 'audit:cleanup', scope: 'cluster' },
+    getChatSessions: { permission: 'agent:chat', scope: 'cluster' },
+    createChatSession: { permission: 'agent:chat', scope: 'cluster' },
+    getChatSession: { permission: 'agent:chat', scope: 'cluster' },
+    sendChatMessage: { permission: 'agent:chat', scope: 'cluster' },
+    deleteChatSession: { permission: 'agent:chat', scope: 'cluster' },
 };
 
 export const VIEW_PERMISSION_RULES = {

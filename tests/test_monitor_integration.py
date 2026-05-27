@@ -31,6 +31,8 @@ import asyncio
 import json
 import os
 import time
+from datetime import datetime, timezone
+from types import SimpleNamespace
 from typing import Optional
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -44,6 +46,26 @@ import websockets
 WS_URL        = os.getenv("MONITOR_WS_URL",   "ws://localhost:8765")
 HTTP_URL      = os.getenv("MONITOR_HTTP_URL", "http://localhost:8080")
 EVENT_WAIT    = int(os.getenv("EVENT_WAIT_SEC", "90"))
+AUTH_TOKEN    = os.getenv("MONITOR_AUTH_TOKEN", "")
+
+
+def _monitor_is_reachable() -> bool:
+    """Return whether live monitor endpoints are available for integration tests."""
+    try:
+        response = httpx.get(f"{HTTP_URL}/monitor/health", timeout=1)
+    except httpx.HTTPError:
+        return False
+    return response.status_code == 200
+
+
+_LIVE_MONITOR_AVAILABLE = _monitor_is_reachable()
+_requires_live_monitor = pytest.mark.skipif(
+    not _LIVE_MONITOR_AVAILABLE,
+    reason=(
+        "live monitor is not reachable; start the monitoring deployment and "
+        "port-forward MONITOR_HTTP_URL/MONITOR_WS_URL to run these integration tests"
+    ),
+)
 
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -62,14 +84,18 @@ async def _collect_events(
         "user_id":    "test-runner",
         "severities": ["INFO", "WARNING", "CRITICAL"],
         "namespaces": [],   # empty = all
-        "teams":      [],
         "role":       "admin",
+    }
+    auth_message = {
+        "type": "AUTH",
+        "token": AUTH_TOKEN,
+        **sub,
     }
     events: list[dict] = []
     deadline = time.monotonic() + duration
 
     async with websockets.connect(WS_URL) as ws:
-        await ws.send(json.dumps(sub))
+        await ws.send(json.dumps(auth_message))
 
         while time.monotonic() < deadline:
             remaining = deadline - time.monotonic()
@@ -107,10 +133,114 @@ def _find(events: list[dict], **filters) -> list[dict]:
     return result
 
 
+class TestEventProcessorDedup:
+    """Regression coverage for monitor-side Kubernetes event deduplication."""
+
+    def _k8s_event(self, timestamp: datetime) -> SimpleNamespace:
+        return SimpleNamespace(
+            metadata=SimpleNamespace(namespace="default", labels={}, annotations={}),
+            involved_object=SimpleNamespace(name="demo-pod", kind="Pod"),
+            reason="Started",
+            type="Normal",
+            message="Started container",
+            source=SimpleNamespace(host="minikube"),
+            count=1,
+            first_timestamp=timestamp,
+            last_timestamp=timestamp,
+        )
+
+    def test_replayed_event_timestamp_is_suppressed_after_window(self):
+        from monitoring.monitor import EventProcessor
+
+        processor = EventProcessor(dedup_window=1)
+        first_event = self._k8s_event(datetime(2026, 5, 27, 18, 0, tzinfo=timezone.utc))
+        later_event = self._k8s_event(datetime(2026, 5, 27, 18, 5, tzinfo=timezone.utc))
+
+        first = processor.from_k8s_event(first_event)
+        assert first is not None
+
+        fp = processor._fingerprint("default", "demo-pod", "Started")
+        cached_event, _ = processor._dedup_cache[fp]
+        processor._dedup_cache[fp] = (cached_event, time.monotonic() - 1)
+
+        later = processor.from_k8s_event(later_event)
+        assert later is not None
+
+        cached_event, _ = processor._dedup_cache[fp]
+        processor._dedup_cache[fp] = (cached_event, time.monotonic() - 1)
+
+        assert processor.from_k8s_event(first_event) is None
+
+
+@pytest.mark.asyncio
+async def test_dispatcher_suppresses_duplicate_delivery_and_history():
+    from monitoring.monitor import EnrichedEvent, NotificationDispatcher, Severity, Subscription, SubscriptionRegistry
+
+    sent_payloads = []
+
+    class FakeWebSocket:
+        async def send(self, payload: str):
+            sent_payloads.append(json.loads(payload))
+
+    registry = SubscriptionRegistry()
+    ws = FakeWebSocket()
+    registry.register(
+        ws,
+        Subscription(
+            user_id="dedup-test",
+            namespaces=set(),
+            severities={"INFO", "WARNING", "CRITICAL"},
+            role="admin",
+        ),
+    )
+    dispatcher = NotificationDispatcher(registry, dedup_window=300)
+
+    first = EnrichedEvent(
+        event_id="evt-1",
+        severity=Severity.CRITICAL,
+        namespace="default",
+        resource_name="crashloop-test",
+        resource_kind="Pod",
+        reason="CrashLoopBackOff",
+        message="first",
+        timestamp="2026-05-27T18:00:00+00:00",
+        node="minikube",
+        labels={},
+        annotations={},
+        raw_count=1,
+    )
+    duplicate = EnrichedEvent(
+        event_id="evt-2",
+        severity=Severity.CRITICAL,
+        namespace="default",
+        resource_name="crashloop-test",
+        resource_kind="Pod",
+        reason="CrashLoopBackOff",
+        message="second",
+        timestamp="2026-05-27T18:00:05+00:00",
+        node="minikube",
+        labels={},
+        annotations={},
+        raw_count=2,
+    )
+
+    assert await dispatcher.dispatch(first) is True
+    assert await dispatcher.dispatch(duplicate) is False
+
+    history = dispatcher.recent_events(10)
+    assert len(history) == 1
+    assert history[0]["raw_count"] == 3
+    assert history[0]["message"] == "second"
+    assert len(sent_payloads) == 1
+    assert sent_payloads[0]["event_id"] == "evt-1"
+
+
 # ═════════════════════════════════════════════════════════════════════════════
 # SECTION 1 – HTTP health checks  (fast, no waiting)
 # ═════════════════════════════════════════════════════════════════════════════
 
+@pytest.mark.integration
+@_requires_live_monitor
 class TestHTTPEndpoints:
     """Verify the monitor's REST API is reachable and returns valid data."""
 
@@ -149,13 +279,17 @@ class TestHTTPEndpoints:
 # SECTION 2 – WebSocket protocol
 # ═════════════════════════════════════════════════════════════════════════════
 
+@pytest.mark.integration
 @pytest.mark.asyncio
+@_requires_live_monitor
 class TestWebSocketProtocol:
 
     async def test_subscribed_frame_on_connect(self):
         """Monitor must respond with SUBSCRIBED immediately after handshake."""
         async with websockets.connect(WS_URL) as ws:
             await ws.send(json.dumps({
+                "type": "AUTH",
+                "token": AUTH_TOKEN,
                 "user_id": "proto-test",
                 "severities": ["CRITICAL"],
             }))
@@ -169,7 +303,7 @@ class TestWebSocketProtocol:
 
     async def test_ping_pong(self):
         async with websockets.connect(WS_URL) as ws:
-            await ws.send(json.dumps({"user_id": "ping-test", "severities": ["INFO"]}))
+            await ws.send(json.dumps({"type": "AUTH", "token": AUTH_TOKEN, "user_id": "ping-test", "severities": ["INFO"]}))
             await ws.recv()   # SUBSCRIBED
 
             await ws.send(json.dumps({"type": "PING"}))
@@ -181,7 +315,7 @@ class TestWebSocketProtocol:
 
     async def test_get_history(self):
         async with websockets.connect(WS_URL) as ws:
-            await ws.send(json.dumps({"user_id": "history-test", "severities": ["INFO", "WARNING", "CRITICAL"]}))
+            await ws.send(json.dumps({"type": "AUTH", "token": AUTH_TOKEN, "user_id": "history-test", "severities": ["INFO", "WARNING", "CRITICAL"]}))
             await ws.recv()   # SUBSCRIBED
 
             await ws.send(json.dumps({"type": "GET_HISTORY", "limit": 5}))
@@ -193,14 +327,13 @@ class TestWebSocketProtocol:
 
     async def test_update_subscription(self):
         async with websockets.connect(WS_URL) as ws:
-            await ws.send(json.dumps({"user_id": "update-test", "severities": ["INFO"]}))
+            await ws.send(json.dumps({"type": "AUTH", "token": AUTH_TOKEN, "user_id": "update-test", "severities": ["INFO"]}))
             await ws.recv()
 
             await ws.send(json.dumps({
                 "type":       "UPDATE_SUBSCRIPTION",
                 "severities": ["CRITICAL"],
                 "namespaces": ["default"],
-                "teams":      [],
             }))
             raw  = await asyncio.wait_for(ws.recv(), timeout=5)
             data = json.loads(raw)
@@ -209,7 +342,7 @@ class TestWebSocketProtocol:
 
     async def test_get_namespaces(self):
         async with websockets.connect(WS_URL) as ws:
-            await ws.send(json.dumps({"user_id": "ns-test", "severities": ["INFO"]}))
+            await ws.send(json.dumps({"type": "AUTH", "token": AUTH_TOKEN, "user_id": "ns-test", "severities": ["INFO"]}))
             await ws.recv()
 
             await ws.send(json.dumps({"type": "GET_NAMESPACES"}))
@@ -233,7 +366,10 @@ class TestWebSocketProtocol:
 # SECTION 3 – Real event delivery from test-workloads.yaml
 # ═════════════════════════════════════════════════════════════════════════════
 
+@pytest.mark.integration
+@pytest.mark.slow
 @pytest.mark.asyncio
+@_requires_live_monitor
 class TestEventDelivery:
     """
     Collect live events for EVENT_WAIT seconds and assert the expected signals
@@ -278,15 +414,10 @@ class TestEventDelivery:
     async def test_events_have_required_fields(self, events):
         """Every delivered event must carry the fields the dashboard and agent depend on."""
         required = {"event_id", "severity", "namespace", "resource_name",
-                    "resource_kind", "reason", "message", "timestamp", "teams"}
+                    "resource_kind", "reason", "message", "timestamp"}
         for ev in events:
             missing = required - ev.keys()
             assert not missing, f"Event {ev.get('event_id')} missing fields: {missing}"
-
-    async def test_teams_are_populated(self, events):
-        """teams field must never be empty — fallback team must kick in."""
-        for ev in events:
-            assert ev.get("teams"), f"Event {ev.get('event_id')} has empty teams"
 
     async def test_namespace_filter_works(self):
         """Subscribe to 'default' only — must not receive events from other namespaces."""
@@ -296,7 +427,6 @@ class TestEventDelivery:
                 "user_id":    "ns-filter-test",
                 "severities": ["INFO", "WARNING", "CRITICAL"],
                 "namespaces": ["default"],
-                "teams":      [],
                 "role":       "viewer",
             },
         )
@@ -313,7 +443,6 @@ class TestEventDelivery:
                 "user_id":    "sev-filter-test",
                 "severities": ["CRITICAL"],
                 "namespaces": [],
-                "teams":      [],
                 "role":       "viewer",
             },
         )
@@ -366,7 +495,6 @@ class TestAgentNotifier:
             node          = "minikube",
             labels        = {"app": "crashloop-test"},
             annotations   = {},
-            teams         = ["ops-team"],
             raw_count     = 5,
             first_seen    = "2024-01-01T00:00:00+00:00",
             last_seen     = "2024-01-01T00:01:00+00:00",

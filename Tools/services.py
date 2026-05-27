@@ -322,7 +322,7 @@ def _summarize_service(svc) -> dict:
         "namespace":      svc.metadata.namespace,
         "type":           svc.spec.type,  # ClusterIP, NodePort, LoadBalancer, ExternalName
         "cluster_ip":     svc.spec.cluster_ip,
-        "external_ips":   svc.spec.external_i_ps or [],
+        "external_ips":   getattr(svc.spec, "external_ips", None) or [],
         "ports":          ports,
         "selector":       svc.spec.selector or {},
         "endpoints":      endpoints,
