@@ -1,4 +1,4 @@
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 
@@ -12,6 +12,26 @@ engine = create_engine(
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 Base = declarative_base()
+
+
+def ensure_sqlite_schema(db_engine=engine) -> None:
+    """Apply small SQLite-only schema backfills for local development databases."""
+    if db_engine.url.get_backend_name() != "sqlite":
+        return
+
+    with db_engine.begin() as connection:
+        rows = connection.execute(text("PRAGMA table_info(incident_records)")).mappings().all()
+        if not rows:
+            return
+
+        columns = {row["name"] for row in rows}
+        missing_columns = {
+            "viewed_by": "ALTER TABLE incident_records ADD COLUMN viewed_by JSON DEFAULT '[]'",
+            "dismissed_by": "ALTER TABLE incident_records ADD COLUMN dismissed_by JSON DEFAULT '[]'",
+        }
+        for column_name, statement in missing_columns.items():
+            if column_name not in columns:
+                connection.execute(text(statement))
 
 
 PERMISSION_CATALOG_SEED = [
