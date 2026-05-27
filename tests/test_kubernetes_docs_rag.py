@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from agent.rag.kubernetes_docs import build_kubernetes_docs_index, search_kubernetes_docs
@@ -110,6 +112,45 @@ Read [debugging docs](/docs/tasks/debug/).
     assert "##### CRI details" not in serialized
     assert "_CRI logging format_" not in serialized
     assert result["results"][0]["section"] == "How nodes handle container logs"
+
+
+@pytest.mark.unit
+def test_kubernetes_docs_index_excludes_non_operational_docs(tmp_path):
+    source_root = tmp_path / "website"
+    index_root = tmp_path / "index"
+    _write_doc(
+        source_root,
+        "concepts/workloads/pods/pod-lifecycle.md",
+        """---
+title: Pod Lifecycle
+---
+
+Pods run containers.
+""",
+    )
+    _write_doc(
+        source_root,
+        "contribute/new-content/open-a-pr.md",
+        """---
+title: Opening a pull request
+---
+
+Edit this page in the Kubernetes website repository.
+""",
+    )
+
+    metadata = build_kubernetes_docs_index(
+        source_path=source_root,
+        index_path=index_root,
+        version="latest",
+    )
+    payload = json.loads((index_root / "index.json").read_text(encoding="utf-8"))
+    indexed_paths = {chunk["path"] for chunk in payload["chunks"]}
+
+    assert "concepts/workloads/pods/pod-lifecycle.md" in indexed_paths
+    assert "contribute/new-content/open-a-pr.md" not in indexed_paths
+    assert "contribute" in metadata["excluded_paths"]
+    assert metadata["skipped_file_count"] == 1
 
 
 @pytest.mark.unit

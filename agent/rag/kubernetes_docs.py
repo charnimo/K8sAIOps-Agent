@@ -19,6 +19,16 @@ from typing import Any, Iterable
 INDEX_FILENAME = "index.json"
 KUBERNETES_DOCS_CONTENT_ROOT = Path("content") / "en" / "docs"
 DEFAULT_RESULT_LIMIT = 5
+DEFAULT_INCLUDED_DOC_PATHS = (
+    "concepts",
+    "tasks",
+    "reference",
+    "setup",
+    "tutorials",
+)
+DEFAULT_EXCLUDED_DOC_PATHS = (
+    "contribute",
+)
 
 _FRONT_MATTER_RE = re.compile(r"\A---\s*\n(?P<body>.*?)\n---\s*\n", re.DOTALL)
 _TITLE_RE = re.compile(r"^title:\s*[\"']?(?P<title>.*?)[\"']?\s*$", re.MULTILINE)
@@ -57,6 +67,8 @@ def build_kubernetes_docs_index(
     index_path: str | Path,
     version: str = "latest",
     chunk_chars: int = 1800,
+    include_paths: tuple[str, ...] = DEFAULT_INCLUDED_DOC_PATHS,
+    exclude_paths: tuple[str, ...] = DEFAULT_EXCLUDED_DOC_PATHS,
 ) -> dict[str, Any]:
     """Parse Kubernetes Markdown docs and persist a local retrieval index."""
     source_root = Path(source_path)
@@ -68,7 +80,17 @@ def build_kubernetes_docs_index(
         )
 
     chunks: list[KubernetesDocsChunk] = []
+    skipped_file_count = 0
     for markdown_path in sorted(content_root.rglob("*.md")):
+        rel_path = markdown_path.relative_to(content_root).as_posix()
+        if not _is_indexable_doc_path(
+            rel_path,
+            include_paths=include_paths,
+            exclude_paths=exclude_paths,
+        ):
+            skipped_file_count += 1
+            continue
+
         chunks.extend(
             _chunks_for_markdown_file(
                 markdown_path=markdown_path,
@@ -84,6 +106,9 @@ def build_kubernetes_docs_index(
             "version": version,
             "chunk_chars": chunk_chars,
             "chunk_count": len(chunks),
+            "included_paths": list(include_paths),
+            "excluded_paths": list(exclude_paths),
+            "skipped_file_count": skipped_file_count,
             "format": 1,
         },
         "chunks": [asdict(chunk) for chunk in chunks],
@@ -95,6 +120,23 @@ def build_kubernetes_docs_index(
         encoding="utf-8",
     )
     return payload["metadata"]
+
+
+def _is_indexable_doc_path(
+    rel_path: str,
+    *,
+    include_paths: tuple[str, ...],
+    exclude_paths: tuple[str, ...],
+) -> bool:
+    normalized = rel_path.strip("/").replace("\\", "/")
+    if any(_path_matches_prefix(normalized, prefix) for prefix in exclude_paths):
+        return False
+    return any(_path_matches_prefix(normalized, prefix) for prefix in include_paths)
+
+
+def _path_matches_prefix(rel_path: str, prefix: str) -> bool:
+    clean_prefix = prefix.strip("/").replace("\\", "/")
+    return rel_path == clean_prefix or rel_path.startswith(f"{clean_prefix}/")
 
 
 def search_kubernetes_docs(
