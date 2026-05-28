@@ -299,6 +299,7 @@ async def _run_agent_report(events_to_run: int, diverse: bool) -> int:
 
 
 def main() -> int:
+    """Parse CLI options, optionally run tests, and execute the live agent report."""
     parser = argparse.ArgumentParser(description="Run tests and print live agent response report.")
     parser.add_argument("--run-tests", action="store_true", help="Run monitor and tools test suites first.")
     parser.add_argument("--events", type=int, default=5, help="Number of warning events to feed to the agent.")
