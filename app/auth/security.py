@@ -50,6 +50,7 @@ def _password_candidates(password: str) -> list[bytes]:
     return candidates
 
 def verify_password(plain_password, hashed_password):
+    """Verify a plaintext password against a stored bcrypt hash."""
     try:
         hashed = hashed_password.encode("utf-8")
     except Exception:
@@ -64,11 +65,13 @@ def verify_password(plain_password, hashed_password):
     return False
 
 def get_password_hash(password):
+    """Hash a password using the repository's bcrypt pre-hash strategy."""
     # Always pre-hash to support any password length safely with bcrypt.
     password_bytes = _prehash_password(password)
     return bcrypt.hashpw(password_bytes, bcrypt.gensalt()).decode("utf-8")
 
 def create_access_token(data: dict, expires_delta: timedelta = None):
+    """Create a signed JWT access token from identity claims."""
     to_encode = data.copy()
     
     if expires_delta:

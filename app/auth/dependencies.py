@@ -92,11 +92,13 @@ def _parse_user_permissions(user: User) -> dict:
 
 
 def get_permission_label(permission_key: str) -> str:
+    """Return the human-readable label for a permission key."""
     _load_catalog()
     return PERM_LABELS.get(permission_key, permission_key)
 
 
 def user_has_permission(user: User, permission_key: str, namespace: str = "default") -> bool:
+    """Check whether a user has a cluster or namespace-scoped permission."""
     _load_catalog()
     if user.is_god_mode:
         return True
@@ -110,6 +112,7 @@ def user_has_permission(user: User, permission_key: str, namespace: str = "defau
 
 
 def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
+    """Resolve the bearer token to an active database user."""
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Could not validate credentials",
@@ -130,6 +133,7 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
     return user
 
 def require_permission(permission_key: str):
+    """Create a FastAPI dependency that enforces a specific permission key."""
     async def checker(request: Request, user: User = Depends(get_current_user)):
         _load_catalog()
         if user.is_god_mode:

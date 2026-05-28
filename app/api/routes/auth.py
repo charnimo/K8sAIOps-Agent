@@ -51,6 +51,8 @@ DEFAULT_SIGNUP_PERMISSION_KEYS = [
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 class Token(BaseModel):
+    """OAuth2 bearer token response returned by the login endpoint."""
+
     access_token: str
     token_type: str
 
@@ -145,6 +147,7 @@ def create_user(
     profile_picture: Optional[UploadFile] = File(None),
     db: Session = Depends(get_db)
 ):
+    """Create a user with default read/diagnostic permissions and an optional profile image."""
     # Check if username or email is taken
     db_user = db.query(User).filter(User.username == username).first()
     if db_user:
@@ -190,6 +193,7 @@ def create_user(
 
 @router.post("/login", response_model=Token, summary="Login to get JWT Token")
 def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
+    """Validate credentials and return a signed bearer token."""
     # Query user by username
     user = db.query(User).filter(User.username == form_data.username).first()
     

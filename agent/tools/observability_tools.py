@@ -15,6 +15,7 @@ from ._client import AgentApiClient
 
 
 def build_observability_tools(token: str) -> list:
+    """Build metrics, logs, events, and pressure tools bound to the caller's token."""
     client = AgentApiClient(token)
 
     @tool

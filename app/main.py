@@ -94,6 +94,7 @@ app.mount("/static", StaticFiles(directory="app/static"), name="static")
 
 @app.get("/", summary="Serve Dashboard UI", tags=["UI"])
 def read_root():
+    """Serve the dashboard single-page application entrypoint."""
     return FileResponse("app/static/index.html")
 
 app.include_router(api_router)

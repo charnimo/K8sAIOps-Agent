@@ -68,6 +68,8 @@ def _configured_api_client() -> ApiClient:
 # ─── Enums & Data Models ──────────────────────────────────────────────────────
 
 class Severity(str, Enum):
+    """Delivery severity used by the monitor and dashboard event streams."""
+
     INFO     = "INFO"
     WARNING  = "WARNING"
     CRITICAL = "CRITICAL"
@@ -98,16 +100,20 @@ class EnrichedEvent:
     last_seen:     Optional[str] = None
 
     def to_dict(self) -> dict:
+        """Convert the event into a JSON-serializable dictionary."""
         d = asdict(self)
         d["severity"] = self.severity.value
         return d
 
     def to_json(self) -> str:
+        """Serialize the event for WebSocket delivery."""
         return json.dumps(self.to_dict(), default=str)
 
 
 @dataclass
 class Subscription:
+    """WebSocket subscriber routing preferences."""
+
     user_id:    str
     namespaces: set[str] = field(default_factory=set)   # empty = all
     severities: set[str] = field(default_factory=lambda: {"INFO", "WARNING", "CRITICAL"})
@@ -396,16 +402,19 @@ class SubscriptionRegistry:
         self._subs: dict[WebSocketServerProtocol, Subscription] = {}
 
     def register(self, ws: WebSocketServerProtocol, sub: Subscription):
+        """Add or replace the subscription associated with a WebSocket."""
         self._subs[ws] = sub
         log.info("Registered user=%s role=%s ns=%s",
                  sub.user_id, sub.role, sub.namespaces or "*")
 
     def unregister(self, ws: WebSocketServerProtocol):
+        """Remove the subscription associated with a WebSocket."""
         sub = self._subs.pop(ws, None)
         if sub:
             log.info("Unregistered user=%s", sub.user_id)
 
     def get_subscribers(self, event: EnrichedEvent) -> list[WebSocketServerProtocol]:
+        """Return live WebSockets whose subscription matches an event."""
         targets = []
         for ws, sub in list(self._subs.items()):
             if event.severity.value not in sub.severities:
@@ -417,9 +426,11 @@ class SubscriptionRegistry:
 
     @property
     def connected_count(self) -> int:
+        """Return the number of currently registered WebSocket clients."""
         return len(self._subs)
 
     def summary(self) -> list[dict]:
+        """Return subscription metadata for monitor status endpoints."""
         return [
             {
                 "user_id":    s.user_id,
@@ -448,6 +459,8 @@ def _event_history_key(event: dict) -> tuple[str, str, str]:
 
 
 class NotificationDispatcher:
+    """Deliver enriched events to subscribers while retaining recent history."""
+
     def __init__(self, registry: SubscriptionRegistry, dedup_window: int = DEDUP_WINDOW):
         self._registry = registry
         self._history: deque[dict] = deque(maxlen=MAX_HISTORY)
@@ -455,6 +468,7 @@ class NotificationDispatcher:
         self._delivered_until: dict[tuple[str, str, str], float] = {}
 
     async def dispatch(self, event: EnrichedEvent) -> bool:
+        """Store and deliver an event, suppressing recent duplicate deliveries."""
         if self._is_recent_duplicate(event):
             log.debug(
                 "Suppressed duplicate delivery for %s/%s/%s",
@@ -525,6 +539,7 @@ class NotificationDispatcher:
         limit: int = 50,
         subscription: Optional[Subscription] = None,
     ) -> list[dict]:
+        """Return deduplicated event history, optionally filtered by subscription."""
         events = list(self._history)
         if subscription is not None:
             events = [
@@ -574,6 +589,7 @@ class KubernetesWatcher:
             log.info("Loaded local kubeconfig")
 
     async def start(self):
+        """Start all Kubernetes watch loops and run until cancelled."""
         await self._load_config()
         self._api_client = _configured_api_client()
         log.info("Kubernetes watcher started")
@@ -649,6 +665,8 @@ class KubernetesWatcher:
 # ─── WebSocket Server ─────────────────────────────────────────────────────────
 
 class WebSocketServer:
+    """Standalone WebSocket server for monitor subscriptions."""
+
     def __init__(
         self,
         registry: SubscriptionRegistry,
@@ -660,6 +678,7 @@ class WebSocketServer:
         self._port       = port
 
     async def handler(self, ws: WebSocketServerProtocol):
+        """Authenticate a client, register its subscription, and handle messages."""
         try:
             # ── Step 1: expect AUTH as first message ──────────────────────────
             raw = await asyncio.wait_for(ws.recv(), timeout=10)
@@ -756,6 +775,7 @@ class WebSocketServer:
             log.info("WS connection closed from %s", ws.remote_address)
 
     async def start(self):
+        """Listen for WebSocket clients until the server task is cancelled."""
         log.info("WebSocket server listening on :%d", self._port)
         async with websockets.serve(self.handler, "0.0.0.0", self._port):
             await asyncio.Future()

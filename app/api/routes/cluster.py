@@ -144,6 +144,8 @@ NAMESPACED_TERMINAL_SUBCOMMAND_PERMISSION = {
 
 @dataclass
 class TerminalAccessContext:
+    """Resolved identity and permissions for a read-only kubectl WebSocket session."""
+
     username: str
     is_god_mode: bool
     global_permissions: set[str]

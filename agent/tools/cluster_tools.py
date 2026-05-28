@@ -14,6 +14,7 @@ from ._client import AgentApiClient
 
 
 def build_cluster_tools(token: str) -> list:
+    """Build platform health and audit tools bound to the caller's token."""
     client = AgentApiClient(token)
 
     @tool
