@@ -24,6 +24,7 @@ logger = logging.getLogger(__name__)
 # Lifespan
 @asynccontextmanager
 async def monitor_lifespan(app: FastAPI):
+    """Start monitor components for a FastAPI app lifespan and tear them down."""
     logger.info("[MONITOR] Building monitor components")
     components = await build_monitor_components()
     app.state.monitor = components

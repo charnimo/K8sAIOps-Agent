@@ -42,6 +42,8 @@ def _categorize_reason(reason: str) -> str:
 
 
 class AgentNotifier:
+    """Queue warning events and pass them to the passive monitoring agent."""
+
     AGENT_SEVERITIES = {"WARNING", "CRITICAL"}
 
     def __init__(self, dispatcher, app_state: Any):
@@ -56,9 +58,11 @@ class AgentNotifier:
         self._compiled_graph = None
 
     def attach(self):
+        """Patch the dispatcher so qualifying events are queued for agent processing."""
         original_dispatch = self._dispatcher.dispatch
 
         async def patched_dispatch(event):
+            """Dispatch normally, then enqueue non-duplicate warning or critical events."""
             delivered = await original_dispatch(event)
             if delivered is False:
                 return False
@@ -91,6 +95,7 @@ class AgentNotifier:
         log.info("AgentNotifier attached to dispatcher")
 
     def detach(self):
+        """Cancel background notifier tasks during application shutdown."""
         if self._task:
             self._task.cancel()
         if self._janitor_task:

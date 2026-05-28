@@ -121,6 +121,7 @@ def get_incident_detail(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> dict:
+    """Return full incident details for the authenticated user."""
     record = db.query(IncidentRecordModel).filter(IncidentRecordModel.incident_id == incident_id).first()
     if not record:
         raise HTTPException(status_code=404, detail="Incident not found")
@@ -151,6 +152,7 @@ def mark_incident_viewed(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> dict:
+    """Mark an incident as viewed for the authenticated user."""
     record = db.query(IncidentRecordModel).filter(IncidentRecordModel.incident_id == incident_id).first()
     if record:
         viewed_list = list(record.viewed_by) if record.viewed_by else []
@@ -166,6 +168,7 @@ def dismiss_incident(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> dict:
+    """Hide an incident from the authenticated user's incident list."""
     record = db.query(IncidentRecordModel).filter(IncidentRecordModel.incident_id == incident_id).first()
     if record:
         dismiss_list = list(record.dismissed_by) if record.dismissed_by else []
@@ -181,6 +184,7 @@ def dismiss_all_incidents(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> dict:
+    """Hide all matching incidents from the authenticated user's incident list."""
     query = db.query(IncidentRecordModel)
     if namespace:
         query = query.filter(IncidentRecordModel.namespace == namespace)
@@ -201,6 +205,7 @@ def delete_all_incidents(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> dict:
+    """Delete all incidents, optionally scoped to a namespace."""
     query = db.query(IncidentRecordModel)
     if namespace:
         query = query.filter(IncidentRecordModel.namespace == namespace)
@@ -214,6 +219,7 @@ def delete_single_incident(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> dict:
+    """Delete one incident by incident id."""
     db.query(IncidentRecordModel).filter(IncidentRecordModel.incident_id == incident_id).delete(synchronize_session=False)
     db.commit()
     return {"success": True}

@@ -118,6 +118,7 @@ class NVIDIAChatClient:
         return f"{normalized}/chat/completions"
 
     def invoke(self, messages: list[dict[str, Any]]) -> dict[str, Any]:
+        """Call the configured chat-completions endpoint with API-key fallback."""
         keys = self.api_keys or ((self.api_key,) if self.api_key else ())
         attempted = 0
         last_error: requests.RequestException | None = None
@@ -164,12 +165,14 @@ class NVIDIAChatClient:
         ) from last_error
 
     async def ainvoke(self, messages: list[dict[str, Any]]) -> dict[str, Any]:
+        """Run the synchronous chat call in a worker thread for async callers."""
         import asyncio
 
         return await asyncio.to_thread(self.invoke, messages)
 
     @staticmethod
     def extract_text(response: dict[str, Any]) -> str:
+        """Extract assistant content from an OpenAI-compatible chat response."""
         choices = response.get("choices", [])
         if not choices:
             return ""

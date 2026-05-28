@@ -4,6 +4,8 @@ from datetime import datetime
 from app.database.database import Base
 
 class User(Base):
+    """Application user with credentials, profile metadata, and permissions."""
+
     __tablename__ = "users"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -21,6 +23,8 @@ class User(Base):
 
 
 class PermissionCatalog(Base):
+    """Catalog entry describing one assignable RBAC permission."""
+
     __tablename__ = "permission_catalog"
 
     permission_key = Column(String, primary_key=True, index=True)
@@ -33,6 +37,8 @@ class PermissionCatalog(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 class Conversation(Base):
+    """Chat conversation owned by a user."""
+
     __tablename__ = "conversations"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -44,6 +50,8 @@ class Conversation(Base):
     messages = relationship("ChatHistory", back_populates="conversation", cascade="all, delete")
 
 class ChatHistory(Base):
+    """Single chat message persisted within a conversation."""
+
     __tablename__ = "chat_history"
 
     id = Column(Integer, primary_key=True, index=True)

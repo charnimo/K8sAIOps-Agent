@@ -123,6 +123,7 @@ PERMISSION_CATALOG_SEED = [
 
 
 def seed_permission_catalog():
+    """Insert or update the permission catalog rows used by RBAC checks."""
     from app.database.models import PermissionCatalog
 
     db = SessionLocal()
@@ -151,6 +152,7 @@ def seed_permission_catalog():
 
 
 def seed_mock_chat_history():
+    """Create lightweight sample chat conversations for local users."""
     from app.database.models import ChatHistory, Conversation, User
 
     db = SessionLocal()
@@ -207,6 +209,7 @@ def seed_mock_chat_history():
         db.close()
 
 def get_db():
+    """Yield a request-scoped SQLAlchemy session and close it afterwards."""
     db = SessionLocal()
     try:
         yield db

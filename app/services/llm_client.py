@@ -35,9 +35,11 @@ class FallbackChatModel:
     client_factory: ClientFactory | None = None
 
     def bind_tools(self, tools: list[Any]) -> "FallbackChatModel":
+        """Return a copy configured with LangChain tools bound to each client."""
         return replace(self, tools=tuple(tools))
 
     def invoke(self, messages: list[Any]) -> Any:
+        """Invoke the chat model, rotating through retryable API-key failures."""
         if not self.api_keys:
             raise LLMProviderUnavailableError("No agent API keys are configured.")
 

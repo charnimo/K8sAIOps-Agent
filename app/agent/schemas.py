@@ -71,6 +71,8 @@ class EnrichedEventInput(BaseModel):
     additional_context: Dict[str, Any] = Field(default_factory=dict)
 
     class Config:
+        """Pydantic v1 serialization settings."""
+
         use_enum_values = True
 
 
@@ -84,6 +86,8 @@ class DiagnosticResult(BaseModel):
     execution_time_ms: float = 0.0
 
     class Config:
+        """Pydantic v1 serialization settings."""
+
         use_enum_values = True
 
 
@@ -172,6 +176,8 @@ class IncidentRecord(BaseModel):
     audit_trail: List[Dict[str, Any]] = Field(default_factory=list)
 
     class Config:
+        """Pydantic v1 serialization settings."""
+
         use_enum_values = True
 
 
@@ -246,6 +252,8 @@ class ToolDefinition(BaseModel):
     is_read_only: bool = True
 
     class Config:
+        """Pydantic v1 serialization settings."""
+
         use_enum_values = True
 
 
