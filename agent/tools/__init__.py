@@ -39,6 +39,8 @@ from .read_tools import build_read_tools
 
 
 class ToolGroup(str, Enum):
+    """Supported tool families that can be loaded for an agent task."""
+
     READ = "read"
     OBSERVABILITY = "observability"
     DIAGNOSTIC = "diagnostic"

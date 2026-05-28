@@ -24,6 +24,7 @@ from ._client import AgentApiClient
 # ─────────────────────────────────────────────────────────────────────────────
 
 def build_read_tools(token: str) -> list:
+    """Build read-only Kubernetes inspection tools bound to the caller's token."""
     client = AgentApiClient(token)
 
     # ── PODS ──────────────────────────────────────────────────────────────────

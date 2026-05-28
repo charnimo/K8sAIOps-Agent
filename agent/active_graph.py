@@ -278,10 +278,12 @@ def _build_active_graph(llm: Any, tools: list[Any]) -> Any:
     llm_with_tools = llm.bind_tools(tools) if tools else llm
 
     def call_model(state: ActiveAgentState) -> dict[str, list[Any]]:
+        """Ask the LLM for the next assistant message or tool call."""
         response = llm_with_tools.invoke(state["messages"])
         return {"messages": [response]}
 
     def execute_tools(state: ActiveAgentState) -> dict[str, Any]:
+        """Execute requested tools and stop after the first approval-gated action."""
         last_message = state["messages"][-1]
         tool_calls = getattr(last_message, "tool_calls", []) or []
         tool_messages = []
@@ -327,9 +329,11 @@ def _build_active_graph(llm: Any, tools: list[Any]) -> Any:
         }
 
     def finalize_action(state: ActiveAgentState) -> dict[str, list[Any]]:
+        """Return a user-facing confirmation for a queued action request."""
         return {"messages": [AIMessage(content=_action_response_text(state.get("action") or {}))]}
 
     def finalize_max_steps(state: ActiveAgentState) -> dict[str, list[Any]]:
+        """Force a final answer when the graph reaches its tool-iteration budget."""
         prompt = (
             "Stop using tools now. Summarize the evidence already gathered, "
             "state what is still uncertain, and give the safest next step. "
@@ -339,6 +343,7 @@ def _build_active_graph(llm: Any, tools: list[Any]) -> Any:
         return {"messages": [response]}
 
     def route_after_model(state: ActiveAgentState) -> str:
+        """Route from the model node to tools, max-step handling, or completion."""
         last_message = state["messages"][-1]
         if getattr(last_message, "tool_calls", None):
             if int(state.get("iterations", 0)) >= int(state.get("max_iterations", 4)):
@@ -347,6 +352,7 @@ def _build_active_graph(llm: Any, tools: list[Any]) -> Any:
         return "end"
 
     def route_after_tools(state: ActiveAgentState) -> str:
+        """Route after tools, ending immediately when an action awaits approval."""
         if state.get("action"):
             return "action"
         if int(state.get("iterations", 0)) >= int(state.get("max_iterations", 4)):
@@ -532,6 +538,7 @@ def _extract_usage(messages: list[Any]) -> dict[str, int] | None:
         return None
 
     def as_int(value: Any) -> int | None:
+        """Best-effort conversion for provider-specific token counters."""
         try:
             return int(value)
         except (TypeError, ValueError):

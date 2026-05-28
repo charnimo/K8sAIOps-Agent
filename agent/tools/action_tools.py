@@ -25,6 +25,12 @@ from ._client import AgentApiClient
 
 
 def build_action_tools(token: str) -> list:
+    """
+    Build approval-gated mutation tools bound to the caller's API token.
+
+    Each returned tool creates an action request instead of directly changing
+    Kubernetes state. The dashboard approval flow performs the final execution.
+    """
     client = AgentApiClient(token)
 
     # ── PODS ──────────────────────────────────────────────────────────────────

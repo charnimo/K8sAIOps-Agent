@@ -33,21 +33,25 @@ class AgentApiClient:
         return f"{API_BASE}{path}"
 
     def get(self, path: str, params: dict | None = None) -> dict | list:
+        """Send an authenticated GET request and normalize API errors."""
         with httpx.Client(timeout=30) as client:
             res = client.get(self._url(path), headers=self._headers, params=params or {})
         return self._handle(res)
 
     def post(self, path: str, body: dict | None = None) -> dict:
+        """Send an authenticated POST request and normalize API errors."""
         with httpx.Client(timeout=30) as client:
             res = client.post(self._url(path), headers=self._headers, json=body or {})
         return self._handle(res)
 
     def patch(self, path: str, body: dict | None = None) -> dict:
+        """Send an authenticated PATCH request and normalize API errors."""
         with httpx.Client(timeout=30) as client:
             res = client.patch(self._url(path), headers=self._headers, json=body or {})
         return self._handle(res)
 
     def delete(self, path: str, params: dict | None = None) -> dict:
+        """Send an authenticated DELETE request and normalize API errors."""
         with httpx.Client(timeout=30) as client:
             res = client.delete(self._url(path), headers=self._headers, params=params or {})
         return self._handle(res)
