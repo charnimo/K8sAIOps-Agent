@@ -174,6 +174,81 @@ def _handle_patch_env_var(record: dict, params: dict, name: str, namespace: str,
     return result
 
 
+def _handle_update_deployment_image(record: dict, params: dict, name: str, namespace: str, user_id: str, triggered_by: str) -> dict:
+    container_name = params.get("container_name") or params.get("container")
+    image = str(_require_param(params, "image"))
+    result = deployments.update_deployment_image(
+        name=name,
+        namespace=namespace,
+        container_name=container_name,
+        image=image,
+        audit=False,
+    )
+    audit.log_action(
+        "deployment_image_update",
+        name,
+        namespace,
+        result.get("success", False),
+        details={"container_name": container_name, "image": image},
+        error_message=_audit_error(result),
+        user_id=user_id,
+        triggered_by=triggered_by,
+    )
+    return result
+
+
+def _handle_patch_deployment_command(record: dict, params: dict, name: str, namespace: str, user_id: str, triggered_by: str) -> dict:
+    result = deployments.patch_deployment_command(
+        name=name,
+        namespace=namespace,
+        container_name=params.get("container_name"),
+        command=params.get("command"),
+        args=params.get("args"),
+        audit=False,
+    )
+    audit.log_action(
+        "deployment_command_patch",
+        name,
+        namespace,
+        result.get("success", False),
+        details={
+            "container_name": params.get("container_name"),
+            "command": params.get("command"),
+            "args": params.get("args"),
+        },
+        error_message=_audit_error(result),
+        user_id=user_id,
+        triggered_by=triggered_by,
+    )
+    return result
+
+
+def _handle_patch_deployment_node_selector(record: dict, params: dict, name: str, namespace: str, user_id: str, triggered_by: str) -> dict:
+    result = deployments.patch_deployment_node_selector(
+        name=name,
+        namespace=namespace,
+        node_selector=params.get("node_selector"),
+        remove_keys=params.get("remove_keys"),
+        replace=_bool_param(params, "replace", False),
+        audit=False,
+    )
+    audit.log_action(
+        "deployment_node_selector_patch",
+        name,
+        namespace,
+        result.get("success", False),
+        details={
+            "node_selector": params.get("node_selector"),
+            "remove_keys": params.get("remove_keys"),
+            "replace": params.get("replace"),
+        },
+        error_message=_audit_error(result),
+        user_id=user_id,
+        triggered_by=triggered_by,
+    )
+    return result
+
+
 def _handle_scale_statefulset(record: dict, params: dict, name: str, namespace: str, user_id: str, triggered_by: str) -> dict:
     replicas = int(_require_param(params, "replicas"))
     result = statefulsets.scale_statefulset(name=name, namespace=namespace, replicas=replicas, audit=False)
@@ -305,6 +380,29 @@ def _handle_resume_cronjob(record: dict, params: dict, name: str, namespace: str
         name,
         namespace,
         result.get("success", False),
+        error_message=_audit_error(result),
+        user_id=user_id,
+        triggered_by=triggered_by,
+    )
+    return result
+
+
+def _handle_patch_cronjob_starting_deadline(record: dict, params: dict, name: str, namespace: str, user_id: str, triggered_by: str) -> dict:
+    value = params.get("starting_deadline_seconds")
+    if value is not None:
+        value = int(value)
+    result = jobs.patch_cronjob_starting_deadline(
+        name=name,
+        namespace=namespace,
+        starting_deadline_seconds=value,
+        audit=False,
+    )
+    audit.log_action(
+        "cronjob_starting_deadline_patch",
+        name,
+        namespace,
+        result.get("success", False),
+        details={"starting_deadline_seconds": value},
         error_message=_audit_error(result),
         user_id=user_id,
         triggered_by=triggered_by,
@@ -760,6 +858,9 @@ ACTION_HANDLERS: dict[str, ActionHandler] = {
     "rollback_deployment": _handle_rollback_deployment,
     "patch_resource_limits": _handle_patch_resource_limits,
     "patch_env_var": _handle_patch_env_var,
+    "update_deployment_image": _handle_update_deployment_image,
+    "patch_deployment_command": _handle_patch_deployment_command,
+    "patch_deployment_node_selector": _handle_patch_deployment_node_selector,
     "scale_statefulset": _handle_scale_statefulset,
     "restart_statefulset": _handle_restart_statefulset,
     "restart_daemonset": _handle_restart_daemonset,
@@ -769,6 +870,7 @@ ACTION_HANDLERS: dict[str, ActionHandler] = {
     "resume_job": _handle_resume_job,
     "suspend_cronjob": _handle_suspend_cronjob,
     "resume_cronjob": _handle_resume_cronjob,
+    "patch_cronjob_starting_deadline": _handle_patch_cronjob_starting_deadline,
     "create_service": _handle_create_service,
     "patch_service": _handle_patch_service,
     "delete_service": _handle_delete_service,

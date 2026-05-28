@@ -9,7 +9,10 @@ from Tools import deployments, pods, services
 from app.api.mutations import run_direct_action
 from app.schemas.mutations import (
     CreateServiceRequest,
+    DeploymentCommandPatchRequest,
     DeploymentEnvPatchRequest,
+    DeploymentImageUpdateRequest,
+    DeploymentNodeSelectorPatchRequest,
     DeploymentResourceLimitsPatchRequest,
     DeploymentRollbackRequest,
     PatchServiceRequest,
@@ -332,6 +335,66 @@ def patch_deployment_env(
     namespace = params.pop("namespace")
     return run_direct_action(
         "patch_env_var",
+        name=name,
+        namespace=namespace,
+        params=params,
+        user_id=user.username,
+        request=request,
+    )
+
+
+@router.patch("/deployments/{name}/image")
+def update_deployment_image(
+    name: str,
+    payload: DeploymentImageUpdateRequest,
+    request: Request,
+    user: User = Depends(require_permission("deployments:patch")),
+) -> dict:
+    """Update a deployment container image directly."""
+    params = payload.model_dump()
+    namespace = params.pop("namespace")
+    return run_direct_action(
+        "update_deployment_image",
+        name=name,
+        namespace=namespace,
+        params=params,
+        user_id=user.username,
+        request=request,
+    )
+
+
+@router.patch("/deployments/{name}/command")
+def patch_deployment_command(
+    name: str,
+    payload: DeploymentCommandPatchRequest,
+    request: Request,
+    user: User = Depends(require_permission("deployments:patch")),
+) -> dict:
+    """Patch deployment container command or args directly."""
+    params = payload.model_dump()
+    namespace = params.pop("namespace")
+    return run_direct_action(
+        "patch_deployment_command",
+        name=name,
+        namespace=namespace,
+        params=params,
+        user_id=user.username,
+        request=request,
+    )
+
+
+@router.patch("/deployments/{name}/node-selector")
+def patch_deployment_node_selector(
+    name: str,
+    payload: DeploymentNodeSelectorPatchRequest,
+    request: Request,
+    user: User = Depends(require_permission("deployments:patch")),
+) -> dict:
+    """Patch deployment pod-template nodeSelector directly."""
+    params = payload.model_dump()
+    namespace = params.pop("namespace")
+    return run_direct_action(
+        "patch_deployment_node_selector",
         name=name,
         namespace=namespace,
         params=params,

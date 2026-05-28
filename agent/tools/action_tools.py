@@ -222,6 +222,86 @@ def build_action_tools(token: str) -> list:
 
     # ── STATEFULSETS ──────────────────────────────────────────────────────────
 
+    # Additional deployment patch actions
+    @tool
+    def update_deployment_image(
+        name: str,
+        image: str,
+        namespace: str = "default",
+        container_name: Optional[str] = None,
+    ) -> dict:
+        """
+        Update a Deployment container image.
+
+        DANGEROUS: Confirm with user and verify the image tag first.
+        """
+        params: dict = {"image": image}
+        if container_name:
+            params["container_name"] = container_name
+
+        return client.post("/action-requests", {
+            "type": "update_deployment_image",
+            "target": {"name": name, "namespace": namespace},
+            "params": params
+        })
+
+    @tool
+    def patch_deployment_command(
+        name: str,
+        namespace: str = "default",
+        container_name: Optional[str] = None,
+        command: Optional[list[str]] = None,
+        args: Optional[list[str]] = None,
+    ) -> dict:
+        """
+        Patch a Deployment container command or args.
+
+        Provide command as a list like ['sleep', '3600'].
+
+        DANGEROUS: Confirm with user. Wrong commands can break the workload.
+        """
+        params: dict = {}
+        if container_name:
+            params["container_name"] = container_name
+        if command is not None:
+            params["command"] = command
+        if args is not None:
+            params["args"] = args
+
+        return client.post("/action-requests", {
+            "type": "patch_deployment_command",
+            "target": {"name": name, "namespace": namespace},
+            "params": params
+        })
+
+    @tool
+    def patch_deployment_node_selector(
+        name: str,
+        namespace: str = "default",
+        node_selector: Optional[dict] = None,
+        remove_keys: Optional[list[str]] = None,
+        replace: bool = False,
+    ) -> dict:
+        """
+        Patch or remove Deployment pod-template nodeSelector entries.
+
+        To remove one selector, pass remove_keys=['key'].
+
+        DANGEROUS: Confirm with user. Changing scheduling constraints rolls pods.
+        """
+        params: dict = {"replace": replace}
+        if node_selector:
+            params["node_selector"] = node_selector
+        if remove_keys:
+            params["remove_keys"] = remove_keys
+
+        return client.post("/action-requests", {
+            "type": "patch_deployment_node_selector",
+            "target": {"name": name, "namespace": namespace},
+            "params": params
+        })
+
+    # StatefulSets
     @tool
     def scale_statefulset(name: str, replicas: int, namespace: str = "default") -> dict:
         """
@@ -394,6 +474,23 @@ def build_action_tools(token: str) -> list:
         })
 
     # ── SERVICES ──────────────────────────────────────────────────────────────
+
+    @tool
+    def patch_cronjob_starting_deadline(
+        name: str,
+        namespace: str = "default",
+        starting_deadline_seconds: Optional[int] = None,
+    ) -> dict:
+        """
+        Set or clear a CronJob startingDeadlineSeconds value.
+
+        DANGEROUS: Confirm with user. This changes scheduling catch-up behavior.
+        """
+        return client.post("/action-requests", {
+            "type": "patch_cronjob_starting_deadline",
+            "target": {"name": name, "namespace": namespace},
+            "params": {"starting_deadline_seconds": starting_deadline_seconds}
+        })
 
     @tool
     def create_service(
@@ -989,10 +1086,12 @@ def build_action_tools(token: str) -> list:
         delete_pod, exec_pod_command,
         scale_deployment, restart_deployment, rollback_deployment,
         patch_deployment_resource_limits, patch_deployment_env,
+        update_deployment_image, patch_deployment_command,
+        patch_deployment_node_selector,
         scale_statefulset, restart_statefulset,
         restart_daemonset, update_daemonset_image,
         delete_job, suspend_job, resume_job,
-        suspend_cronjob, resume_cronjob,
+        suspend_cronjob, resume_cronjob, patch_cronjob_starting_deadline,
         create_service, patch_service, delete_service,
         create_configmap, patch_configmap, delete_configmap,
         create_secret, update_secret, delete_secret,

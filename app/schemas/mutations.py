@@ -94,6 +94,32 @@ class DeploymentEnvPatchRequest(BaseModel):
     namespace: str = Field(default="default", min_length=1)
 
 
+class DeploymentImageUpdateRequest(BaseModel):
+    """Deployment image update payload."""
+
+    image: str = Field(..., min_length=1)
+    container_name: Optional[str] = None
+    namespace: str = Field(default="default", min_length=1)
+
+
+class DeploymentCommandPatchRequest(BaseModel):
+    """Deployment command/args patch payload."""
+
+    command: Optional[str | list[str]] = None
+    args: Optional[str | list[str]] = None
+    container_name: Optional[str] = None
+    namespace: str = Field(default="default", min_length=1)
+
+
+class DeploymentNodeSelectorPatchRequest(BaseModel):
+    """Deployment nodeSelector patch payload."""
+
+    node_selector: dict[str, str] = Field(default_factory=dict)
+    remove_keys: list[str] = Field(default_factory=list)
+    replace: bool = False
+    namespace: str = Field(default="default", min_length=1)
+
+
 class DeploymentRollbackRequest(BaseModel):
     """Deployment rollback payload."""
 
@@ -168,6 +194,13 @@ class DaemonSetImageUpdateRequest(BaseModel):
     namespace: str = Field(default="default", min_length=1)
     container: str = Field(..., min_length=1)
     image: str = Field(..., min_length=1)
+
+
+class CronJobStartingDeadlinePatchRequest(BaseModel):
+    """CronJob startingDeadlineSeconds patch payload."""
+
+    namespace: str = Field(default="default", min_length=1)
+    starting_deadline_seconds: Optional[int] = Field(default=None, ge=0)
 
 
 class NodeDrainRequest(BaseModel):

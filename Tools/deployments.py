@@ -453,6 +453,208 @@ def patch_env_var(
         return {"success": False, "message": str(e)}
 
 
+def update_deployment_image(
+    name: str,
+    namespace: str = "default",
+    container_name: Optional[str] = None,
+    image: str = "",
+    audit: bool = True,
+) -> dict:
+    """
+    Update a deployment container image.
+
+    ACTION - requires user approval.
+    """
+    name = sanitize_input(name, "deployment_name")
+    namespace = validate_namespace(namespace)
+    if container_name:
+        container_name = sanitize_input(container_name, "container_name")
+    image = sanitize_input(image, "image")
+
+    apps: AppsV1Api = get_apps_v1()
+    try:
+        dep = apps.read_namespaced_deployment(name=name, namespace=namespace)
+    except ApiException as e:
+        return {"success": False, "message": f"Deployment not found: {e}"}
+
+    target = _resolve_deployment_container(dep, container_name)
+    if isinstance(target, dict):
+        return target
+
+    previous_image = target.image
+    target.image = image
+
+    try:
+        apps.patch_namespaced_deployment(name=name, namespace=namespace, body=dep)
+        logger.info(f"[ACTION] Updated image for {namespace}/{name}/{target.name}: {previous_image} -> {image}")
+        if audit:
+            log_action(
+                "deployment_image_update",
+                name,
+                namespace,
+                success=True,
+                details={"container": target.name, "previous_image": previous_image, "new_image": image},
+            )
+        return {
+            "success": True,
+            "message": f"Image updated for container '{target.name}' in {namespace}/{name}.",
+            "container": target.name,
+            "previous_image": previous_image,
+            "new_image": image,
+        }
+    except ApiException as e:
+        logger.error(f"Failed to update image for {namespace}/{name}: {e}")
+        if audit:
+            log_action(
+                "deployment_image_update",
+                name,
+                namespace,
+                success=False,
+                details={"container": target.name, "new_image": image},
+                error_message=str(e),
+            )
+        return {"success": False, "message": str(e)}
+
+
+def patch_deployment_command(
+    name: str,
+    namespace: str = "default",
+    container_name: Optional[str] = None,
+    command: Optional[list[str] | str] = None,
+    args: Optional[list[str] | str] = None,
+    audit: bool = True,
+) -> dict:
+    """
+    Patch a deployment container command and/or args.
+
+    ACTION - requires user approval.
+    This changes the configured process for future pods.
+    """
+    name = sanitize_input(name, "deployment_name")
+    namespace = validate_namespace(namespace)
+    if container_name:
+        container_name = sanitize_input(container_name, "container_name")
+    normalized_command = _normalize_command_field(command, "command")
+    normalized_args = _normalize_command_field(args, "args")
+    if normalized_command is None and normalized_args is None:
+        return {"success": False, "message": "At least one of command or args must be provided."}
+
+    apps: AppsV1Api = get_apps_v1()
+    try:
+        dep = apps.read_namespaced_deployment(name=name, namespace=namespace)
+    except ApiException as e:
+        return {"success": False, "message": f"Deployment not found: {e}"}
+
+    target = _resolve_deployment_container(dep, container_name)
+    if isinstance(target, dict):
+        return target
+
+    previous = {"command": list(target.command or []), "args": list(target.args or [])}
+    if normalized_command is not None:
+        target.command = normalized_command
+    if normalized_args is not None:
+        target.args = normalized_args
+
+    try:
+        apps.patch_namespaced_deployment(name=name, namespace=namespace, body=dep)
+        changes = {
+            "container": target.name,
+            "previous": previous,
+            "command": list(target.command or []),
+            "args": list(target.args or []),
+        }
+        logger.info(f"[ACTION] Patched command for {namespace}/{name}/{target.name}: {changes}")
+        if audit:
+            log_action("deployment_command_patch", name, namespace, success=True, details=changes)
+        return {
+            "success": True,
+            "message": f"Command updated for container '{target.name}' in {namespace}/{name}.",
+            **changes,
+        }
+    except ApiException as e:
+        logger.error(f"Failed to patch command for {namespace}/{name}: {e}")
+        if audit:
+            log_action(
+                "deployment_command_patch",
+                name,
+                namespace,
+                success=False,
+                details={"container": target.name},
+                error_message=str(e),
+            )
+        return {"success": False, "message": str(e)}
+
+
+def patch_deployment_node_selector(
+    name: str,
+    namespace: str = "default",
+    node_selector: Optional[dict[str, str]] = None,
+    remove_keys: Optional[list[str]] = None,
+    replace: bool = False,
+    audit: bool = True,
+) -> dict:
+    """
+    Patch or remove deployment pod-template nodeSelector entries.
+
+    ACTION - requires user approval.
+    """
+    name = sanitize_input(name, "deployment_name")
+    namespace = validate_namespace(namespace)
+    node_selector = _validate_string_map(node_selector or {}, "node_selector")
+    remove_keys = [sanitize_input(str(key), "node_selector_key") for key in (remove_keys or [])]
+
+    if not node_selector and not remove_keys and not replace:
+        return {"success": False, "message": "Provide node_selector, remove_keys, or replace=true to clear selectors."}
+
+    apps: AppsV1Api = get_apps_v1()
+    try:
+        dep = apps.read_namespaced_deployment(name=name, namespace=namespace)
+    except ApiException as e:
+        return {"success": False, "message": f"Deployment not found: {e}"}
+
+    spec = dep.spec.template.spec
+    previous = dict(spec.node_selector or {})
+    if replace:
+        updated = dict(node_selector)
+    else:
+        updated = dict(previous)
+        updated.update(node_selector)
+    for key in remove_keys:
+        updated.pop(key, None)
+    spec.node_selector = updated or None
+
+    try:
+        apps.patch_namespaced_deployment(name=name, namespace=namespace, body=dep)
+        logger.info(f"[ACTION] Patched nodeSelector for {namespace}/{name}: {previous} -> {updated}")
+        if audit:
+            log_action(
+                "deployment_node_selector_patch",
+                name,
+                namespace,
+                success=True,
+                details={"previous": previous, "node_selector": updated, "removed": remove_keys, "replace": replace},
+            )
+        return {
+            "success": True,
+            "message": f"Node selector updated for deployment {namespace}/{name}.",
+            "previous_node_selector": previous,
+            "node_selector": updated,
+            "removed": remove_keys,
+        }
+    except ApiException as e:
+        logger.error(f"Failed to patch nodeSelector for {namespace}/{name}: {e}")
+        if audit:
+            log_action(
+                "deployment_node_selector_patch",
+                name,
+                namespace,
+                success=False,
+                details={"node_selector": updated, "removed": remove_keys, "replace": replace},
+                error_message=str(e),
+            )
+        return {"success": False, "message": str(e)}
+
+
 def rollout_status(name: str, namespace: str = "default") -> dict:
     """
     Check the status of a Deployment rollout.
@@ -700,6 +902,8 @@ def _summarize_deployment(dep) -> dict:
             containers_info.append({
                 "name":      c.name,
                 "image":     c.image,
+                "command":   list(c.command or []),
+                "args":      list(c.args or []),
                 "resources": res,
             })
 
@@ -713,6 +917,47 @@ def _summarize_deployment(dep) -> dict:
         "age":                 age,
         "labels":              dep.metadata.labels or {},
         "selector":            spec.selector.match_labels if spec and spec.selector else {},
+        "node_selector":       spec.template.spec.node_selector or {} if spec and spec.template and spec.template.spec else {},
         "containers":          containers_info,
         "strategy":            spec.strategy.type if spec and spec.strategy else None,
+    }
+
+
+def _resolve_deployment_container(dep, container_name: Optional[str]):
+    """Return a deployment container object or an error dict."""
+    containers = dep.spec.template.spec.containers
+    if not containers:
+        return {"success": False, "message": "No containers found in deployment spec."}
+    if container_name:
+        target = next((c for c in containers if c.name == container_name), None)
+        if not target:
+            return {"success": False, "message": f"Container '{container_name}' not found."}
+        return target
+    if len(containers) == 1:
+        return containers[0]
+    return {"success": False, "message": f"Multiple containers found; specify container_name: {[c.name for c in containers]}"}
+
+
+def _normalize_command_field(value: Optional[list[str] | str], field_name: str) -> Optional[list[str]]:
+    """Normalize command/args payloads into Kubernetes list form."""
+    if value is None:
+        return None
+    if isinstance(value, str):
+        value = sanitize_input(value, field_name)
+        return ["sh", "-c", value]
+    if not isinstance(value, list):
+        raise ValueError(f"{field_name} must be a string, list of strings, or null")
+    normalized = [sanitize_input(str(item), field_name) for item in value]
+    if not normalized:
+        raise ValueError(f"{field_name} cannot be an empty list")
+    return normalized
+
+
+def _validate_string_map(value: dict[str, str], field_name: str) -> dict[str, str]:
+    """Validate a small string map used for labels/selectors."""
+    if not isinstance(value, dict):
+        raise ValueError(f"{field_name} must be an object")
+    return {
+        sanitize_input(str(key), f"{field_name}_key"): sanitize_input(str(val), f"{field_name}_value")
+        for key, val in value.items()
     }

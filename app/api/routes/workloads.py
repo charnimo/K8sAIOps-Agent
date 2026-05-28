@@ -8,7 +8,7 @@ from Tools import daemonsets, jobs, statefulsets
 from app.api.mutations import run_direct_action
 from app.auth.dependencies import require_permission
 from app.database.models import User
-from app.schemas.mutations import DaemonSetImageUpdateRequest, ScaleRequest
+from app.schemas.mutations import CronJobStartingDeadlinePatchRequest, DaemonSetImageUpdateRequest, ScaleRequest
 
 
 router = APIRouter()
@@ -330,6 +330,26 @@ def resume_cronjob(
         "resume_cronjob",
         name=name,
         namespace=namespace,
+        user_id=user.username,
+        request=request,
+    )
+
+
+@router.patch("/cronjobs/{name}/starting-deadline")
+def patch_cronjob_starting_deadline(
+    name: str,
+    payload: CronJobStartingDeadlinePatchRequest,
+    request: Request,
+    user: User = Depends(require_permission("workloads:cronjobs:patch")),
+) -> dict:
+    """Patch CronJob startingDeadlineSeconds directly."""
+    params = payload.model_dump()
+    namespace = params.pop("namespace")
+    return run_direct_action(
+        "patch_cronjob_starting_deadline",
+        name=name,
+        namespace=namespace,
+        params=params,
         user_id=user.username,
         request=request,
     )

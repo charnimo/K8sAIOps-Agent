@@ -420,3 +420,48 @@ def resume_cronjob(name: str, namespace: str = "default", audit: bool = True) ->
         if audit:
             audit_job_action("resume", name, namespace, success=False, error=str(e))
         return {"success": False, "message": str(e)}
+
+
+def patch_cronjob_starting_deadline(
+    name: str,
+    namespace: str = "default",
+    starting_deadline_seconds: Optional[int] = None,
+    audit: bool = True,
+) -> dict:
+    """
+    Set or clear CronJob startingDeadlineSeconds.
+
+    ACTION - requires user approval.
+    This changes the catch-up window for missed schedules.
+    """
+    name = sanitize_input(name, "cronjob_name")
+    name = validate_name(name)
+    namespace = validate_namespace(namespace)
+    if starting_deadline_seconds is not None:
+        if not isinstance(starting_deadline_seconds, int):
+            raise ValueError("starting_deadline_seconds must be an integer or null")
+        if starting_deadline_seconds < 0:
+            raise ValueError("starting_deadline_seconds cannot be negative")
+
+    batch = get_batch_v1()
+    patch_body = {"spec": {"startingDeadlineSeconds": starting_deadline_seconds}}
+    try:
+        batch.patch_namespaced_cron_job(name=name, namespace=namespace, body=patch_body)
+        logger.info(
+            "[ACTION] Patched CronJob %s/%s startingDeadlineSeconds=%s",
+            namespace,
+            name,
+            starting_deadline_seconds,
+        )
+        if audit:
+            audit_job_action("patch_starting_deadline", name, namespace, success=True)
+        return {
+            "success": True,
+            "message": f"CronJob {namespace}/{name} startingDeadlineSeconds updated.",
+            "starting_deadline_seconds": starting_deadline_seconds,
+        }
+    except ApiException as e:
+        logger.error(f"Failed to patch CronJob {namespace}/{name}: {e}")
+        if audit:
+            audit_job_action("patch_starting_deadline", name, namespace, success=False, error=str(e))
+        return {"success": False, "message": str(e)}
