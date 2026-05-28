@@ -55,6 +55,9 @@ ALLOWED_BASIC_ACTION_TOOLS = [
     "scale_statefulset",
     "rollback_deployment",
     "rollout_restart",
+    "update_deployment_image",
+    "patch_deployment_command",
+    "patch_deployment_node_selector",
     "restart_pod",
     "restart_daemonset",
     "restart_statefulset",
@@ -71,6 +74,7 @@ ALLOWED_BASIC_ACTION_TOOLS = [
     "resume_job",
     "suspend_cronjob",
     "resume_cronjob",
+    "patch_cronjob_starting_deadline",
     "delete_job",
     "delete_pod",
     "delete_service",
@@ -216,7 +220,11 @@ async def node_decide_tools(state: MonitoringGraphState) -> MonitoringGraphState
         # Build LLM prompt
         tool_definitions = get_tool_definitions()
         tool_names = {tool.name for tool in tool_definitions}
-        action_tool_names = [name for name in ALLOWED_BASIC_ACTION_TOOLS if name in tool_names]
+        action_tool_names = [
+            name
+            for name in ALLOWED_BASIC_ACTION_TOOLS
+            if name in tool_names and _action_matches_event(name, event)
+        ]
         # Include category and read-only flag to help the LLM distinguish actions
         tools_description = "\n".join([
             f"- {t.name} (category={t.category}, read_only={t.is_read_only})"
@@ -262,6 +270,8 @@ Rules for fixes:
 - If a tool returned an error or 404, treat it as a diagnostic finding and explain what it implies.
 - Include specific resource names, error messages, and counts in every field.
 - Do not invent new action names, resource kinds, or remediation steps.
+- Match action tools to the owning resource kind. Do not suggest DaemonSet tools for Deployment-owned pods.
+- Choose remediation actions from the evidence gathered by diagnostics, not from the alert reason alone.
 
 Prefer read-only tools for initial diagnostics. If the incident severity is critical, you may include higher-impact diagnostics (e.g., `describe_deployment`) in `tools`.
 
@@ -283,7 +293,8 @@ Respond in this JSON format:
             f"Calling LLM to select tools for {event.resource_type} {event.resource_name}"
         )
 
-        response = await llm_client.ainvoke(
+        response_json, response, llm_response_text = await _ainvoke_json_with_retry(
+            llm_client,
             [
                 {
                     "role": "system",
@@ -294,18 +305,15 @@ Respond in this JSON format:
                     ),
                 },
                 {"role": "user", "content": prompt},
-            ]
+            ],
+            "tool-selection",
         )
-        llm_response_text = llm_client.extract_text(response)
         logger.debug("LLM tool-selection response text: %s", llm_response_text)
         logger.debug("LLM raw response object: %s", response)
-        if not llm_response_text:
-            raise ValueError("LLM returned an empty tool-selection response")
 
         response_model = str(response.get("model") or response.get("id") or llm_client.model).strip()
         response_source = "live_nvidia_api"
 
-        response_json = _extract_json_payload(llm_response_text)
         tools_to_call = response_json.get("tools", [])
         suggested_actions = response_json.get("suggested_actions", [])
         remediation_plan = response_json.get("remediation_plan", [])
@@ -317,7 +325,11 @@ Respond in this JSON format:
             if tool not in tool_names:
                 logger.warning("LLM requested unknown tool '%s' — dropping", tool)
         raw_tools = [tool for tool in tools_to_call if tool in tool_names]
-        raw_suggested_actions = [tool for tool in suggested_actions if tool in tool_names]
+        raw_suggested_actions = [
+            tool
+            for tool in suggested_actions
+            if tool in tool_names and _action_matches_event(tool, event)
+        ]
 
         if not raw_tools:
             raise ValueError("LLM did not return any known diagnostic tools")
@@ -430,7 +442,13 @@ async def node_classify_severity(state: MonitoringGraphState) -> MonitoringGraph
         event = state["event"]
         diagnostics = state.get("collected_diagnostics", {})
         tool_definitions = get_tool_definitions()
-        allowed_action_tools = sorted({tool.name for tool in tool_definitions if not tool.is_read_only})
+        allowed_action_tools = sorted(
+            {
+                tool.name
+                for tool in tool_definitions
+                if not tool.is_read_only and _action_matches_event(tool.name, event)
+            }
+        )
 
         analysis = await _run_llm_incident_analysis(event, diagnostics)
         severity_value = str(analysis.get("severity", "")).strip()
@@ -865,6 +883,67 @@ def _is_tool_read_only(tool_name: str, tool_definitions: List[Any]) -> bool:
     return True
 
 
+def _action_matches_event(action_name: str, event: EnrichedEventInput) -> bool:
+    """Prevent cross-kind remediation suggestions such as DaemonSet fixes for Deployment pods."""
+    deployment_actions = {
+        "scale_deployment",
+        "rollback_deployment",
+        "rollout_restart",
+        "patch_resource_limits",
+        "patch_env_var",
+        "update_deployment_image",
+        "patch_deployment_command",
+        "patch_deployment_node_selector",
+    }
+    pod_actions = {"restart_pod", "delete_pod", "exec_pod"}
+    daemonset_actions = {"restart_daemonset", "update_daemonset_image"}
+    statefulset_actions = {"restart_statefulset", "scale_statefulset"}
+    hpa_actions = {"create_hpa", "delete_hpa", "patch_hpa"}
+    job_actions = {"delete_job", "suspend_job", "resume_job"}
+    cronjob_actions = {"suspend_cronjob", "resume_cronjob", "patch_cronjob_starting_deadline"}
+    service_actions = {"patch_service", "delete_service", "create_service"}
+    ingress_actions = {"patch_ingress", "delete_ingress", "create_ingress"}
+    configmap_actions = {"patch_configmap", "delete_configmap", "create_configmap"}
+    secret_actions = {"update_secret", "delete_secret", "create_secret"}
+    pvc_actions = {"patch_pvc", "delete_pvc", "create_pvc"}
+    node_actions = {"cordon_node", "uncordon_node", "drain_node"}
+    namespace_actions = {"create_namespace", "delete_namespace"}
+
+    resource_type = event.resource_type.value if hasattr(event.resource_type, "value") else str(event.resource_type)
+    has_deployment_owner = bool((event.additional_context or {}).get("deployment_name"))
+
+    if resource_type == ResourceType.POD.value:
+        allowed = set(pod_actions)
+        if has_deployment_owner:
+            allowed |= deployment_actions
+        return action_name in allowed
+    if resource_type == ResourceType.DEPLOYMENT.value:
+        return action_name in deployment_actions
+    if resource_type == ResourceType.HPA.value:
+        return action_name in hpa_actions
+    if resource_type == ResourceType.DAEMONSET.value:
+        return action_name in daemonset_actions
+    if resource_type == ResourceType.STATEFULSET.value:
+        return action_name in statefulset_actions
+    if resource_type == ResourceType.JOB.value:
+        return action_name in job_actions
+    if resource_type == ResourceType.CRONJOB.value:
+        return action_name in cronjob_actions
+    if resource_type == ResourceType.SERVICE.value:
+        return action_name in service_actions
+    if resource_type == ResourceType.INGRESS.value:
+        return action_name in ingress_actions
+    if resource_type == ResourceType.CONFIGMAP.value:
+        return action_name in configmap_actions
+    if resource_type == ResourceType.SECRET.value:
+        return action_name in secret_actions
+    if resource_type == ResourceType.NODE.value:
+        return action_name in node_actions
+    if resource_type == ResourceType.NAMESPACE.value:
+        return action_name in namespace_actions
+    return action_name in pvc_actions
+
+
 def _build_log_snapshot(diagnostics: Dict[str, DiagnosticResult], max_lines: int = 8) -> Optional[str]:
     """Extract a compact log excerpt from diagnostic outputs."""
     candidates: list[str] = []
@@ -941,6 +1020,44 @@ def _extract_json_payload(text: str) -> Dict[str, Any]:
         return _load_with_repair(stripped[start : end + 1])
 
     raise json.JSONDecodeError("No JSON object found", text, 0)
+
+
+async def _ainvoke_json_with_retry(
+    llm_client: Any,
+    messages: list[dict[str, Any]],
+    response_label: str,
+) -> tuple[Dict[str, Any], dict[str, Any], str]:
+    """Invoke the LLM and retry once if it returns malformed JSON."""
+    response = await llm_client.ainvoke(messages)
+    response_text = llm_client.extract_text(response)
+    if not response_text:
+        raise ValueError(f"LLM returned an empty {response_label} response")
+
+    try:
+        return _extract_json_payload(response_text), response, response_text
+    except json.JSONDecodeError as exc:
+        logger.warning(
+            "LLM returned malformed %s JSON; retrying once with schema-only correction. Error: %s",
+            response_label,
+            exc,
+        )
+
+    retry_messages = [
+        *messages,
+        {"role": "assistant", "content": response_text[:6000]},
+        {
+            "role": "user",
+            "content": (
+                "The previous response was not valid JSON. Return only one syntactically valid JSON object "
+                "matching the exact requested schema. Do not add markdown, comments, trailing commas, or extra keys."
+            ),
+        },
+    ]
+    retry_response = await llm_client.ainvoke(retry_messages)
+    retry_text = llm_client.extract_text(retry_response)
+    if not retry_text:
+        raise ValueError(f"LLM returned an empty {response_label} retry response")
+    return _extract_json_payload(retry_text), retry_response, retry_text
 
 
 def _diagnostics_to_prompt_payload(diagnostics: Dict[str, DiagnosticResult]) -> Dict[str, Any]:
@@ -1068,7 +1185,11 @@ async def _run_llm_incident_analysis(
     """Ask the LLM for the full incident analysis payload."""
     llm_client = get_llm_client()
     tool_definitions = get_tool_definitions()
-    allowed_action_tools = [name for name in ALLOWED_BASIC_ACTION_TOOLS if name in {tool.name for tool in tool_definitions}]
+    allowed_action_tools = [
+        name
+        for name in ALLOWED_BASIC_ACTION_TOOLS
+        if name in {tool.name for tool in tool_definitions} and _action_matches_event(name, event)
+    ]
     prompt = f"""
 You are a Kubernetes incident analyst.
 
@@ -1089,6 +1210,8 @@ Rules:
 - Do not invent facts.
 - Keep fixes basic and practical.
 - Use only the allowed action tool names above.
+- Match action tools to the owning resource kind. Do not suggest DaemonSet tools for Deployment-owned pods.
+- Choose remediation actions from the evidence in live diagnostics, not from the alert reason alone.
 - Select all tools that would give useful diagnostic signal for this resource type and reason.
 - Do not artificially limit the number of tools — thoroughness is preferred over brevity.
 - If evidence is insufficient, say so explicitly in the root cause and summary.
@@ -1116,7 +1239,8 @@ LOG SNAPSHOT:
 {_build_log_snapshot(diagnostics) or ""}
 """.strip()
 
-    response = await llm_client.ainvoke(
+    payload, response, llm_response_text = await _ainvoke_json_with_retry(
+        llm_client,
         [
             {
                 "role": "system",
@@ -1125,15 +1249,12 @@ LOG SNAPSHOT:
                 ),
             },
             {"role": "user", "content": prompt},
-        ]
+        ],
+        "incident-analysis",
     )
-    llm_response_text = llm_client.extract_text(response)
     logger.debug("LLM incident-analysis response text: %s", llm_response_text)
     logger.debug("LLM raw response object: %s", response)
-    if not llm_response_text:
-        raise ValueError("LLM returned an empty incident-analysis response")
 
-    payload = _extract_json_payload(llm_response_text)
     payload["_response_model"] = str(response.get("model") or response.get("id") or llm_client.model).strip()
     payload["_response_source"] = "live_nvidia_api"
     payload["_configured_model"] = llm_client.model
