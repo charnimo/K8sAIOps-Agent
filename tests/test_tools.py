@@ -288,6 +288,62 @@ class TestAudit:
         assert callable(audit.audit_patch_env_var)
 
 
+class TestDiagnosticsUnit:
+    """Focused unit tests for diagnostic aggregation behavior."""
+
+    @pytest.mark.unit
+    def test_diagnose_deployment_surfaces_unhealthy_related_pods(self, monkeypatch):
+        import tools.diagnostics as diag
+        import tools.pods as pods_mod
+
+        monkeypatch.setattr(diag, "get_deployment", lambda name, namespace: {
+            "name": name,
+            "namespace": namespace,
+            "replicas": 1,
+            "ready_replicas": 0,
+            "available_replicas": 0,
+            "selector": {"app": "broken"},
+        })
+        monkeypatch.setattr(diag, "get_deployment_events", lambda name, namespace: [])
+        monkeypatch.setattr(pods_mod, "list_pods", lambda namespace: [{
+            "name": "broken-pod",
+            "namespace": namespace,
+            "labels": {"app": "broken"},
+            "phase": "Running",
+            "ready": False,
+        }])
+        monkeypatch.setattr(diag, "detect_pod_issues", lambda name, namespace: {
+            "issues": ["CrashLoopBackOff", "NotReady"],
+            "severity": "critical",
+            "details": {},
+        })
+
+        result = diag.diagnose_deployment("broken", "default")
+
+        assert result["severity"] == "critical"
+        assert "UnhealthyPods" in result["issues"]
+        assert "UnavailableReplicas" in result["issues"]
+
+    @pytest.mark.unit
+    def test_completed_job_is_healthy_not_backoff(self, monkeypatch):
+        import tools.jobs as jobs_mod
+
+        monkeypatch.setattr(jobs_mod, "get_job", lambda name, namespace: {
+            "name": name,
+            "namespace": namespace,
+            "succeeded": 1,
+            "failed": 0,
+            "active": 0,
+            "backoff_limit": 6,
+            "completions": 1,
+        })
+
+        result = jobs_mod.detect_job_issues("hello-job", "default")
+
+        assert result["severity"] == "healthy"
+        assert result["issues"] == []
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 # INTEGRATION TESTS — require minikube
 # ═══════════════════════════════════════════════════════════════════════════

@@ -205,6 +205,8 @@ def diagnose_deployment(name: str, namespace: str = "default", include_pod_detai
         "pod_statuses":      [],
         "pod_diagnoses":     [],
         "resource_pressure": {},
+        "issues":            [],
+        "severity":          "unknown",
     }
 
     # 1. Deployment summary
@@ -240,6 +242,8 @@ def diagnose_deployment(name: str, namespace: str = "default", include_pod_detai
             
             # Always return lightweight pod status
             result["pod_statuses"] = related_pods
+            result["issues"] = _deployment_issues(result["deployment"], related_pods)
+            result["severity"] = _severity_from_issues(result["issues"])
 
             # Optionally run expensive per-pod diagnosis (4-5 API calls per pod)
             if include_pod_details:
@@ -259,6 +263,10 @@ def diagnose_deployment(name: str, namespace: str = "default", include_pod_detai
             result["resource_pressure"] = detect_resource_pressure(namespace)
         except Exception as e:
             logger.warning(f"Resource pressure analysis failed: {e}")
+
+    if result["severity"] == "unknown":
+        result["issues"] = _deployment_issues(result["deployment"], result["pod_statuses"])
+        result["severity"] = _severity_from_issues(result["issues"])
 
     return result
 
@@ -513,3 +521,47 @@ def _labels_match(pod_labels: dict, selector: dict) -> bool:
     if not selector:
         return False
     return all(pod_labels.get(k) == v for k, v in selector.items())
+
+
+def _deployment_issues(deployment: dict, pod_statuses: list[dict]) -> list[str]:
+    """Summarize deployment health from replica counts and related pods."""
+    issues: list[str] = []
+    desired = deployment.get("replicas") or 0
+    ready = deployment.get("ready_replicas") or 0
+    available = deployment.get("available_replicas") or 0
+
+    if desired and ready < desired:
+        issues.append("UnavailableReplicas")
+    if desired and available < desired:
+        issues.append("InsufficientAvailableReplicas")
+    if desired and not pod_statuses:
+        issues.append("NoMatchingPods")
+
+    pod_issue_names: set[str] = set()
+    for pod in pod_statuses:
+        pod_name = pod.get("name")
+        try:
+            issue_data = detect_pod_issues(pod_name, pod.get("namespace") or deployment.get("namespace") or "default")
+        except Exception as exc:
+            logger.debug(f"Could not aggregate pod issues for {pod_name}: {exc}")
+            continue
+        for issue in issue_data.get("issues", []):
+            pod_issue_names.add(str(issue))
+
+    critical_pod_issues = {"CrashLoopBackOff", "ContainerError", "ImagePullBackOff", "ErrImagePull", "OOMKilled"}
+    warning_pod_issues = {"Pending", "NotReady", "HighRestartCount"}
+    if critical_pod_issues & pod_issue_names:
+        issues.append("UnhealthyPods")
+    elif warning_pod_issues & pod_issue_names:
+        issues.append("PodWarnings")
+
+    return sorted(set(issues))
+
+
+def _severity_from_issues(issues: list[str]) -> str:
+    """Map deployment issue names into the standard severity labels."""
+    if any(issue in issues for issue in ("UnhealthyPods", "NoMatchingPods")):
+        return "critical"
+    if issues:
+        return "warning"
+    return "healthy"

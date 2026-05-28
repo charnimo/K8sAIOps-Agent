@@ -259,8 +259,8 @@ def detect_pod_issues(name: str, namespace: str = "default") -> dict:
         }
 
     Issue types that can be detected:
-      CrashLoopBackOff, OOMKilled, ImagePullBackOff, Pending,
-      Evicted, HighRestartCount, NotReady, Unknown
+      CrashLoopBackOff, ContainerError, OOMKilled, ImagePullBackOff,
+      Pending, Evicted, HighRestartCount, NotReady, Unknown
     """
     pod = get_pod(name, namespace)
     summary = _summarize_pod(pod)
@@ -282,6 +282,8 @@ def detect_pod_issues(name: str, namespace: str = "default") -> dict:
 
         if reason == "CrashLoopBackOff":
             issues.append("CrashLoopBackOff")
+        if terminated.get("reason") == "Error":
+            issues.append("ContainerError")
         if reason in ("ImagePullBackOff", "ErrImagePull"):
             issues.append("ImagePullBackOff")
         if terminated.get("reason") == "OOMKilled":
@@ -298,7 +300,7 @@ def detect_pod_issues(name: str, namespace: str = "default") -> dict:
     issues = list(dict.fromkeys(issues))
 
     severity = "healthy"
-    if any(i in issues for i in ["CrashLoopBackOff", "OOMKilled", "ImagePullBackOff", "Evicted"]):
+    if any(i in issues for i in ["CrashLoopBackOff", "ContainerError", "OOMKilled", "ImagePullBackOff", "Evicted"]):
         severity = "critical"
     elif issues:
         severity = "warning"

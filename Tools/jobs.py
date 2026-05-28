@@ -91,14 +91,26 @@ def detect_job_issues(name: str, namespace: str = "default") -> dict:
     summary = get_job(name, namespace)
     issues = []
 
-    if summary.get("failed", 0) > 0:
+    succeeded = summary.get("succeeded", 0)
+    failed = summary.get("failed", 0)
+    active = summary.get("active", 0)
+    completions = summary.get("completions") or 1
+    backoff_limit = summary.get("backoff_limit")
+
+    if succeeded >= completions:
+        return {
+            "issues": [],
+            "severity": "healthy",
+            "details": summary,
+        }
+
+    if failed > 0:
         issues.append("Failed")
 
-    if summary.get("backoff_limit") and summary.get("active", 0) == 0:
-        # Job is not running but has workers → likely backed off
+    if backoff_limit is not None and backoff_limit > 0 and failed >= backoff_limit and active == 0:
         issues.append("Backoff")
 
-    if summary.get("succeeded", 0) == 0 and summary.get("active", 0) == 0 and summary.get("failed", 0) == 0:
+    if succeeded == 0 and active == 0 and failed == 0:
         issues.append("NotStarted")
 
     severity = "healthy"
@@ -178,6 +190,7 @@ def _summarize_job(job) -> dict:
         "namespace":         job.metadata.namespace,
         "suspend":           job.spec.suspend or False,
         "backoff_limit":     job.spec.backoff_limit,
+        "completions":       job.spec.completions or 1,
         "succeeded":         (status.succeeded or 0) if status else 0,
         "failed":            (status.failed or 0) if status else 0,
         "active":            (status.active or 0) if status else 0,
