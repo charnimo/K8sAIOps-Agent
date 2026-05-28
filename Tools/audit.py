@@ -271,6 +271,7 @@ def audit_statefulset_scale(
     user_id: Optional[str] = None,
     triggered_by: Optional[str] = None,
 ):
+    """Log a StatefulSet scaling operation."""
     return log_action(
         "statefulset_scale",
         name,
@@ -293,6 +294,7 @@ def audit_daemonset_image_update(
     user_id: Optional[str] = None,
     triggered_by: Optional[str] = None,
 ):
+    """Log a DaemonSet container image update."""
     return log_action(
         "daemonset_image_update",
         name,
@@ -403,6 +405,7 @@ def audit_patch_resource_limits(
     user_id: Optional[str] = None,
     triggered_by: Optional[str] = None,
 ):
+    """Log a Deployment container resource limit patch."""
     return log_action(
         "deployment_patch_limits",
         name,
@@ -425,6 +428,7 @@ def audit_patch_env_var(
     user_id: Optional[str] = None,
     triggered_by: Optional[str] = None,
 ):
+    """Log a Deployment container environment variable patch."""
     return log_action(
         "deployment_patch_env",
         name,
